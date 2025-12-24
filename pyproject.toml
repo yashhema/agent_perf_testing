@@ -1,0 +1,43 @@
+[project]
+name = "agent-perf-testing"
+version = "0.1.0"
+description = "Agent Performance Testing Framework"
+requires-python = ">=3.10"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["orchestrator/tests", "emulator/tests", "loadgen/tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["orchestrator/app", "emulator/app", "loadgen/app"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/alembic/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]

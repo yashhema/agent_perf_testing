@@ -1,0 +1,1 @@
+"""Stats collection module."""
