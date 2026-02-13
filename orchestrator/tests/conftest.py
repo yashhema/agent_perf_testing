@@ -1,191 +1,208 @@
-"""Pytest configuration and fixtures for orchestrator tests."""
+"""Shared pytest fixtures for orchestrator tests.
 
-import asyncio
-from typing import AsyncGenerator
-from decimal import Decimal
+Uses SQLite in-memory database for fast, isolated tests.
+Patches PostgreSQL-specific types (JSONB, ARRAY) to SQLite-compatible equivalents.
+"""
 
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    AsyncEngine,
-    create_async_engine,
-    async_sessionmaker,
-)
+from sqlalchemy import JSON, String, Text, create_engine, event
+from sqlalchemy.orm import sessionmaker
 
-from app.models.orm import Base
-from app.models.enums import (
-    OSFamily,
-    ServerType,
+from orchestrator.models.database import Base
+from orchestrator.models.orm import (
+    BaselineORM,
+    CalibrationResultORM,
+    ComparisonResultORM,
+    DBSchemaConfigORM,
+    HardwareProfileORM,
+    LabORM,
+    LoadProfileORM,
+    PackageGroupMemberORM,
+    PackageGroupORM,
+    PhaseExecutionResultORM,
+    ScenarioORM,
+    ServerORM,
+    TestRunLoadProfileORM,
+    TestRunORM,
+    TestRunTargetORM,
+    UserORM,
+)
+from orchestrator.models.enums import (
     BaselineType,
-    LoadProfile,
-    RunMode,
+    DBType,
+    DiskType,
     ExecutionStatus,
-    CalibrationStatus,
-    ExecutionPhase,
-    PhaseState,
+    HypervisorType,
+    OSFamily,
+    RunMode,
+    ServerInfraType,
+    TemplateType,
+    TestRunState,
 )
 
 
-# Use in-memory SQLite for unit tests (fast, no external dependencies)
-# For integration tests, use PostgreSQL via Docker
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+def _patch_pg_types_for_sqlite():
+    """Replace PostgreSQL-specific column types with SQLite-compatible ones.
+
+    This patches JSONB -> JSON and ARRAY(Integer) -> Text in the ORM model
+    columns so that SQLite can create the tables.
+    """
+    from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+            elif isinstance(column.type, ARRAY):
+                column.type = Text()
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Patch once at import time
+_patch_pg_types_for_sqlite()
 
 
-@pytest_asyncio.fixture(scope="function")
-async def engine() -> AsyncGenerator[AsyncEngine, None]:
-    """Create a test database engine."""
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        echo=False,
+@pytest.fixture
+def engine():
+    """Create an in-memory SQLite engine."""
+    eng = create_engine("sqlite:///:memory:", echo=False)
+
+    @event.listens_for(eng, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(eng)
+    return eng
+
+
+@pytest.fixture
+def session(engine):
+    """Create a new database session for a test."""
+    Session = sessionmaker(bind=engine)
+    sess = Session()
+    yield sess
+    sess.close()
+
+
+@pytest.fixture
+def sample_hw_profile(session):
+    """Create and return a sample hardware profile."""
+    hp = HardwareProfileORM(
+        name="test-hw-4c8g",
+        cpu_count=4,
+        cpu_model="Intel Xeon",
+        memory_gb=8.0,
+        disk_type=DiskType.ssd,
+        disk_size_gb=100.0,
+        nic_speed_mbps=1000,
     )
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    yield engine
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    await engine.dispose()
+    session.add(hp)
+    session.commit()
+    return hp
 
 
-@pytest_asyncio.fixture(scope="function")
-async def session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
-    """Create a test database session."""
-    async_session_maker = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
+@pytest.fixture
+def sample_package_group(session):
+    """Create and return a sample package group."""
+    pg = PackageGroupORM(name="jmeter-pkg", description="JMeter")
+    session.add(pg)
+    session.commit()
+    return pg
+
+
+@pytest.fixture
+def sample_baseline(session):
+    """Create and return a sample baseline."""
+    bl = BaselineORM(
+        name="ubuntu-22-base",
+        os_family=OSFamily.linux,
+        os_vendor_family="ubuntu",
+        os_major_ver="22",
+        os_minor_ver="04",
+        baseline_type=BaselineType.proxmox,
+        provider_ref={"snapshot_name": "base-snap-001"},
     )
-
-    async with async_session_maker() as session:
-        yield session
-        await session.rollback()
-
-
-# ============================================================
-# Sample data fixtures
-# ============================================================
+    session.add(bl)
+    session.commit()
+    return bl
 
 
 @pytest.fixture
-def sample_lab_data() -> dict:
-    """Sample data for creating a lab."""
-    return {
-        "name": "Test Lab",
-        "lab_type": "server",
-        "description": "A test laboratory",
-    }
+def sample_lab(session, sample_package_group, sample_baseline):
+    """Create and return a sample lab."""
+    lab = LabORM(
+        name="test-lab",
+        jmeter_package_grpid=sample_package_group.id,
+        loadgen_snapshot_id=sample_baseline.id,
+        hypervisor_type=HypervisorType.proxmox,
+        hypervisor_manager_url="https://pve.test.local",
+        hypervisor_manager_port=8006,
+    )
+    session.add(lab)
+    session.commit()
+    return lab
 
 
 @pytest.fixture
-def sample_server_data() -> dict:
-    """Sample data for creating a server."""
-    return {
-        "hostname": "test-server-01",
-        "ip_address": "192.168.1.100",
-        "os_family": OSFamily.WINDOWS,
-        "server_type": ServerType.APP_SERVER,
-        "ssh_username": None,
-        "ssh_key_path": None,
-        "winrm_username": "admin",
-        "emulator_port": 8080,
-        "loadgen_service_port": 8090,
-        "is_active": True,
-    }
+def sample_server(session, sample_lab, sample_hw_profile):
+    """Create and return a sample server."""
+    srv = ServerORM(
+        hostname="target-01",
+        ip_address="10.0.0.10",
+        os_family=OSFamily.linux,
+        lab_id=sample_lab.id,
+        hardware_profile_id=sample_hw_profile.id,
+        server_infra_type=ServerInfraType.proxmox_vm,
+        server_infra_ref={"node": "pve1", "vmid": 100},
+    )
+    session.add(srv)
+    session.commit()
+    return srv
 
 
 @pytest.fixture
-def sample_loadgen_data() -> dict:
-    """Sample data for creating a load generator server."""
-    return {
-        "hostname": "loadgen-01",
-        "ip_address": "192.168.1.200",
-        "os_family": OSFamily.LINUX,
-        "server_type": ServerType.LOAD_GENERATOR,
-        "ssh_username": "ubuntu",
-        "ssh_key_path": "/path/to/key",
-        "winrm_username": None,
-        "emulator_port": 8080,
-        "loadgen_service_port": 8090,
-        "is_active": True,
-    }
+def sample_load_profile(session):
+    """Create and return a sample load profile."""
+    lp = LoadProfileORM(
+        name="medium",
+        target_cpu_range_min=40.0,
+        target_cpu_range_max=60.0,
+        duration_sec=300,
+        ramp_up_sec=30,
+    )
+    session.add(lp)
+    session.commit()
+    return lp
 
 
 @pytest.fixture
-def sample_baseline_data() -> dict:
-    """Sample data for creating a baseline."""
-    return {
-        "name": "Windows Base",
-        "description": "Base Windows snapshot",
-        "baseline_type": BaselineType.VSPHERE,
-    }
+def sample_scenario(session, sample_lab, sample_package_group):
+    """Create and return a sample scenario."""
+    sc = ScenarioORM(
+        name="server-normal-test",
+        lab_id=sample_lab.id,
+        template_type=TemplateType.server_normal,
+        has_base_phase=True,
+        has_initial_phase=True,
+        has_dbtest=False,
+        load_generator_package_grp_id=sample_package_group.id,
+    )
+    session.add(sc)
+    session.commit()
+    return sc
 
 
 @pytest.fixture
-def sample_baseline_config() -> dict:
-    """Sample baseline config data."""
-    return {
-        "vcenter_host": "vcenter.example.com",
-        "datacenter": "DC1",
-        "snapshot_name": "clean-snapshot",
-    }
-
-
-@pytest.fixture
-def sample_test_run_data() -> dict:
-    """Sample data for creating a test run."""
-    return {
-        "name": "Performance Test Run 1",
-        "description": "Initial performance test",
-        "req_loadprofile": [LoadProfile.LOW, LoadProfile.MEDIUM, LoadProfile.HIGH],
-        "warmup_sec": 300,
-        "measured_sec": 3600,
-        "analysis_trim_sec": 300,
-        "repetitions": 3,
-        "loadgenerator_package_grpid_lst": [1, 2, 3],
-    }
-
-
-@pytest.fixture
-def sample_calibration_data() -> dict:
-    """Sample data for creating a calibration result."""
-    return {
-        "loadprofile": LoadProfile.MEDIUM,
-        "thread_count": 10,
-        "cpu_count": 4,
-        "memory_gb": Decimal("8.00"),
-        "cpu_target_percent": Decimal("70.00"),
-        "achieved_cpu_percent": None,
-        "calibration_status": CalibrationStatus.PENDING,
-    }
-
-
-@pytest.fixture
-def sample_execution_data() -> dict:
-    """Sample data for creating a test run execution."""
-    return {
-        "run_mode": RunMode.CONTINUOUS,
-    }
-
-
-@pytest.fixture
-def sample_workflow_state_data() -> dict:
-    """Sample data for creating an execution workflow state."""
-    return {
-        "loadprofile": LoadProfile.LOW,
-        "runcount": 1,
-        "current_phase": ExecutionPhase.RESET,
-        "phase_state": PhaseState.PENDING,
-        "max_retries": 3,
-    }
+def sample_test_run(session, sample_scenario, sample_lab):
+    """Create and return a sample test run."""
+    tr = TestRunORM(
+        scenario_id=sample_scenario.id,
+        lab_id=sample_lab.id,
+        cycles_per_profile=2,
+        run_mode=RunMode.complete,
+        state=TestRunState.created,
+    )
+    session.add(tr)
+    session.commit()
+    return tr

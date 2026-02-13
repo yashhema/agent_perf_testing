@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Test Run #{{ run_id }} - Calibration{% endblock %}
+{% block page_header %}<strong>Test Run #{{ run_id }}</strong> — Calibration Results{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="/test-runs/{{ run_id }}/dashboard" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+  </a>
+  <a href="/test-runs/{{ run_id }}/results" class="btn btn-sm btn-outline-info ms-2">
+    <i class="bi bi-bar-chart me-1"></i>Full Results
+  </a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header">
+    <h6 class="mb-0">Calibration Matrix: Servers x Load Profiles &rarr; Thread Count</h6>
+  </div>
+  <div class="card-body" id="calibration-container">
+    <div class="text-center text-muted py-4">Loading calibration data...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RUN_ID = {{ run_id }};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const [calibrations, targets] = await Promise.all([
+      API.get('/api/test-runs/' + RUN_ID + '/calibration-results'),
+      API.get('/api/test-runs/' + RUN_ID + '/targets'),
+    ]);
+
+    const container = document.getElementById('calibration-container');
+    if (calibrations.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted py-4">No calibration results yet</div>';
+      return;
+    }
+
+    // Collect unique servers and load profiles
+    const serverIds = [...new Set(calibrations.map(c => c.server_id))].sort((a,b) => a-b);
+    const lpIds = [...new Set(calibrations.map(c => c.load_profile_id))].sort((a,b) => a-b);
+
+    // Build lookup
+    const lookup = {};
+    calibrations.forEach(c => { lookup[c.server_id + '-' + c.load_profile_id] = c; });
+
+    // Compute stats for anomaly detection
+    const allThreads = calibrations.map(c => c.thread_count);
+    const mean = allThreads.reduce((a,b) => a+b, 0) / allThreads.length;
+    const stddev = Math.sqrt(allThreads.map(t => (t-mean)**2).reduce((a,b) => a+b, 0) / allThreads.length);
+
+    // Render matrix table
+    let html = '<div class="table-responsive"><table class="table table-bordered table-sm text-center">';
+    html += '<thead><tr><th>Server</th>';
+    lpIds.forEach(lp => { html += '<th>LP #' + lp + '</th>'; });
+    html += '</tr></thead><tbody>';
+
+    serverIds.forEach(sid => {
+      html += '<tr><td class="fw-bold text-start">Server #' + sid + '</td>';
+      lpIds.forEach(lp => {
+        const cal = lookup[sid + '-' + lp];
+        if (cal) {
+          const tc = cal.thread_count;
+          // Highlight anomalies (> 2 stddev from mean)
+          let cls = '';
+          if (stddev > 0 && Math.abs(tc - mean) > 2 * stddev) {
+            cls = tc > mean ? ' class="table-warning"' : ' class="table-info"';
+          }
+          html += '<td' + cls + '><strong>' + tc + '</strong></td>';
+        } else {
+          html += '<td class="text-muted">-</td>';
+        }
+      });
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    html += '<div class="small text-muted mt-2">';
+    html += '<span class="badge bg-warning text-dark me-2">Highlighted</span> = Thread count &gt; 2 standard deviations from mean (' + mean.toFixed(1) + ' &plusmn; ' + stddev.toFixed(1) + ')';
+    html += '</div>';
+
+    // Also show a flat table with all details
+    html += '<h6 class="mt-4 mb-2">All Calibration Records</h6>';
+    html += '<table class="table table-sm table-hover"><thead><tr>';
+    html += '<th>ID</th><th>Server</th><th>OS</th><th>Load Profile</th><th>Thread Count</th><th>Calibrated At</th>';
+    html += '</tr></thead><tbody>';
+    calibrations.forEach(c => {
+      html += `<tr>
+        <td>${c.id}</td>
+        <td>Server #${c.server_id}</td>
+        <td>${c.os_type}</td>
+        <td>LP #${c.load_profile_id}</td>
+        <td><strong>${c.thread_count}</strong></td>
+        <td>${fmtDate(c.created_at)}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+
+    container.innerHTML = html;
+  } catch (e) { showToast(e.message, 'danger'); }
+});
+</script>
+{% endblock %}

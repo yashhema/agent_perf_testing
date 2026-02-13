@@ -1,0 +1,17 @@
+# Database Schema Generator Dependencies
+
+# Core
+sqlalchemy>=2.0.0
+pyyaml>=6.0
+
+# Data Generation
+faker>=22.0.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# CLI
+click>=8.1.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0

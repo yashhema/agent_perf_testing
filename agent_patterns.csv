@@ -1,0 +1,10 @@
+Agent,Vendor,Type,Process Pattern,Service Pattern
+CrowdStrike Falcon,CrowdStrike,EDR,"^(CSFalcon|csagent|falcon-).*","^CSFalcon.*"
+Microsoft Defender,Microsoft,AV,"^(MsMpEng|MsSense|SecurityHealth).*","^(WinDefend|Sense)$"
+Symantec Endpoint,Broadcom,AV,"^(ccSvcHst|Rtvscan|SMC|Norton).*","^(SepMaster|SNAC).*"
+Carbon Black,VMware,EDR,"^(cb|CbDefense|RepMgr).*","^(CbDefense).*"
+Trellix (McAfee),Trellix,AV,"^(mfe|McAfee|masvc).*","^(mfe|McAfee).*"
+SentinelOne,SentinelOne,EDR,"^(Sentinel|SentinelAgent).*","^SentinelAgent$"
+Cortex XDR,Palo Alto,EDR,"^(cypt|Traps|Cortex).*","^(cypt|CortexXDR).*"
+Digital Guardian,Digital Guardian,DLP,"^(dg|dgagent).*","^DGAgent.*"
+Forcepoint,Forcepoint,DLP,"^(fp|Websense).*","^(WSDLP|fpdiag).*"

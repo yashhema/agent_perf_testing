@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} - Orchestrator{% endblock %}
+{% block page_header %}<strong>{{ page_title }}</strong>{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0">{{ page_title }}</h6>
+    <button class="btn btn-sm btn-primary d-none" id="btn-create">
+      <i class="bi bi-plus me-1"></i>Create {{ entity_name }}
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            {% for col in columns %}
+            <th>{{ col.label }}</th>
+            {% endfor %}
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="crud-table-body">
+          <tr><td colspan="{{ columns|length + 1 }}" class="text-center text-muted py-4">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    initCrudPage({
+      entityName: {{ entity_name | tojson }},
+      apiPath: {{ api_path | tojson }},
+      columns: {{ columns | tojson }},
+      fields: {{ fields | tojson }},
+    });
+  });
+</script>
+{% endblock %}

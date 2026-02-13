@@ -1,0 +1,33 @@
+calibration:
+  observation_duration_sec: 30
+  observation_reading_count: 5
+  calibration_stability_ratio: 1.0
+  calibration_confirmation_count: 3
+  max_calibration_iterations: 50
+
+infrastructure:
+  snapshot_restore_timeout_sec: 300
+  post_restore_verification_enabled: true
+  post_restore_verification_commands:
+    linux: "uptime"
+    windows: "systeminfo"
+
+stats:
+  collect_interval_sec: 5
+  stats_trim_start_sec: 30
+  stats_trim_end_sec: 10
+
+barrier:
+  barrier_timeout_margin_percent: 0.20
+
+emulator:
+  emulator_api_port: 8080
+
+database:
+  url: "postgresql://orchestrator:orchestrator@localhost:5432/orchestrator"
+  echo: false
+
+credentials_path: "config/credentials.json"
+artifacts_dir: "artifacts"
+generated_dir: "generated"
+results_dir: "results"

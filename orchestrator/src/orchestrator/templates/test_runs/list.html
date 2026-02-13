@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Test Runs - Orchestrator{% endblock %}
+{% block page_header %}<strong>Test Runs</strong>{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select class="form-select form-select-sm" id="filter-state">
+          <option value="">All States</option>
+          <option value="created">Created</option>
+          <option value="validating">Validating</option>
+          <option value="setting_up">Setting Up</option>
+          <option value="calibrating">Calibrating</option>
+          <option value="executing">Executing</option>
+          <option value="comparing">Comparing</option>
+          <option value="completed">Completed</option>
+          <option value="paused">Paused</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadRuns()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      </div>
+      <div class="col-auto ms-auto">
+        <a href="/test-runs/create" class="btn btn-sm btn-primary"><i class="bi bi-plus me-1"></i>New Test Run</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th>
+          <th>Scenario</th>
+          <th>Lab</th>
+          <th>State</th>
+          <th>Verdict</th>
+          <th>Mode</th>
+          <th>Cycles</th>
+          <th>Progress</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody id="runs-table-body">
+          <tr><td colspan="10" class="text-center text-muted py-4">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadRuns() {
+  try {
+    let path = '/api/test-runs';
+    const stateFilter = document.getElementById('filter-state').value;
+    if (stateFilter) path += '?state=' + stateFilter;
+    const runs = await API.get(path);
+    const tbody = document.getElementById('runs-table-body');
+    if (runs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No test runs found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = runs.map(r => {
+      const progress = r.current_snapshot_num
+        ? `Snap ${r.current_snapshot_num}, LP ${r.current_load_profile_id || '-'}, Cycle ${r.current_cycle_number || '-'}`
+        : '-';
+      const actions = buildActions(r);
+      const verdictBadge = r.overall_verdict
+        ? `<span class="badge bg-${r.overall_verdict === 'passed' ? 'success' : r.overall_verdict === 'failed' ? 'danger' : r.overall_verdict === 'warning' ? 'warning' : 'secondary'}">${r.overall_verdict}</span>`
+        : '<span class="badge bg-secondary">-</span>';
+      return `<tr>
+        <td>${r.id}</td>
+        <td>Scenario #${r.scenario_id}</td>
+        <td>${r.lab_id}</td>
+        <td>${stateBadge(r.state)}</td>
+        <td>${verdictBadge}</td>
+        <td>${r.run_mode}</td>
+        <td>${r.cycles_per_profile}</td>
+        <td class="small">${progress}</td>
+        <td>${fmtDate(r.created_at)}</td>
+        <td class="text-nowrap">${actions}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function buildActions(r) {
+  let html = `<a href="/test-runs/${r.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="Dashboard"><i class="bi bi-speedometer2"></i></a>`;
+  if (r.state === 'created') {
+    html += `<button class="btn btn-sm btn-outline-success me-1" onclick="runAction(${r.id},'start')" title="Start"><i class="bi bi-play-fill"></i></button>`;
+  }
+  if (['validating','setting_up','calibrating','generating_sequences','executing','comparing'].includes(r.state)) {
+    html += `<button class="btn btn-sm btn-outline-warning me-1" onclick="runAction(${r.id},'pause')" title="Pause"><i class="bi bi-pause-fill"></i></button>`;
+  }
+  if (r.state === 'paused') {
+    html += `<button class="btn btn-sm btn-outline-success me-1" onclick="runAction(${r.id},'resume')" title="Resume"><i class="bi bi-play-fill"></i></button>`;
+  }
+  if (!['completed','cancelled','failed'].includes(r.state)) {
+    html += `<button class="btn btn-sm btn-outline-danger" onclick="runAction(${r.id},'cancel')" title="Cancel"><i class="bi bi-x-circle"></i></button>`;
+  }
+  if (r.state === 'completed') {
+    html += `<a href="/test-runs/${r.id}/results" class="btn btn-sm btn-outline-info me-1" title="Results"><i class="bi bi-bar-chart"></i></a>`;
+  }
+  return html;
+}
+
+async function runAction(id, action) {
+  try {
+    await API.post(`/api/test-runs/${id}/${action}`);
+    showToast(`Test run ${action}ed`);
+    loadRuns();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+document.getElementById('filter-state').addEventListener('change', loadRuns);
+document.addEventListener('DOMContentLoaded', loadRuns);
+</script>
+{% endblock %}

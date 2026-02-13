@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}Test Run #{{ run_id }} - Dashboard{% endblock %}
+{% block page_header %}<strong>Test Run #{{ run_id }}</strong> — Live Dashboard{% endblock %}
+
+{% block content %}
+<!-- Header cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">State</div>
+        <h5 id="run-state" class="mb-0">-</h5>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Current Phase</div>
+        <div id="run-substate" class="fw-bold">-</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Mode</div>
+        <div id="run-mode" class="fw-bold">-</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Actions</div>
+        <div id="run-actions" class="mt-1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Error display -->
+<div class="alert alert-danger d-none mb-3" id="run-error"></div>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-status">Status Grid</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-targets">Targets</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-results">Phase Results</a></li>
+</ul>
+
+<div class="tab-content">
+  <!-- Status Grid tab -->
+  <div class="tab-pane fade show active" id="tab-status">
+    <div class="card shadow-sm">
+      <div class="card-body" id="status-grid-container">
+        <div class="text-center text-muted py-4">Loading status grid...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Targets tab -->
+  <div class="tab-pane fade" id="tab-targets">
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>ID</th><th>Target Server</th><th>Load Generator</th><th>Partner</th>
+            <th>Base Snapshot</th><th>Initial Snapshot</th><th>OS Kind</th>
+            <th>Base OS Ver</th><th>Initial OS Ver</th><th>Monitor Patterns</th>
+          </tr></thead>
+          <tbody id="targets-table-body">
+            <tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase Results tab -->
+  <div class="tab-pane fade" id="tab-results">
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>ID</th><th>Target</th><th>Snap</th><th>Load Profile</th>
+            <th>Cycle</th><th>Threads</th><th>Status</th><th>Started</th><th>Completed</th><th>Error</th>
+          </tr></thead>
+          <tbody id="phase-results-body">
+            <tr><td colspan="10" class="text-center text-muted py-3">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RUN_ID = {{ run_id }};
+let _run = null;
+let _targets = [];
+let _phaseResults = [];
+let _refreshTimer = null;
+
+async function loadAll() {
+  try {
+    [_run, _targets, _phaseResults] = await Promise.all([
+      API.get('/api/test-runs/' + RUN_ID),
+      API.get('/api/test-runs/' + RUN_ID + '/targets'),
+      API.get('/api/test-runs/' + RUN_ID + '/phase-results'),
+    ]);
+    renderHeader();
+    renderTargets();
+    renderPhaseResults();
+    renderStatusGrid();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function renderHeader() {
+  document.getElementById('run-state').innerHTML = stateBadge(_run.state);
+  const sub = _run.current_snapshot_num
+    ? `Snapshot ${_run.current_snapshot_num}, LP ${_run.current_load_profile_id || '-'}, Cycle ${_run.current_cycle_number || '-'}`
+    : 'N/A';
+  document.getElementById('run-substate').textContent = sub;
+  document.getElementById('run-mode').textContent = _run.run_mode;
+
+  // Error
+  const errDiv = document.getElementById('run-error');
+  if (_run.error_message) {
+    errDiv.textContent = _run.error_message;
+    errDiv.classList.remove('d-none');
+  } else {
+    errDiv.classList.add('d-none');
+  }
+
+  // Actions
+  let actions = '';
+  if (_run.state === 'created') {
+    actions += `<button class="btn btn-sm btn-success me-1" onclick="doAction('start')"><i class="bi bi-play-fill me-1"></i>Start</button>`;
+  }
+  const activeStates = ['validating','setting_up','calibrating','generating_sequences','executing','comparing'];
+  if (activeStates.includes(_run.state)) {
+    actions += `<button class="btn btn-sm btn-warning me-1" onclick="doAction('pause')"><i class="bi bi-pause-fill me-1"></i>Pause</button>`;
+  }
+  if (_run.state === 'paused') {
+    actions += `<button class="btn btn-sm btn-success me-1" onclick="doAction('resume')"><i class="bi bi-play-fill me-1"></i>Resume</button>`;
+  }
+  if (!['completed','cancelled','failed'].includes(_run.state)) {
+    actions += `<button class="btn btn-sm btn-danger" onclick="doAction('cancel')"><i class="bi bi-x-circle me-1"></i>Cancel</button>`;
+  }
+  if (_run.state === 'completed') {
+    actions += `<a href="/test-runs/${RUN_ID}/results" class="btn btn-sm btn-info me-1"><i class="bi bi-bar-chart me-1"></i>Results</a>`;
+    actions += `<a href="/test-runs/${RUN_ID}/calibration" class="btn btn-sm btn-outline-info"><i class="bi bi-crosshair me-1"></i>Calibration</a>`;
+  }
+  document.getElementById('run-actions').innerHTML = actions;
+
+  // Auto-refresh for active states
+  if (activeStates.includes(_run.state) || _run.state === 'paused') {
+    if (!_refreshTimer) _refreshTimer = setInterval(loadAll, 5000);
+  } else {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  }
+}
+
+function renderTargets() {
+  const tbody = document.getElementById('targets-table-body');
+  if (_targets.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">No targets</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _targets.map(t => `<tr>
+    <td>${t.id}</td>
+    <td>Server #${t.target_id}</td>
+    <td>Server #${t.loadgenerator_id}</td>
+    <td>${t.partner_id ? 'Server #' + t.partner_id : '-'}</td>
+    <td>Snap #${t.base_snapshot_id}</td>
+    <td>Snap #${t.initial_snapshot_id}</td>
+    <td>${t.os_kind ? '<span class="badge bg-info">' + escHtml(t.os_kind) + '</span>' : '<span class="text-muted">-</span>'}</td>
+    <td>${t.base_os_major_ver ? escHtml(t.base_os_major_ver + (t.base_os_minor_ver ? '.' + t.base_os_minor_ver : '')) : '-'}</td>
+    <td>${t.initial_os_major_ver ? escHtml(t.initial_os_major_ver + (t.initial_os_minor_ver ? '.' + t.initial_os_minor_ver : '')) : '-'}</td>
+    <td><code class="small">${escHtml(JSON.stringify(t.service_monitor_patterns || []))}</code></td>
+  </tr>`).join('');
+}
+
+function renderPhaseResults() {
+  const tbody = document.getElementById('phase-results-body');
+  if (_phaseResults.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">No results yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _phaseResults.map(r => `<tr>
+    <td>${r.id}</td>
+    <td>Server #${r.target_id}</td>
+    <td>${r.snapshot_num}</td>
+    <td>LP #${r.load_profile_id}</td>
+    <td>${r.cycle_number}</td>
+    <td>${r.thread_count}</td>
+    <td>${execBadge(r.status)}</td>
+    <td class="small">${fmtDate(r.started_at)}</td>
+    <td class="small">${fmtDate(r.completed_at)}</td>
+    <td class="small text-danger">${escHtml(r.error_message || '')}</td>
+  </tr>`).join('');
+}
+
+function renderStatusGrid() {
+  const container = document.getElementById('status-grid-container');
+  if (_targets.length === 0 || _phaseResults.length === 0) {
+    container.innerHTML = '<div class="text-center text-muted py-4">No execution data yet</div>';
+    return;
+  }
+
+  // Build grid: rows = targets, columns = (snapshot x load_profile x cycle) combos
+  const combos = [];
+  const seen = new Set();
+  _phaseResults.forEach(r => {
+    const key = `${r.snapshot_num}-${r.load_profile_id}-${r.cycle_number}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      combos.push({ snap: r.snapshot_num, lp: r.load_profile_id, cycle: r.cycle_number, key });
+    }
+  });
+  combos.sort((a, b) => a.snap - b.snap || a.lp - b.lp || a.cycle - b.cycle);
+
+  // Build lookup
+  const lookup = {};
+  _phaseResults.forEach(r => {
+    lookup[`${r.target_id}-${r.snapshot_num}-${r.load_profile_id}-${r.cycle_number}`] = r;
+  });
+
+  let html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Target</th>';
+  combos.forEach(c => {
+    html += `<th class="text-center small" style="min-width:40px">S${c.snap}<br>LP${c.lp}<br>C${c.cycle}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  _targets.forEach(t => {
+    html += `<tr><td class="small">Server #${t.target_id}</td>`;
+    combos.forEach(c => {
+      const r = lookup[`${t.target_id}-${c.snap}-${c.lp}-${c.cycle}`];
+      if (r) {
+        const cls = 'exec-' + r.status;
+        const title = `${r.status}${r.error_message ? ': ' + r.error_message : ''}`;
+        html += `<td class="text-center"><div class="status-grid-cell ${cls}" title="${escHtml(title)}">${r.status[0].toUpperCase()}</div></td>`;
+      } else {
+        html += '<td class="text-center"><div class="status-grid-cell bg-light text-muted">-</div></td>';
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+async function doAction(action) {
+  try {
+    await API.post('/api/test-runs/' + RUN_ID + '/' + action);
+    showToast('Test run ' + action + 'ed');
+    loadAll();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+document.addEventListener('DOMContentLoaded', loadAll);
+</script>
+{% endblock %}

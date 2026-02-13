@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Orchestrator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    body { background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login-card { max-width: 400px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <div class="text-center mb-4">
+          <i class="bi bi-speedometer2 fs-1 text-primary"></i>
+          <h4 class="mt-2">Orchestrator</h4>
+          <p class="text-muted small">Agent Performance Testing</p>
+        </div>
+        <div id="login-error" class="alert alert-danger d-none"></div>
+        <form id="login-form">
+          <div class="mb-3">
+            <label for="username" class="form-label">Username</label>
+            <input type="text" class="form-control" id="username" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label for="password" class="form-label">Password</label>
+            <input type="password" class="form-control" id="password" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100" id="btn-login">
+            <span id="login-text">Sign In</span>
+            <span id="login-spinner" class="spinner-border spinner-border-sm d-none"></span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errDiv = document.getElementById('login-error');
+      errDiv.classList.add('d-none');
+      document.getElementById('login-text').classList.add('d-none');
+      document.getElementById('login-spinner').classList.remove('d-none');
+
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const form = new URLSearchParams();
+      form.append('username', username);
+      form.append('password', password);
+
+      try {
+        const resp = await fetch('/api/auth/login', { method: 'POST', body: form });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.detail || 'Login failed');
+        }
+        const data = await resp.json();
+        localStorage.setItem('auth_token', data.access_token);
+        window.location.href = '/admin/dashboard';
+      } catch (err) {
+        errDiv.textContent = err.message;
+        errDiv.classList.remove('d-none');
+      } finally {
+        document.getElementById('login-text').classList.remove('d-none');
+        document.getElementById('login-spinner').classList.add('d-none');
+      }
+    });
+  </script>
+</body>
+</html>

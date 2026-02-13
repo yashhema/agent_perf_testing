@@ -1,0 +1,1828 @@
+<!DOCTYPE html>
+<html lang="en-US" class="no-js">
+
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>(function(html){html.className = html.className.replace(/\bno-js\b/,'js')})(document.documentElement);</script>
+<link rel="shortcut icon" href="https://c.s-microsoft.com/favicon.ico?v2" type="image/x-icon" />
+		<link rel="dns-prefetch" href="//target.microsoft.com">
+		<link rel="dns-prefetch" href="//microsoftmscompoc.tt.omtrdc.net">
+		<link rel="preload" href="https://wcpstatic.microsoft.com/mscc/lib/v2/wcp-consent.js" as="script">
+		<link rel="preload" href="https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-metrics/assets/js/at.2.9.0.js" as="script">
+					<meta name="awa-pageType" content="Post">
+						<meta name="awa-market" content="en-us">
+						<meta name="awa-env" content="Production">
+						<meta name="awa‐asst" content="2240">
+						<meta name="awa-pgauth" content="Microsoft Education Team">
+						<meta name="awa-publishedDate" content="20240123">
+						<meta name="awa-xaudience" content="Educators">
+						<meta name="awa-xtopic" content="AI in education">
+						<meta name="awa-xproduct" content="Microsoft 365 Copilot">
+						<meta name="awa-xtype" content="News,Tips and guides">
+			<meta name='robots' content='index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1' />
+	<style>img:is([sizes="auto" i], [sizes^="auto," i]) { contain-intrinsic-size: 3000px 1500px }</style>
+	
+	<!-- This site is optimized with the Yoast SEO plugin v26.5 - https://yoast.com/wordpress/plugins/seo/ -->
+	<title>Meet your AI assistant for education: Microsoft Copilot | Microsoft Education Blog</title>
+	<meta name="description" content="Explore your AI assistant for education: Microsoft Copilot. Learn how to get started with Microsoft Copilot and ways to use Copilot in education." />
+	<link rel="canonical" href="https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/" />
+	<meta property="og:locale" content="en_US" />
+	<meta property="og:type" content="article" />
+	<meta property="og:title" content="Meet your AI assistant for education: Microsoft Copilot | Microsoft Education Blog" />
+	<meta property="og:description" content="Explore your AI assistant for education: Microsoft Copilot. Learn how to get started with Microsoft Copilot and ways to use Copilot in education." />
+	<meta property="og:url" content="https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/" />
+	<meta property="og:site_name" content="Microsoft Education Blog" />
+	<meta property="article:published_time" content="2024-01-23T17:00:00+00:00" />
+	<meta property="article:modified_time" content="2025-11-17T23:26:52+00:00" />
+	<meta property="og:image" content="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1024x545.png" />
+	<meta property="og:image:width" content="1024" />
+	<meta property="og:image:height" content="545" />
+	<meta property="og:image:type" content="image/png" />
+	<meta name="author" content="Microsoft Education Team" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:label1" content="Written by" />
+	<meta name="twitter:data1" content="Microsoft Education Team" />
+	<meta name="twitter:label2" content="Est. reading time" />
+	<meta name="twitter:data2" content="7 minutes" />
+	<script type="application/ld+json" class="yoast-schema-graph">{"@context":"https://schema.org","@graph":[{"@type":"WebPage","@id":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/","url":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/","name":"Meet your AI assistant for education: Microsoft Copilot | Microsoft Education Blog","isPartOf":{"@id":"https://www.microsoft.com/en-us/education/blog/#website"},"primaryImageOfPage":{"@id":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/#primaryimage"},"image":{"@id":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/#primaryimage"},"thumbnailUrl":"https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot.webp","datePublished":"2024-01-23T17:00:00+00:00","dateModified":"2025-11-17T23:26:52+00:00","author":{"@id":"https://www.microsoft.com/en-us/education/blog/#/schema/person/9ab2ab638b01b937e2b52aa425ebcd46"},"description":"Explore your AI assistant for education: Microsoft Copilot. Learn how to get started with Microsoft Copilot and ways to use Copilot in education.","breadcrumb":{"@id":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/#breadcrumb"},"inLanguage":"en-US","potentialAction":[{"@type":"ReadAction","target":["https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/"]}]},{"@type":"ImageObject","inLanguage":"en-US","@id":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/#primaryimage","url":"https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot.webp","contentUrl":"https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot.webp","width":3060,"height":1629},{"@type":"BreadcrumbList","@id":"https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"Blog Home","item":"https://www.microsoft.com/en-us/education/blog/"},{"@type":"ListItem","position":2,"name":"Meet your AI assistant for education: Microsoft Copilot"}]},{"@type":"WebSite","@id":"https://www.microsoft.com/en-us/education/blog/#website","url":"https://www.microsoft.com/en-us/education/blog/","name":"Microsoft Education Blog","description":"","potentialAction":[{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://www.microsoft.com/en-us/education/blog/?s={search_term_string}"},"query-input":{"@type":"PropertyValueSpecification","valueRequired":true,"valueName":"search_term_string"}}],"inLanguage":"en-US"},{"@type":"Person","@id":"https://www.microsoft.com/en-us/education/blog/#/schema/person/9ab2ab638b01b937e2b52aa425ebcd46","name":"Microsoft Education Team","image":{"@type":"ImageObject","inLanguage":"en-US","@id":"https://www.microsoft.com/en-us/education/blog/#/schema/person/image/827d7f22f1f23baabd1a5542e32d8586","url":"https://secure.gravatar.com/avatar/?s=96&d=microsoft&r=g","contentUrl":"https://secure.gravatar.com/avatar/?s=96&d=microsoft&r=g","caption":"Microsoft Education Team"},"url":"https://www.microsoft.com/en-us/education/blog/author/microsoft-in-education-team/"}]}</script>
+	<!-- / Yoast SEO plugin. -->
+
+
+	<script>
+
+		// Define Adobe Target Property
+		var at_property = "7c544e24-4ba5-4a00-a4c6-02d5ff24d7ba";  // Workspace Name
+
+		! function () {
+			window.tt_getCookie = function (t) {
+				var e = RegExp(t + "[^;]+").exec(document.cookie);
+				return decodeURIComponent(e ? e.toString().replace(/^[^=]+./, "") : "")
+			}
+			var t = tt_getCookie("MC1"),
+				e = tt_getCookie("MSFPC");
+			function o(t) {
+				return t.split("=")[1].slice(0, 32)
+			}
+			var n = "";
+			if ("" != t) n = o(t);
+			else if ("" != e) n = o(e);
+			if (n.length > 0) var r = n;
+			if (n.length > 0 && at_property != "") {
+				window.targetPageParams = function () {
+					return {
+						"mbox3rdPartyId": r,
+						"at_property": at_property
+					}
+				}
+			} else if (at_property != "") {
+				window.targetPageParams = function () {
+					return {
+						"at_property": at_property
+					}
+				}
+			}
+		}();
+
+		// ContentSquare functions
+		function isEmpty(val) { return (val === undefined || val == null || val.length <= 0) ? true : false; } function key(obj) { return Object.keys(obj) .map(function(k) { return k + "" + obj[k]; }) .join(""); } function distinct(arr) { var result = arr.reduce(function(acc, e) { acc[key(e)] = e; return acc;}, {}); return Object.keys(result) .map(function(k) { return result[k]; }); }
+
+		// Adobe Analytics data collection / ContentSquare ttMeta Object **DO NOT ALTER**
+		var tnt_response = "";
+
+		document.addEventListener("at-request-succeeded", function (e) {
+			if (e.detail.analyticsDetails != undefined) {
+
+				/*** 1DS ***/
+				window.check1DS = function (j) { // function to check either 1DS or JSLL
+					if ( (typeof analytics !== 'undefined') && typeof analytics.isInitialized === 'function' && analytics.isInitialized()) { // Check for 1DS
+						tnt_response = e.detail;
+
+						//ContentUpdate Event with Target Friendly names
+						if (e.detail.responseTokens != undefined) { //checks for friendly name data from response tokens
+							console.log("1DS - present with response tokens");
+
+							//ContentUpdate Event with tnta
+							analytics.captureContentUpdate(
+								{
+									actionType: "A",
+									behavior: "12",
+									content: JSON.stringify({}),
+									pageTags: {
+										tnta: (tnt_response && tnt_response.analyticsDetails[0] ? tnt_response.analyticsDetails[0].payload.tnta : ''), //a4t data payload
+									}
+								}
+							)
+
+							var tt_activityCount = e.detail.responseTokens.length;
+							for (i = 0; i < tt_activityCount; i++) {
+								//1DS Content Update
+								console.log('1DS - started captureContentCall - i=' + i);
+								analytics.captureContentUpdate(
+									{
+										actionType: "A",
+										behavior: "12",
+										content: JSON.stringify({}),
+										pageTags: {
+											tnta: '',  // null out tnta to prevent duplicate A4T hits
+											at_activity_name: (tnt_response && tnt_response.responseTokens[i] ? tnt_response.responseTokens[i]["activity.name"] : ''), //friendly name target activity
+											at_exp_name: (tnt_response && tnt_response.responseTokens[i] ? tnt_response.responseTokens[i]["experience.name"] : ''), // friendly name target experience
+											at_activity_id: (tnt_response && tnt_response.responseTokens[i] ? tnt_response.responseTokens[i]["activity.id"] : ''),
+											at_exp_id: (tnt_response && tnt_response.responseTokens[i] ? tnt_response.responseTokens[i]["experience.id"] : '')
+										}
+									}
+								)
+							}
+
+							console.log('1DS - completed captureContentCall');
+							// ttMETA object set for ContentSquare pickup
+							window.ttMETA = typeof(window.ttMETA) != "undefined" ? window.ttMETA : []; var tokens = e.detail.responseTokens; if (isEmpty(tokens)) { return; } var uniqueTokens = distinct(tokens); uniqueTokens.forEach(function(token) { window.ttMETA.push({ 'CampaignName': token["activity.name"], 'CampaignId': token["activity.id"], 'RecipeName': token["experience.name"], 'RecipeId': token["experience.id"], 'OfferId': token["option.id"], 'OfferName': token["option.name"] }); });
+						} else {
+							console.log("1DS - present, no response tokens");
+						}
+
+					} else {
+						console.log('1DS - looping 1DS check');
+						if(j < 40) {
+							j++;
+							setTimeout(function(){check1DS(j)}, 250);
+							console.log('1DS - looping 1DS check - loop j=' + j);
+						}
+					}
+				};
+				check1DS(1);
+				/*** /1DS ***/
+
+			}
+
+		});
+	</script>
+	<script>
+		function adobeTargetTracking() {
+			var s = document.createElement( 'script' );
+			var src = "https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-metrics/assets/js/at.2.9.0.js";
+			s.setAttribute( 'src', src );
+			document.body.appendChild( s );
+		}
+	</script>
+	<!-- Adobe Target -->
+
+
+	<link rel='dns-prefetch' href='//wcpstatic.microsoft.com' />
+<link rel='dns-prefetch' href='//www.microsoft.com' />
+<link rel='dns-prefetch' href='//js.monitor.azure.com' />
+<link rel="alternate" type="application/rss+xml" title="Microsoft Education Blog &raquo; Feed" href="https://www.microsoft.com/en-us/education/blog/feed/" />
+<link rel="alternate" type="application/rss+xml" title="Microsoft Education Blog &raquo; Comments Feed" href="https://www.microsoft.com/en-us/education/blog/comments/feed/" />
+<link rel='stylesheet' id='wp-block-library-css' href='https://www.microsoft.com/en-us/education/blog/wp-includes/css/dist/block-library/style.min.css?ver=6.8.3' type='text/css' media='all' />
+<style id='co-authors-plus-coauthors-style-inline-css' type='text/css'>
+.wp-block-co-authors-plus-coauthors.is-layout-flow [class*=wp-block-co-authors-plus]{display:inline}
+
+</style>
+<style id='co-authors-plus-avatar-style-inline-css' type='text/css'>
+.wp-block-co-authors-plus-avatar :where(img){height:auto;max-width:100%;vertical-align:bottom}.wp-block-co-authors-plus-coauthors.is-layout-flow .wp-block-co-authors-plus-avatar :where(img){vertical-align:middle}.wp-block-co-authors-plus-avatar:is(.alignleft,.alignright){display:table}.wp-block-co-authors-plus-avatar.aligncenter{display:table;margin-inline:auto}
+
+</style>
+<style id='co-authors-plus-image-style-inline-css' type='text/css'>
+.wp-block-co-authors-plus-image{margin-bottom:0}.wp-block-co-authors-plus-image :where(img){height:auto;max-width:100%;vertical-align:bottom}.wp-block-co-authors-plus-coauthors.is-layout-flow .wp-block-co-authors-plus-image :where(img){vertical-align:middle}.wp-block-co-authors-plus-image:is(.alignfull,.alignwide) :where(img){width:100%}.wp-block-co-authors-plus-image:is(.alignleft,.alignright){display:table}.wp-block-co-authors-plus-image.aligncenter{display:table;margin-inline:auto}
+
+</style>
+<style id='safe-svg-svg-icon-style-inline-css' type='text/css'>
+.safe-svg-cover{text-align:center}.safe-svg-cover .safe-svg-inside{display:inline-block;max-width:100%}.safe-svg-cover svg{fill:currentColor;height:100%;max-height:100%;max-width:100%;width:100%}
+
+</style>
+<style id='msx-cta-style-inline-css' type='text/css'>
+.cta-block{--cta-block-margin-block-end:var(--sp-200);--cta-block-margin-block-start:var(--sp-200);--cta-block-body-padding:var(--sp-400);--cta-block-title-font-size:var(--moray-fs-heading-1);background:var(--cta-block-background,var(--wp--preset--gradient--dark));border-radius:var(--cta-block-border-radius,var(--moray-radius-40));color:var(--cta-block-text-color,var(--moray-c-white));font-size:var(--cta-block-body-font-size,var(--fs-medium));margin-bottom:var(--cta-block-margin-block-end)!important;margin-top:var(--cta-block-margin-block-start);overflow:hidden}@media (min-width:53.75em){.cta-block{--cta-block-margin-block-end:var(--sp-500);--cta-block-margin-block-start:var(--sp-500);--cta-block-body-padding:var(--sp-600);--cta-block-title-font-size:var(--fs-3xl)}}.cta-block.has-light-gradient-background{--cs-content-text:var(--cta-block-light-gradient-background-text-color,var(--moray-c-black))}.cta-block.has-dark-gradient-background{--cs-content-text:var(--cta-block-dark-gradient-background-text-color,var(--moray-c-white))}.cta-block__link.btn-link{--button-text-color:inherit;margin-left:calc(var(--button-padding-x, var(--sp-300))*-1)}.cta-block__headline{font-size:var(--cta-block-title-font-size);margin-bottom:var(--cta-block-title-margin-block-end,var(--sp-150));margin-top:var(--cta-block-title-margin-block-start,0)}.cta-block__content{display:grid;grid-template-columns:1fr;grid-template-rows:auto}.cta-block__body{padding:var(--cta-block-body-padding)}.cta-block__image{display:block;height:100%;-o-object-fit:cover;object-fit:cover;width:100%}.cta-block__actions{margin-top:var(--cta-block-actions-margin-block-start,var(--sp-200))}.cta-block__text{margin:0}.cta-block--align-right .cta-block__image-container{order:2}.cta-block--align-right .cta-block__body{order:1}@media (min-width:53.75em){.cta-block--align-right.cta-block--has-image .cta-block__content{grid-template-columns:1fr 33.33%}.cta-block--has-image .cta-block__content{grid-template-columns:33.33% 1fr}}
+
+</style>
+<style id='msx-grid-section-style-inline-css' type='text/css'>
+.wp-block-msx-grid-section{--half-column-gap:0.75rem;grid-column-gap:1.5rem;-moz-column-gap:1.5rem;column-gap:1.5rem;direction:ltr;display:grid;grid-template-areas:"a b";grid-template-columns:calc(50% - var(--half-column-gap)) calc(50% - var(--half-column-gap));grid-template-rows:auto 1fr;grid-row-gap:1.5rem;row-gap:1.5rem}.wp-block-msx-grid-section.grid-section-layout-33-66{grid-template-columns:calc(33% - var(--half-column-gap)) calc(67% - var(--half-column-gap))}.wp-block-msx-grid-section.grid-section-layout-40-60{grid-template-columns:calc(40% - var(--half-column-gap)) calc(60% - var(--half-column-gap))}.wp-block-msx-grid-section.grid-section-layout-60-40{grid-template-columns:calc(60% - var(--half-column-gap)) calc(40% - var(--half-column-gap))}.wp-block-msx-grid-section.grid-section-layout-66-33{grid-template-columns:calc(67% - var(--half-column-gap)) calc(33% - var(--half-column-gap))}.wp-block-msx-grid-section.grid-section-is-centered{align-items:center}.wp-block-msx-grid-section .wp-block-group{grid-area:a}.wp-block-msx-grid-section .wp-block-group:nth-child(2n),.wp-block-msx-grid-section.grid-section-is-reversed .wp-block-group{grid-area:b}.wp-block-msx-grid-section.grid-section-is-reversed .wp-block-group:nth-child(2n){grid-area:a}@media (max-width:53.75em){.wp-block-msx-grid-section,.wp-block-msx-grid-section.grid-section-layout-33-66,.wp-block-msx-grid-section.grid-section-layout-40-60,.wp-block-msx-grid-section.grid-section-layout-60-40,.wp-block-msx-grid-section.grid-section-layout-66-33{grid-template-areas:"a" "b";grid-template-columns:100%;margin-bottom:1.5rem}}@media (min-width:53.75em) and (max-width:67.75em){.single-layout .wp-block-msx-grid-section.alignfull{left:-200px;margin:0;right:0;width:100vw}}
+
+</style>
+<style id='msx-kicker-style-inline-css' type='text/css'>
+.wp-block-msx-kicker-container{--kicker-ideal-width:20rem;position:relative}.wp-block-msx-kicker__title{color:var(--kicker-title-color,var(--moray-c-gray-600));font-size:var(--kicker-title-font-size,var(--fs-xs));font-weight:var(--kicker-title-font-weight,var(--font-weight-semi-bold));letter-spacing:var(--kicker-title-letter-spacing,0);margin:var(--kicker-title-margin,0 0 var(--sp-150) 0);text-transform:var(--kicker-title-text-transform,uppercase)}.wp-block-msx-kicker__cta{color:var(--kicker-cta-color,var(--moray-c-blue))!important;font-size:var(--kicker-cta-font-size,var(--fs-small))!important;font-weight:var(--kicker-cta-font-weight,var(--font-weight-regular))!important;gap:var(--kicker-cta-gap,.25rem);letter-spacing:var(--kicker-cta-letter-spacing,normal);padding:var(--kicker-cta-padding,0)!important;-webkit-text-decoration:var(--kicker-cta-text-decoration,none)!important;text-decoration:var(--kicker-cta-text-decoration,none)!important}.wp-block-msx-kicker__cta:focus>span:first-child,.wp-block-msx-kicker__cta:hover>span:first-child{-webkit-text-decoration:underline;text-decoration:underline}.wp-block-msx-kicker__cta:focus{outline-offset:2px!important}.wp-block-msx-kicker__cta .glyph-append{padding-left:0!important}.wp-block-msx-kicker{line-height:1.1;margin-bottom:var(--sp-200);margin-top:var(--sp-200);width:100%}.wp-block-msx-kicker .wp-block-msx-kicker__glyph:after{font-size:var(--kicker-cta-glyph-font-size,.5rem)}@media (min-width:67.75em){.wp-block-msx-kicker--align-left,.wp-block-msx-kicker--align-right{max-width:min(var(--kicker-ideal-width),calc((100vw - var(--width-content))/2));position:absolute;top:0}.wp-block-msx-kicker--align-left{padding-left:5vw;padding-right:var(--sp-300);right:100%;text-align:right!important}}@media (min-width:87.5em){.wp-block-msx-kicker--align-left{max-width:min(var(--kicker-ideal-width),calc((100vw - var(--width-content))/2));padding-left:0;padding-right:var(--sp-600)}}.wp-block-msx-kicker--align-right{text-align:left!important}@media (min-width:67.75em){.wp-block-msx-kicker--align-right{left:100%;padding-left:var(--sp-300);padding-right:5vw;text-align:left!important}}@media (min-width:87.5em){.wp-block-msx-kicker--align-right{max-width:calc((1260px - var(--width-content))/2 - var(--content-offset));padding-left:var(--sp-600);padding-right:0}}.theme-dark .wp-block-msx-kicker-container{--kicker-cta-color:var(--c-primary-blue-light);--kicker-title-color:var(--moray-c-white)}
+
+</style>
+<style id='msx-site-navigation-style-inline-css' type='text/css'>
+.wp-block-msx-site-navigation{position:relative}.wp-block-msx-site-navigation .search-container{margin-top:var(--sp-200);width:100%}@media (min-width:53.75em){.wp-block-msx-site-navigation .search-container{margin-top:0;min-width:17.375rem;width:auto}}
+
+</style>
+<link rel='stylesheet' id='msx-editor-style-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/css/editor-style-overrides.css?ver=1765905993' type='text/css' media='all' />
+<link rel='stylesheet' id='editor-style-overrides-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/education-blog/dist/css/editor-style-overrides.css?ver=d5cd0439cd770d1a66e1' type='text/css' media='all' />
+<style id='global-styles-inline-css' type='text/css'>
+:root{--wp--preset--aspect-ratio--square: 1;--wp--preset--aspect-ratio--4-3: 4/3;--wp--preset--aspect-ratio--3-4: 3/4;--wp--preset--aspect-ratio--3-2: 3/2;--wp--preset--aspect-ratio--2-3: 2/3;--wp--preset--aspect-ratio--16-9: 16/9;--wp--preset--aspect-ratio--9-16: 9/16;--wp--preset--color--black: #000000;--wp--preset--color--cyan-bluish-gray: #abb8c3;--wp--preset--color--white: #ffffff;--wp--preset--color--pale-pink: #f78da7;--wp--preset--color--vivid-red: #cf2e2e;--wp--preset--color--luminous-vivid-orange: #ff6900;--wp--preset--color--luminous-vivid-amber: #fcb900;--wp--preset--color--light-green-cyan: #7bdcb5;--wp--preset--color--vivid-green-cyan: #00d084;--wp--preset--color--pale-cyan-blue: #8ed1fc;--wp--preset--color--vivid-cyan-blue: #0693e3;--wp--preset--color--vivid-purple: #9b51e0;--wp--preset--color--body-text: var(--cs-content-text);--wp--preset--color--body-background: var(--cs-content-bg);--wp--preset--color--brand: var(--cs-brand);--wp--preset--color--brand-medium: var(--cs-brand-medium);--wp--preset--color--brand-dark: var(--cs-brand-dark);--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple: linear-gradient(135deg,rgba(6,147,227,1) 0%,rgb(155,81,224) 100%);--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan: linear-gradient(135deg,rgb(122,220,180) 0%,rgb(0,208,130) 100%);--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange: linear-gradient(135deg,rgba(252,185,0,1) 0%,rgba(255,105,0,1) 100%);--wp--preset--gradient--luminous-vivid-orange-to-vivid-red: linear-gradient(135deg,rgba(255,105,0,1) 0%,rgb(207,46,46) 100%);--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray: linear-gradient(135deg,rgb(238,238,238) 0%,rgb(169,184,195) 100%);--wp--preset--gradient--cool-to-warm-spectrum: linear-gradient(135deg,rgb(74,234,220) 0%,rgb(151,120,209) 20%,rgb(207,42,186) 40%,rgb(238,44,130) 60%,rgb(251,105,98) 80%,rgb(254,248,76) 100%);--wp--preset--gradient--blush-light-purple: linear-gradient(135deg,rgb(255,206,236) 0%,rgb(152,150,240) 100%);--wp--preset--gradient--blush-bordeaux: linear-gradient(135deg,rgb(254,205,165) 0%,rgb(254,45,45) 50%,rgb(107,0,62) 100%);--wp--preset--gradient--luminous-dusk: linear-gradient(135deg,rgb(255,203,112) 0%,rgb(199,81,192) 50%,rgb(65,88,208) 100%);--wp--preset--gradient--pale-ocean: linear-gradient(135deg,rgb(255,245,203) 0%,rgb(182,227,212) 50%,rgb(51,167,181) 100%);--wp--preset--gradient--electric-grass: linear-gradient(135deg,rgb(202,248,128) 0%,rgb(113,206,126) 100%);--wp--preset--gradient--midnight: linear-gradient(135deg,rgb(2,3,129) 0%,rgb(40,116,252) 100%);--wp--preset--gradient--default: var(--cs-gradient-medium);--wp--preset--font-size--small: 13px;--wp--preset--font-size--medium: 20px;--wp--preset--font-size--large: 36px;--wp--preset--font-size--x-large: 42px;--wp--preset--spacing--20: 0.44rem;--wp--preset--spacing--30: 0.67rem;--wp--preset--spacing--40: 1rem;--wp--preset--spacing--50: 1.5rem;--wp--preset--spacing--60: 2.25rem;--wp--preset--spacing--70: 3.38rem;--wp--preset--spacing--80: 5.06rem;--wp--preset--spacing--100: var(--sp-100);--wp--preset--spacing--150: var(--sp-150);--wp--preset--spacing--200: var(--sp-200);--wp--preset--spacing--300: var(--sp-300);--wp--preset--spacing--400: var(--sp-400);--wp--preset--spacing--500: var(--sp-500);--wp--preset--spacing--600: var(--sp-600);--wp--preset--spacing--700: var(--sp-700);--wp--preset--spacing--800: var(--sp-800);--wp--preset--spacing--900: var(--sp-900);--wp--preset--shadow--natural: 6px 6px 9px rgba(0, 0, 0, 0.2);--wp--preset--shadow--deep: 12px 12px 50px rgba(0, 0, 0, 0.4);--wp--preset--shadow--sharp: 6px 6px 0px rgba(0, 0, 0, 0.2);--wp--preset--shadow--outlined: 6px 6px 0px -3px rgba(255, 255, 255, 1), 6px 6px rgba(0, 0, 0, 1);--wp--preset--shadow--crisp: 6px 6px 0px rgba(0, 0, 0, 1);}p{--wp--preset--font-size--small: var(--fs-small);--wp--preset--font-size--medium: var(--fs-medium);--wp--preset--font-size--large: var(--fs-large);}.wp-block-heading{--wp--preset--font-size--small: var(--fs-display-1);--wp--preset--font-size--medium: var(--fs-display-2);--wp--preset--font-size--large: var(--fs-display-3);--wp--preset--font-size--x-large: var(--fs-display-4);}.wp-block-msx-cta{--wp--preset--gradient--dark: var(--gradient-deep-blue-sea);--wp--preset--gradient--light: var(--gradient-sunrise-splash);}:root { --wp--style--global--content-size: var(--width-content);--wp--style--global--wide-size: var(--width-content-wide); }:where(body) { margin: 0; }.wp-site-blocks > .alignleft { float: left; margin-right: 2em; }.wp-site-blocks > .alignright { float: right; margin-left: 2em; }.wp-site-blocks > .aligncenter { justify-content: center; margin-left: auto; margin-right: auto; }:where(.wp-site-blocks) > * { margin-block-start: 24px; margin-block-end: 0; }:where(.wp-site-blocks) > :first-child { margin-block-start: 0; }:where(.wp-site-blocks) > :last-child { margin-block-end: 0; }:root { --wp--style--block-gap: 24px; }:root :where(.is-layout-flow) > :first-child{margin-block-start: 0;}:root :where(.is-layout-flow) > :last-child{margin-block-end: 0;}:root :where(.is-layout-flow) > *{margin-block-start: 24px;margin-block-end: 0;}:root :where(.is-layout-constrained) > :first-child{margin-block-start: 0;}:root :where(.is-layout-constrained) > :last-child{margin-block-end: 0;}:root :where(.is-layout-constrained) > *{margin-block-start: 24px;margin-block-end: 0;}:root :where(.is-layout-flex){gap: 24px;}:root :where(.is-layout-grid){gap: 24px;}.is-layout-flow > .alignleft{float: left;margin-inline-start: 0;margin-inline-end: 2em;}.is-layout-flow > .alignright{float: right;margin-inline-start: 2em;margin-inline-end: 0;}.is-layout-flow > .aligncenter{margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > .alignleft{float: left;margin-inline-start: 0;margin-inline-end: 2em;}.is-layout-constrained > .alignright{float: right;margin-inline-start: 2em;margin-inline-end: 0;}.is-layout-constrained > .aligncenter{margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > :where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width: var(--wp--style--global--content-size);margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > .alignwide{max-width: var(--wp--style--global--wide-size);}body .is-layout-flex{display: flex;}.is-layout-flex{flex-wrap: wrap;align-items: center;}.is-layout-flex > :is(*, div){margin: 0;}body .is-layout-grid{display: grid;}.is-layout-grid > :is(*, div){margin: 0;}body{padding-top: 0px;padding-right: 0px;padding-bottom: 0px;padding-left: 0px;}a:where(:not(.wp-element-button)){text-decoration: underline;}:root :where(.wp-element-button, .wp-block-button__link){background-color: #32373c;border-width: 0;color: #fff;font-family: inherit;font-size: inherit;line-height: inherit;padding: calc(0.667em + 2px) calc(1.333em + 2px);text-decoration: none;}.has-black-color{color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-color{color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-color{color: var(--wp--preset--color--white) !important;}.has-pale-pink-color{color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-color{color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-color{color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-color{color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-color{color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-color{color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-color{color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-color{color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-color{color: var(--wp--preset--color--vivid-purple) !important;}.has-body-text-color{color: var(--wp--preset--color--body-text) !important;}.has-body-background-color{color: var(--wp--preset--color--body-background) !important;}.has-brand-color{color: var(--wp--preset--color--brand) !important;}.has-brand-medium-color{color: var(--wp--preset--color--brand-medium) !important;}.has-brand-dark-color{color: var(--wp--preset--color--brand-dark) !important;}.has-black-background-color{background-color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-background-color{background-color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-background-color{background-color: var(--wp--preset--color--white) !important;}.has-pale-pink-background-color{background-color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-background-color{background-color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-background-color{background-color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-background-color{background-color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-background-color{background-color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-background-color{background-color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-background-color{background-color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-background-color{background-color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-background-color{background-color: var(--wp--preset--color--vivid-purple) !important;}.has-body-text-background-color{background-color: var(--wp--preset--color--body-text) !important;}.has-body-background-background-color{background-color: var(--wp--preset--color--body-background) !important;}.has-brand-background-color{background-color: var(--wp--preset--color--brand) !important;}.has-brand-medium-background-color{background-color: var(--wp--preset--color--brand-medium) !important;}.has-brand-dark-background-color{background-color: var(--wp--preset--color--brand-dark) !important;}.has-black-border-color{border-color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-border-color{border-color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-border-color{border-color: var(--wp--preset--color--white) !important;}.has-pale-pink-border-color{border-color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-border-color{border-color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-border-color{border-color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-border-color{border-color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-border-color{border-color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-border-color{border-color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-border-color{border-color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-border-color{border-color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-border-color{border-color: var(--wp--preset--color--vivid-purple) !important;}.has-body-text-border-color{border-color: var(--wp--preset--color--body-text) !important;}.has-body-background-border-color{border-color: var(--wp--preset--color--body-background) !important;}.has-brand-border-color{border-color: var(--wp--preset--color--brand) !important;}.has-brand-medium-border-color{border-color: var(--wp--preset--color--brand-medium) !important;}.has-brand-dark-border-color{border-color: var(--wp--preset--color--brand-dark) !important;}.has-vivid-cyan-blue-to-vivid-purple-gradient-background{background: var(--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple) !important;}.has-light-green-cyan-to-vivid-green-cyan-gradient-background{background: var(--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan) !important;}.has-luminous-vivid-amber-to-luminous-vivid-orange-gradient-background{background: var(--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange) !important;}.has-luminous-vivid-orange-to-vivid-red-gradient-background{background: var(--wp--preset--gradient--luminous-vivid-orange-to-vivid-red) !important;}.has-very-light-gray-to-cyan-bluish-gray-gradient-background{background: var(--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray) !important;}.has-cool-to-warm-spectrum-gradient-background{background: var(--wp--preset--gradient--cool-to-warm-spectrum) !important;}.has-blush-light-purple-gradient-background{background: var(--wp--preset--gradient--blush-light-purple) !important;}.has-blush-bordeaux-gradient-background{background: var(--wp--preset--gradient--blush-bordeaux) !important;}.has-luminous-dusk-gradient-background{background: var(--wp--preset--gradient--luminous-dusk) !important;}.has-pale-ocean-gradient-background{background: var(--wp--preset--gradient--pale-ocean) !important;}.has-electric-grass-gradient-background{background: var(--wp--preset--gradient--electric-grass) !important;}.has-midnight-gradient-background{background: var(--wp--preset--gradient--midnight) !important;}.has-default-gradient-background{background: var(--wp--preset--gradient--default) !important;}.has-small-font-size{font-size: var(--wp--preset--font-size--small) !important;}.has-medium-font-size{font-size: var(--wp--preset--font-size--medium) !important;}.has-large-font-size{font-size: var(--wp--preset--font-size--large) !important;}.has-x-large-font-size{font-size: var(--wp--preset--font-size--x-large) !important;}p.has-small-font-size{font-size: var(--wp--preset--font-size--small) !important;}p.has-medium-font-size{font-size: var(--wp--preset--font-size--medium) !important;}p.has-large-font-size{font-size: var(--wp--preset--font-size--large) !important;}.wp-block-heading.has-small-font-size{font-size: var(--wp--preset--font-size--small) !important;}.wp-block-heading.has-medium-font-size{font-size: var(--wp--preset--font-size--medium) !important;}.wp-block-heading.has-large-font-size{font-size: var(--wp--preset--font-size--large) !important;}.wp-block-heading.has-x-large-font-size{font-size: var(--wp--preset--font-size--x-large) !important;}.wp-block-msx-cta.has-dark-gradient-background{background: var(--wp--preset--gradient--dark) !important;}.wp-block-msx-cta.has-light-gradient-background{background: var(--wp--preset--gradient--light) !important;}
+:root :where(.wp-block-pullquote){font-size: 1.5em;line-height: 1.6;}
+</style>
+<link rel='stylesheet' id='ep_general_styles-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/plugins/elasticpress/dist/css/general-styles.css?ver=66295efe92a630617c00' type='text/css' media='all' />
+<link rel='stylesheet' id='fluent-icons-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/css/fluent-icons.css?ver=1765905993' type='text/css' media='all' />
+<link rel='stylesheet' id='moray-scoped-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-cloud-marketing-modules/dist/css/moray-scoped.css?ver=1765905713' type='text/css' media='all' />
+<link rel='stylesheet' id='msxcm-styles-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-cloud-marketing-modules/dist/css/frontend.css?ver=1765905712' type='text/css' media='all' />
+<link rel='stylesheet' id='msxcm_related_posts-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-cloud-marketing-modules/assets/css/related-posts.css?ver=1765905406' type='text/css' media='all' />
+<link rel='stylesheet' id='msx-moray-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/css/moray-styles.css?ver=1765905993' type='text/css' media='all' />
+<link rel='stylesheet' id='msx-theme-uhf-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/css/uhf.css?ver=1765905993' type='text/css' media='all' />
+<link rel='stylesheet' id='msx-styles-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/css/style.css?ver=1765905993' type='text/css' media='all' />
+<link rel='stylesheet' id='msx-theme-toggle-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/css/theme-toggle.css?ver=1765905993' type='text/css' media='all' />
+<link rel='stylesheet' id='styles-css' href='https://www.microsoft.com/en-us/education/blog/wp-content/themes/education-blog/dist/css/frontend.css?ver=03b651a7cd948a94f376' type='text/css' media='all' />
+<script type="text/javascript" src="https://wcpstatic.microsoft.com/mscc/lib/v2/wcp-consent.js" id="wcp-consent-js"></script>
+<script type="text/javascript" src="https://js.monitor.azure.com/scripts/c/ms.analytics-web-3.min.js" id="oneds-tracking-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-includes/js/jquery/jquery.min.js?ver=3.7.1" id="jquery-core-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-includes/js/jquery/jquery-migrate.min.js?ver=3.4.1" id="jquery-migrate-js"></script>
+<link rel="https://api.w.org/" href="https://www.microsoft.com/en-us/education/blog/wp-json/" /><link rel="alternate" title="JSON" type="application/json" href="https://www.microsoft.com/en-us/education/blog/wp-json/wp/v2/posts/2240" /><link rel='shortlink' href='https://www.microsoft.com/en-us/education/blog/?p=2240' />
+<link rel="alternate" title="oEmbed (JSON)" type="application/json+oembed" href="https://www.microsoft.com/en-us/education/blog/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fwww.microsoft.com%2Fen-us%2Feducation%2Fblog%2F2024%2F01%2Fmeet-your-ai-assistant-for-education-microsoft-copilot%2F" />
+<link rel="alternate" title="oEmbed (XML)" type="text/xml+oembed" href="https://www.microsoft.com/en-us/education/blog/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fwww.microsoft.com%2Fen-us%2Feducation%2Fblog%2F2024%2F01%2Fmeet-your-ai-assistant-for-education-microsoft-copilot%2F&#038;format=xml" />
+<!-- Stream WordPress user activity plugin v4.1.1 -->
+<link rel="stylesheet" href="https://www.microsoft.com/onerfstatics/marketingsites-wcus-prod/west-european/shell/_scrf/css/themes=default.device=uplevel_web_pc/63-57d110/c9-be0100/a6-e969ef/43-9f2e7c/82-8b5456/a0-5d3913/3d-28500e/ae-f1ac0c?ver=2.0&amp;_cf=02242021_3231" type="text/css" media="all" /><link rel="preload" as="image" href="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1024x545.webp" imagesrcset="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1024x545.webp 1024w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-300x160.webp 300w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-768x409.webp 768w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1536x818.webp 1536w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-2048x1090.webp 2048w" imagesizes="(max-width: 1024px) 100vw, 1024px" />
+	<!-- Facebook Pixel Code -->
+	<script>
+		function facebookTracking() {
+			!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+				n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+				n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+				t.src=v;t.type='ms-delay-type';t.setAttribute('data-ms-type','text/javascript');
+				s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+				document,'script','https://connect.facebook.net/en_US/fbevents.js');
+			fbq('init', '1770559986549030');
+						fbq('track', 'PageView');
+					}
+	</script>
+	<!-- End Facebook Pixel Code -->
+
+	
+	<!-- Clarity Code -->
+	<script type="text/javascript">
+		function clarityTracking() {
+			(function(c,l,a,r,i,t,y){
+			c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+			t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+			t.type='ms-delay-type';t.setAttribute('data-ms-type','text/javascript');
+			y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+			})(window, document, "clarity", "script", "mqz5weaxe9");
+		}
+	</script>
+	<!-- End Clarity Code -->
+
+	
+	<!-- Marketo Code -->
+	<script type="text/javascript">
+		function marketoTracking() {
+			const s = document.createElement('script');
+			s.type = 'text/javascript';
+			s.async = true;
+			s.src = 'https://munchkin.marketo.net/munchkin.js';
+			s.onload = function() {
+				const currentDomain = window.location.hostname;
+				let isDebugMode = false;
+
+				const munchkinConfig = {
+					cookieLifeDays: 365
+				};
+
+				// Add staging-specific settings.
+				if (
+					currentDomain.includes('stage') ||
+					currentDomain.includes('azurefd.net') ||
+					currentDomain.includes('azurewebsites.net')
+				) {
+					munchkinConfig.domainLevel = 3;
+					isDebugMode = true; // Lower environments.
+				}
+
+				// Local debug.
+				if (currentDomain.includes('.test')) {
+					isDebugMode = true;
+				}
+
+				// Initialize Munchkin after the script has loaded.
+				Munchkin.init("157-GQE-382", munchkinConfig);
+
+				if (typeof analytics !== 'undefined' && typeof analytics.isInitialized === 'function' && analytics.isInitialized()) {
+					const regex = new RegExp(`(^| )_mkto_trk=([^;]+)`)
+					const match = document.cookie.match(regex)
+
+					if (!match && isDebugMode) {
+						console.log('No Munchkin cookie found - can\'t verify implementation');
+					}
+
+					if (match) {
+						// Munchkin ID.
+						const munchkinId = match[2];
+
+						// Add telemetry initializer to include Munchkin ID in all future events.
+						analytics.addTelemetryInitializer(function (envelope) {
+							// For web events (pageView, click, etc.).
+							if (envelope.data && envelope.data.baseData) {
+								if (!envelope.data.baseData.properties) {
+									envelope.data.baseData.properties = {};
+								}
+								envelope.data.baseData.properties.munchKinId = munchkinId;
+							}
+
+							// Content update events.
+							if (envelope.data && envelope.data.baseData && envelope.data.baseData.pageTags) {
+								if (!envelope.data.baseData.pageTags.metaTags) {
+									envelope.data.baseData.pageTags.metaTags = {};
+								}
+								envelope.data.baseData.pageTags.metaTags.munchKinId = munchkinId;
+							}
+
+							return true;
+						});
+
+						analytics.captureContentUpdate({
+							pageTags: {
+								metaTags: {
+									munchKinId: munchkinId
+								}
+							}
+						});
+
+						if (isDebugMode) {
+							console.log('Munchkin ID added to telemetry initializer: ' + munchkinId);
+						}
+					}
+				}
+			};
+
+			document.getElementsByTagName('head')[0].appendChild(s);
+		}
+	</script>
+	<!-- End Marketo Code -->
+	<script src="https://www.microsoft.com/onerfstatics/marketingsites-wcus-prod/shell/_scrf/js/themes=default/54-af9f9f/fb-2be034/21-f9d187/b0-50721e/d8-97d509/40-0bd7f9/ea-f1669e/9d-c6ea39/62-a72447/3e-a4ee50/7c-0bd6a1/60-37309a/db-bc0148/dc-7e9864/6d-c07ea1/6f-dafe8c/f6-aa5278/e6-5f3533/6d-1e7ed0/b7-cadaa7/62-2741f0/ca-40b7b0/4e-ee3a55/3e-f5c39b/c3-6454d7/f9-7592d3/d0-e64f3e/92-10345d/79-499886/7e-cda2d3/e7-1fe854/57-c14418/38-b93a9e/de-884374/1f-100dea/33-abe4df/2b-8e0ae6?ver=2.0&_cf=02242021_3231&iife=1"></script>	</head>
+
+	<body class="wp-singular post-template-default single single-post postid-2240 single-format-standard wp-theme-xtheme-moray wp-child-theme-education-blog microsoft-uhf">
+        <div id="ms-cookie-banner"></div><div id="headerArea" class="uhf"  data-m='{"cN":"headerArea","cT":"Area_coreuiArea","id":"a1Body","sN":1,"aN":"Body"}'>
+                <div id="headerRegion"      data-region-key="headerregion" data-m='{"cN":"headerRegion","cT":"Region_coreui-region","id":"r1a1","sN":1,"aN":"a1"}' >
+
+    <div  id="headerUniversalHeader" data-m='{"cN":"headerUniversalHeader","cT":"Module_coreui-universalheader","id":"m1r1a1","sN":1,"aN":"r1a1"}'  data-module-id="Category|headerRegion|coreui-region|headerUniversalHeader|coreui-universalheader">
+        
+
+                        <div id="epb" class="x-hidden x-hidden-vp-mobile-st uhfc-universal-context context-uhf" data-m='{"cN":"epb_cont","cT":"Container","id":"c1m1r1a1","sN":1,"aN":"m1r1a1"}'>
+
+	<div class="c-uhfh-alert f-information epb-container theme-light" role="dialog" aria-label="Promotional Banner" data-m='{"cT":"Container","id":"c1c1m1r1a1","sN":1,"aN":"c1m1r1a1"}' data-pb="[{&quot;Browser&quot;:&quot;anaheim&quot;,&quot;ExtensionType&quot;:&quot;windows10only&quot;,&quot;ExtensionUrl&quot;:&quot;https://copilot.microsoft.com/?prompt=Tell+me+how+Copilot+can+help+me+brainstorm+ideas+for&amp;form=MY02P2&amp;OCID=MY02P2&amp;ICID=DSM_Promo_Copilot&quot;,&quot;BackgroundColorDarkTheme&quot;:&quot;b-black&quot;,&quot;LogoUrlDarkTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RW1iGSh.png&quot;,&quot;ActionLinkBackgroundColorDarkTheme&quot;:&quot;btn-white&quot;,&quot;BackgroundColorLightTheme&quot;:&quot;b-white&quot;,&quot;LogoUrlLightTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RW1iGSh.png&quot;,&quot;ActionLinkBackgroundColorLightTheme&quot;:&quot;btn-light-blue&quot;,&quot;Title&quot;:&quot;Bring ideas to life with Copilot&quot;,&quot;Paragraph&quot;:&quot;Create images from text, find writing inspiration, and get help with your questions.&quot;,&quot;ActionLinkText&quot;:&quot;Ask Copilot &quot;,&quot;ActionLinkAriaLabel&quot;:&quot;Shop Xbox sales&quot;,&quot;DismissText&quot;:&quot;No thanks&quot;,&quot;DismissAriaLabel&quot;:&quot;No thanks&quot;,&quot;CookieExpiration&quot;:&quot;7&quot;,&quot;CurrentTheme&quot;:&quot;theme-light&quot;},{&quot;Browser&quot;:&quot;edge&quot;,&quot;ExtensionType&quot;:&quot;windows10only&quot;,&quot;ExtensionUrl&quot;:&quot;https://aka.ms/MicrosoftEdgeDownload&quot;,&quot;BackgroundColorDarkTheme&quot;:&quot;b-black&quot;,&quot;LogoUrlDarkTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RE4xdax.png&quot;,&quot;ActionLinkBackgroundColorDarkTheme&quot;:&quot;btn-white&quot;,&quot;BackgroundColorLightTheme&quot;:&quot;b-white&quot;,&quot;LogoUrlLightTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RE4xdax.png&quot;,&quot;ActionLinkBackgroundColorLightTheme&quot;:&quot;btn-light-blue&quot;,&quot;Title&quot;:&quot;Try the browser recommended by Microsoft&quot;,&quot;Paragraph&quot;:&quot;Get speed, security and privacy with Microsoft Edge&quot;,&quot;ActionLinkText&quot;:&quot;Download now&quot;,&quot;ActionLinkAriaLabel&quot;:&quot;Download now&quot;,&quot;DismissText&quot;:&quot;No thanks&quot;,&quot;DismissAriaLabel&quot;:&quot;No thanks&quot;,&quot;CookieExpiration&quot;:&quot;30&quot;,&quot;CurrentTheme&quot;:&quot;theme-light&quot;},{&quot;Browser&quot;:&quot;chrome&quot;,&quot;ExtensionType&quot;:&quot;windows10only&quot;,&quot;ExtensionUrl&quot;:&quot;https://copilot.microsoft.com/?prompt=Tell+me+how+Copilot+can+help+me+brainstorm+ideas+for&amp;form=MY02P2&amp;OCID=MY02P2&amp;ICID=DSM_Promo_Copilot&quot;,&quot;BackgroundColorDarkTheme&quot;:&quot;b-black&quot;,&quot;LogoUrlDarkTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RW1iGSh.png&quot;,&quot;ActionLinkBackgroundColorDarkTheme&quot;:&quot;btn-white&quot;,&quot;BackgroundColorLightTheme&quot;:&quot;b-white&quot;,&quot;LogoUrlLightTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RW1iGSh.png&quot;,&quot;ActionLinkBackgroundColorLightTheme&quot;:&quot;btn-light-blue&quot;,&quot;Title&quot;:&quot;Bring ideas to life with Copilot&quot;,&quot;Paragraph&quot;:&quot;Create images from text, find writing inspiration, and get help with your questions.&quot;,&quot;ActionLinkText&quot;:&quot;Ask Copilot &quot;,&quot;ActionLinkAriaLabel&quot;:&quot;Ask Copilot &quot;,&quot;DismissText&quot;:&quot;No thanks&quot;,&quot;DismissAriaLabel&quot;:&quot;No thanks&quot;,&quot;CookieExpiration&quot;:&quot;14&quot;,&quot;CurrentTheme&quot;:&quot;theme-light&quot;},{&quot;Browser&quot;:&quot;firefox&quot;,&quot;ExtensionType&quot;:&quot;rewards&quot;,&quot;ExtensionUrl&quot;:&quot;https://browserdefaults.microsoft.com/extn/redirect/?xid=106&amp;channel=uhf&amp;pc=U785&quot;,&quot;BackgroundColorDarkTheme&quot;:&quot;b-blue&quot;,&quot;LogoUrlDarkTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RE4mFZT.png&quot;,&quot;ActionLinkBackgroundColorDarkTheme&quot;:&quot;btn-white&quot;,&quot;BackgroundColorLightTheme&quot;:&quot;b-white&quot;,&quot;LogoUrlLightTheme&quot;:&quot;https://uhf.microsoft.com/images/banners/RE4mDoE.png&quot;,&quot;ActionLinkBackgroundColorLightTheme&quot;:&quot;btn-blue&quot;,&quot;Title&quot;:&quot;Maximize your points with the Microsoft Rewards extension&quot;,&quot;Paragraph&quot;:&quot;Quick access to your daily points and offers&quot;,&quot;ActionLinkText&quot;:&quot;Add it now&quot;,&quot;ActionLinkAriaLabel&quot;:&quot;Add it now&quot;,&quot;DismissText&quot;:&quot;No thanks&quot;,&quot;DismissAriaLabel&quot;:&quot;No thanks&quot;,&quot;CookieExpiration&quot;:&quot;30&quot;,&quot;CurrentTheme&quot;:&quot;theme-light&quot;}]" data-pb-g="true">
+		<div>
+			<div class="c-paragraph">
+				<img alt="" data-src="" src="" class="f-img-lzy" />
+				<span class="c-text-group pb-content">
+					<span class="epb-launch pb-content-heading"></span>
+					<span class="epb-text pb-content-text"></span>
+				</span>
+			</div>
+			<span class="c-group">
+				<button id="close-epb" class="c-action-trigger c-action-cancel c-glyph-cancel" data-m='{"cN":"PB-dismiss_nonnav","id":"nn1c1c1m1r1a1","sN":1,"aN":"c1c1m1r1a1"}'></button>
+				<a id="epbTryNow" href="" target="_blank" class="epb-launch c-action-trigger c-action-open" data-m='{"cN":"PB-launch_nav","id":"n2c1c1m1r1a1","sN":2,"aN":"c1c1m1r1a1"}'></a>
+			</span>
+		</div>
+	</div>
+
+
+
+
+
+                            
+                        </div>
+
+
+
+
+
+        <a id="uhfSkipToMain" class="m-skip-to-main" href="javascript:void(0)" data-href="#mainContent" tabindex="0" data-m='{"cN":"Skip to content_nonnav","id":"nn2c1m1r1a1","sN":2,"aN":"c1m1r1a1"}'>Skip to main content</a>
+
+
+<header class="c-uhfh context-uhf no-js c-sgl-stck c-category-header " itemscope="itemscope" data-header-footprint="/epgeam/epgeamheader_edu, fromService: True"   data-magict="true"   itemtype="http://schema.org/Organization">
+    <div class="theme-light js-global-head f-closed  global-head-cont" data-m='{"cN":"Universal Header_cont","cT":"Container","id":"c3c1m1r1a1","sN":3,"aN":"c1m1r1a1"}'>
+        <div class="c-uhfh-gcontainer-st">
+            <button type="button" class="c-action-trigger c-glyph glyph-global-nav-button" aria-label="All Microsoft expand to see list of Microsoft products and services" initialState-label="All Microsoft expand to see list of Microsoft products and services" toggleState-label="Close All Microsoft list" aria-expanded="false" data-m='{"cN":"Mobile menu button_nonnav","id":"nn1c3c1m1r1a1","sN":1,"aN":"c3c1m1r1a1"}'></button>
+            <button type="button" class="c-action-trigger c-glyph glyph-arrow-htmllegacy c-close-search" aria-expanded="false" data-m='{"cN":"Close Search_nonnav","id":"nn2c3c1m1r1a1","sN":2,"aN":"c3c1m1r1a1"}'></button>
+                    <a id="uhfLogo" class="c-logo c-sgl-stk-uhfLogo" itemprop="url" href="https://www.microsoft.com" aria-label="Microsoft" data-m='{"cN":"GlobalNav_Logo_cont","cT":"Container","id":"c3c3c1m1r1a1","sN":3,"aN":"c3c1m1r1a1"}'>
+                        <img alt="" itemprop="logo" class="c-image" src="https://uhf.microsoft.com/images/microsoft/RE1Mu3b.png" role="presentation" aria-hidden="true" />
+                        <span itemprop="name" role="presentation" aria-hidden="true">Microsoft</span>
+                    </a>
+            <div class="f-mobile-title">
+                <button type="button" class="c-action-trigger c-glyph glyph-chevron-left" aria-label="See more menu options" data-m='{"cN":"Mobile back button_nonnav","id":"nn4c3c1m1r1a1","sN":4,"aN":"c3c1m1r1a1"}'></button>
+                <span data-global-title="Microsoft home" class="js-mobile-title">Education</span>
+                <button type="button" class="c-action-trigger c-glyph glyph-chevron-right" aria-label="See more menu options" data-m='{"cN":"Mobile forward button_nonnav","id":"nn5c3c1m1r1a1","sN":5,"aN":"c3c1m1r1a1"}'></button>
+            </div>
+                    <div class="c-show-pipe x-hidden-vp-mobile-st">
+                        <a id="uhfCatLogo" class="c-logo c-cat-logo" href="https://www.microsoft.com/en-us/education" aria-label="Education" itemprop="url" data-m='{"cN":"CatNav_Education_nav","id":"n6c3c1m1r1a1","sN":6,"aN":"c3c1m1r1a1"}'>
+                                <span>Education</span>
+                        </a>
+                    </div>
+                <div class="cat-logo-button-cont x-hidden">
+                        <button type="button" id="uhfCatLogoButton" class="c-cat-logo-button x-hidden" aria-expanded="false" aria-label="Education" data-m='{"cN":"Education_nonnav","id":"nn7c3c1m1r1a1","sN":7,"aN":"c3c1m1r1a1"}'>
+                            Education
+                        </button>
+                </div>
+
+
+
+                    <nav id="uhf-g-nav" aria-label="Contextual menu" class="c-uhfh-gnav" data-m='{"cN":"Category nav_cont","cT":"Container","id":"c8c3c1m1r1a1","sN":8,"aN":"c3c1m1r1a1"}'>
+            <ul class="js-paddle-items">
+                    <li class="single-link js-nav-menu x-hidden-none-mobile-vp uhf-menu-item">
+                        <a class="c-uhf-nav-link" href="https://www.microsoft.com/en-us/education" data-m='{"cN":"CatNav_Home_nav","id":"n1c8c3c1m1r1a1","sN":1,"aN":"c8c3c1m1r1a1"}' > Home </a>
+                    </li>
+                                        <li class="nested-menu uhf-menu-item">
+                            <div class="c-uhf-menu js-nav-menu">
+                                <button type="button" id="c-shellmenu_79"  aria-expanded="false" data-m='{"cN":"CatNav_Products for your school_nonnav","id":"nn2c8c3c1m1r1a1","sN":2,"aN":"c8c3c1m1r1a1"}'>Products for your school</button>
+
+                                <ul class="" data-class-idn="" aria-hidden="true" data-m='{"cN":"Products for your school_cont","cT":"Container","id":"c3c8c3c1m1r1a1","sN":3,"aN":"c8c3c1m1r1a1"}'>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Azure for education_cont","cT":"Container","id":"c1c3c8c3c1m1r1a1","sN":1,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_80" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/azure-for-education" data-m='{"cN":"CatNav_Azure for education_nav","id":"n1c1c3c8c3c1m1r1a1","sN":1,"aN":"c1c3c8c3c1m1r1a1"}'>Azure for education</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Copilot in education_cont","cT":"Container","id":"c2c3c8c3c1m1r1a1","sN":2,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_81" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/copilot-in-education" data-m='{"cN":"CatNav_Copilot in education_nav","id":"n1c2c3c8c3c1m1r1a1","sN":1,"aN":"c2c3c8c3c1m1r1a1"}'>Copilot in education</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Devices_cont","cT":"Container","id":"c3c3c8c3c1m1r1a1","sN":3,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_82" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/devices/overview" data-m='{"cN":"CatNav_Devices_nav","id":"n1c3c3c8c3c1m1r1a1","sN":1,"aN":"c3c3c8c3c1m1r1a1"}'>Devices</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Edge_cont","cT":"Container","id":"c4c3c8c3c1m1r1a1","sN":4,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_83" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/edge" data-m='{"cN":"CatNav_Edge_nav","id":"n1c4c3c8c3c1m1r1a1","sN":1,"aN":"c4c3c8c3c1m1r1a1"}'>Edge</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Microsoft 365_cont","cT":"Container","id":"c5c3c8c3c1m1r1a1","sN":5,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_84" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/microsoft-365" data-m='{"cN":"CatNav_Microsoft 365_nav","id":"n1c5c3c8c3c1m1r1a1","sN":1,"aN":"c5c3c8c3c1m1r1a1"}'>Microsoft 365</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Microsoft Teams_cont","cT":"Container","id":"c6c3c8c3c1m1r1a1","sN":6,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_85" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/teams" data-m='{"cN":"CatNav_Microsoft Teams_nav","id":"n1c6c3c8c3c1m1r1a1","sN":1,"aN":"c6c3c8c3c1m1r1a1"}'>Microsoft Teams</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Minecraft Education_cont","cT":"Container","id":"c7c3c8c3c1m1r1a1","sN":7,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_86" class="js-subm-uhf-nav-link" href="https://education.minecraft.net/" data-m='{"cN":"CatNav_Minecraft Education_nav","id":"n1c7c3c8c3c1m1r1a1","sN":1,"aN":"c7c3c8c3c1m1r1a1"}'>Minecraft Education</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Office 365_cont","cT":"Container","id":"c8c3c8c3c1m1r1a1","sN":8,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_87" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/office" data-m='{"cN":"CatNav_Office 365_nav","id":"n1c8c3c8c3c1m1r1a1","sN":1,"aN":"c8c3c8c3c1m1r1a1"}'>Office 365</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"OneNote_cont","cT":"Container","id":"c9c3c8c3c1m1r1a1","sN":9,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_88" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/onenote" data-m='{"cN":"CatNav_OneNote_nav","id":"n1c9c3c8c3c1m1r1a1","sN":1,"aN":"c9c3c8c3c1m1r1a1"}'>OneNote</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Windows 11_cont","cT":"Container","id":"c10c3c8c3c1m1r1a1","sN":10,"aN":"c3c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_89" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/windows" data-m='{"cN":"CatNav_Windows 11_nav","id":"n1c10c3c8c3c1m1r1a1","sN":1,"aN":"c10c3c8c3c1m1r1a1"}'>Windows 11</a>
+            
+        </li>
+                                                    
+                                </ul>
+                            </div>
+                        </li>                        <li class="nested-menu uhf-menu-item">
+                            <div class="c-uhf-menu js-nav-menu">
+                                <button type="button" id="c-shellmenu_90"  aria-expanded="false" data-m='{"cN":"CatNav_Featured solution areas_nonnav","id":"nn4c8c3c1m1r1a1","sN":4,"aN":"c8c3c1m1r1a1"}'>Featured solution areas</button>
+
+                                <ul class="" data-class-idn="" aria-hidden="true" data-m='{"cN":"Featured solution areas_cont","cT":"Container","id":"c5c8c3c1m1r1a1","sN":5,"aN":"c8c3c1m1r1a1"}'>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Accessibility tools_cont","cT":"Container","id":"c1c5c8c3c1m1r1a1","sN":1,"aN":"c5c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_91" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/learning-tools/accessibility-tools" data-m='{"cN":"CatNav_Accessibility tools_nav","id":"n1c1c5c8c3c1m1r1a1","sN":1,"aN":"c1c5c8c3c1m1r1a1"}'>Accessibility tools</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"AI in education_cont","cT":"Container","id":"c2c5c8c3c1m1r1a1","sN":2,"aN":"c5c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_92" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/ai-in-education" data-m='{"cN":"CatNav_AI in education_nav","id":"n1c2c5c8c3c1m1r1a1","sN":1,"aN":"c2c5c8c3c1m1r1a1"}'>AI in education</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Cybersecurity solutions_cont","cT":"Container","id":"c3c5c8c3c1m1r1a1","sN":3,"aN":"c5c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_93" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/cybersecurity-solutions-for-schools" data-m='{"cN":"CatNav_Cybersecurity solutions_nav","id":"n1c3c5c8c3c1m1r1a1","sN":1,"aN":"c3c5c8c3c1m1r1a1"}'>Cybersecurity solutions</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Learning Accelerators_cont","cT":"Container","id":"c4c5c8c3c1m1r1a1","sN":4,"aN":"c5c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_94" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/learning-tools/learning-accelerators" data-m='{"cN":"CatNav_Learning Accelerators_nav","id":"n1c4c5c8c3c1m1r1a1","sN":1,"aN":"c4c5c8c3c1m1r1a1"}'>Learning Accelerators</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Learning tools_cont","cT":"Container","id":"c5c5c8c3c1m1r1a1","sN":5,"aN":"c5c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_95" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/learning-tools" data-m='{"cN":"CatNav_Learning tools_nav","id":"n1c5c5c8c3c1m1r1a1","sN":1,"aN":"c5c5c8c3c1m1r1a1"}'>Learning tools</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Social-emotional learning_cont","cT":"Container","id":"c6c5c8c3c1m1r1a1","sN":6,"aN":"c5c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_96" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/educators/social-emotional-learning" data-m='{"cN":"CatNav_Social-emotional learning_nav","id":"n1c6c5c8c3c1m1r1a1","sN":1,"aN":"c6c5c8c3c1m1r1a1"}'>Social-emotional learning</a>
+            
+        </li>
+                                                    
+                                </ul>
+                            </div>
+                        </li>                        <li class="nested-menu uhf-menu-item">
+                            <div class="c-uhf-menu js-nav-menu">
+                                <button type="button" id="c-shellmenu_97"  aria-expanded="false" data-m='{"cN":"CatNav_Browse by audience_nonnav","id":"nn6c8c3c1m1r1a1","sN":6,"aN":"c8c3c1m1r1a1"}'>Browse by audience</button>
+
+                                <ul class="" data-class-idn="" aria-hidden="true" data-m='{"cN":"Browse by audience_cont","cT":"Container","id":"c7c8c3c1m1r1a1","sN":7,"aN":"c8c3c1m1r1a1"}'>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Educators_cont","cT":"Container","id":"c1c7c8c3c1m1r1a1","sN":1,"aN":"c7c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_98" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/educators" data-m='{"cN":"CatNav_Educators_nav","id":"n1c1c7c8c3c1m1r1a1","sN":1,"aN":"c1c7c8c3c1m1r1a1"}'>Educators</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Higher education_cont","cT":"Container","id":"c2c7c8c3c1m1r1a1","sN":2,"aN":"c7c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_99" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/higher-education" data-m='{"cN":"CatNav_Higher education_nav","id":"n1c2c7c8c3c1m1r1a1","sN":1,"aN":"c2c7c8c3c1m1r1a1"}'>Higher education</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"IT Pro_cont","cT":"Container","id":"c3c7c8c3c1m1r1a1","sN":3,"aN":"c7c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_100" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/it-pro" data-m='{"cN":"CatNav_IT Pro_nav","id":"n1c3c7c8c3c1m1r1a1","sN":1,"aN":"c3c7c8c3c1m1r1a1"}'>IT Pro</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"School leaders_cont","cT":"Container","id":"c4c7c8c3c1m1r1a1","sN":4,"aN":"c7c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_101" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/school-leaders" data-m='{"cN":"CatNav_School leaders_nav","id":"n1c4c7c8c3c1m1r1a1","sN":1,"aN":"c4c7c8c3c1m1r1a1"}'>School leaders</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Students_cont","cT":"Container","id":"c5c7c8c3c1m1r1a1","sN":5,"aN":"c7c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_102" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/students" data-m='{"cN":"CatNav_Students_nav","id":"n1c5c7c8c3c1m1r1a1","sN":1,"aN":"c5c7c8c3c1m1r1a1"}'>Students</a>
+            
+        </li>
+                                                    
+                                </ul>
+                            </div>
+                        </li>                        <li class="nested-menu uhf-menu-item">
+                            <div class="c-uhf-menu js-nav-menu">
+                                <button type="button" id="c-shellmenu_103"  aria-expanded="false" data-m='{"cN":"CatNav_Training \u0026 resources_nonnav","id":"nn8c8c3c1m1r1a1","sN":8,"aN":"c8c3c1m1r1a1"}'>Training &amp; resources</button>
+
+                                <ul class="" data-class-idn="" aria-hidden="true" data-m='{"cN":"Training \u0026 resources_cont","cT":"Container","id":"c9c8c3c1m1r1a1","sN":9,"aN":"c8c3c1m1r1a1"}'>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Education blog_cont","cT":"Container","id":"c1c9c8c3c1m1r1a1","sN":1,"aN":"c9c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_104" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/blog/" data-m='{"cN":"CatNav_Education blog_nav","id":"n1c1c9c8c3c1m1r1a1","sN":1,"aN":"c1c9c8c3c1m1r1a1"}'>Education blog</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Education events_cont","cT":"Container","id":"c2c9c8c3c1m1r1a1","sN":2,"aN":"c9c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_105" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education-events" data-m='{"cN":"CatNav_Education events_nav","id":"n1c2c9c8c3c1m1r1a1","sN":1,"aN":"c2c9c8c3c1m1r1a1"}'>Education events</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Frequently asked questions_cont","cT":"Container","id":"c3c9c8c3c1m1r1a1","sN":3,"aN":"c9c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_106" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/products/frequently-asked-questions" data-m='{"cN":"CatNav_Frequently asked questions_nav","id":"n1c3c9c8c3c1m1r1a1","sN":1,"aN":"c3c9c8c3c1m1r1a1"}'>Frequently asked questions</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Learn Educator Center_cont","cT":"Container","id":"c4c9c8c3c1m1r1a1","sN":4,"aN":"c9c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_107" class="js-subm-uhf-nav-link" href="https://learn.microsoft.com/en-us/training/educator-center/" data-m='{"cN":"CatNav_Learn Educator Center_nav","id":"n1c4c9c8c3c1m1r1a1","sN":1,"aN":"c4c9c8c3c1m1r1a1"}'>Learn Educator Center</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Resource Center_cont","cT":"Container","id":"c5c9c8c3c1m1r1a1","sN":5,"aN":"c9c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_108" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/resource-center" data-m='{"cN":"CatNav_Resource Center_nav","id":"n1c5c9c8c3c1m1r1a1","sN":1,"aN":"c5c9c8c3c1m1r1a1"}'>Resource Center</a>
+            
+        </li>
+                                                    
+                                </ul>
+                            </div>
+                        </li>                        <li class="nested-menu uhf-menu-item">
+                            <div class="c-uhf-menu js-nav-menu">
+                                <button type="button" id="c-shellmenu_109"  aria-expanded="false" data-m='{"cN":"CatNav_Getting started_nonnav","id":"nn10c8c3c1m1r1a1","sN":10,"aN":"c8c3c1m1r1a1"}'>Getting started</button>
+
+                                <ul class="" data-class-idn="" aria-hidden="true" data-m='{"cN":"Getting started_cont","cT":"Container","id":"c11c8c3c1m1r1a1","sN":11,"aN":"c8c3c1m1r1a1"}'>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Contact sales_cont","cT":"Container","id":"c1c11c8c3c1m1r1a1","sN":1,"aN":"c11c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_110" class="js-subm-uhf-nav-link" href="https://aka.ms/educationsales" data-m='{"cN":"CatNav_Contact sales_nav","id":"n1c1c11c8c3c1m1r1a1","sN":1,"aN":"c1c11c8c3c1m1r1a1"}'>Contact Sales</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"How to buy_cont","cT":"Container","id":"c2c11c8c3c1m1r1a1","sN":2,"aN":"c11c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_111" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/how-to-buy" data-m='{"cN":"CatNav_How to buy_nav","id":"n1c2c11c8c3c1m1r1a1","sN":1,"aN":"c2c11c8c3c1m1r1a1"}'>How to buy</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Shop for home_cont","cT":"Container","id":"c3c11c8c3c1m1r1a1","sN":3,"aN":"c11c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_112" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/store/b/sale" data-m='{"cN":"CatNav_Shop for home_nav","id":"n1c3c11c8c3c1m1r1a1","sN":1,"aN":"c3c11c8c3c1m1r1a1"}'>Shop for home</a>
+            
+        </li>
+        <li class="js-nav-menu single-link" data-m='{"cN":"Why Microsoft Education_cont","cT":"Container","id":"c4c11c8c3c1m1r1a1","sN":4,"aN":"c11c8c3c1m1r1a1"}'>
+            <a id="c-shellmenu_113" class="js-subm-uhf-nav-link" href="https://www.microsoft.com/en-us/education/why-microsoft-education" data-m='{"cN":"CatNav_Why Microsoft Education_nav","id":"n1c4c11c8c3c1m1r1a1","sN":1,"aN":"c4c11c8c3c1m1r1a1"}'>Why Microsoft Education</a>
+            
+        </li>
+                                                    
+                                </ul>
+                            </div>
+                        </li>
+
+                <li id="overflow-menu" class="overflow-menu x-hidden uhf-menu-item">
+                        <div class="c-uhf-menu js-nav-menu">
+        <button data-m='{"pid":"More","id":"nn12c8c3c1m1r1a1","sN":12,"aN":"c8c3c1m1r1a1"}' type="button" aria-label="More" aria-expanded="false">More</button>
+        <ul id="overflow-menu-list" aria-hidden="true" class="overflow-menu-list">
+        </ul>
+    </div>
+
+                </li>
+                                    <li class="single-link js-nav-menu" id="c-uhf-nav-cta">
+                        <a id="Contactsales" class="c-uhf-nav-link" href="https://aka.ms/educationsales" data-m='{"cN":"CatNav_cta_Contact a sales partner_nav","id":"n13c8c3c1m1r1a1","sN":13,"aN":"c8c3c1m1r1a1"}'>Contact a sales partner</a>
+                    </li>
+            </ul>
+            
+        </nav>
+
+
+            <div class="c-uhfh-actions no-uhf-actions-exists" data-m='{"cN":"Header actions_cont","cT":"Container","id":"c9c3c1m1r1a1","sN":9,"aN":"c3c1m1r1a1"}'>
+                <div class="wf-menu"></div>
+                
+            </div>
+        </div>
+        
+        
+    </div>
+    
+</header>
+
+
+
+
+    </div>
+        </div>
+
+    </div>
+		<div id="header-container" class="header-container">
+					</div>
+
+<main id="main" class="single-layout">
+
+			<div class="container p-0 pt-md-3 pb-md-2 single-layout__breadcrumbs">
+			
+<div class="row no-gutters align-items-center">
+	<div class="col col-12 col-md-9">
+		
+<nav
+	aria-label="Your location in the site"
+	class="single__breadcrumbs d-flex py-g py-md-0"
+	data-bi-an="Breadcrumb"
+>
+	<ol class="breadcrumb py-2 px-0 m-0"><li class="breadcrumb-item d-inline-flex"><span class="breadcrumbs__icon glyph-prepend glyph-prepend-home mr-2 d-flex align-items-center"></span><a class="small" data-bi-an="Breadcrumb" data-bi-cn="Blog Home" data-bi-ct="breadcrumb link" href="https://www.microsoft.com/en-us/education/blog/">Blog Home</a></li> <li class="breadcrumb-separator d-inline-flex small" aria-hidden="true">/</li> <li class="breadcrumb-item d-inline-flex small" class="breadcrumb_last" aria-current="page">Meet your AI assistant for education: Microsoft Copilot</li></ol></nav>
+	</div>
+	<div class="col col-12 col-md-3 pt-1 pt-md-0">
+		
+<form
+	role="search"
+	id="searchform-1"
+	class="search-form search-form__form"
+	method="get"
+	itemscope
+	itemtype="http://schema.org/SearchAction"
+	action="https://www.microsoft.com/en-us/education/blog/search/"
+>
+	<meta itemprop="target" content="https://www.microsoft.com/en-us/education/blog/search/?s={s}" />
+	<label for="search-field" class="screen-reader-text">
+		Search for:	</label>
+	<input
+		itemprop="query-input"
+		type="search"
+		id="search-field"
+		value=""
+		placeholder="Search the blog"
+		name="s"
+		class="form-control"
+	/>
+	<button type="submit" class="search-form__btn btn btn-icon">
+		<span  aria-hidden="true" class="msx-svg"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><path fill="#fff" d="M6.334.083a6.25 6.25 0 0 1 4.97 10.04l3.953 3.955a.833.833 0 0 1-1.1 1.247l-.079-.069-3.954-3.953A6.25 6.25 0 1 1 6.334.083m0 1.667a4.583 4.583 0 1 0 0 9.167 4.583 4.583 0 0 0 0-9.167" /></svg></span>		<span class="screen-reader-text">Submit search</span>
+	</button>
+</form>
+	</div>
+</div>
+		</div>
+
+		<div class="single-layout__hero">
+											<header class="content-hero container mb-4 mb-md-5 px-0 pt-md-4">
+	<div class="content-hero-text">
+		<div class="content-hero__meta px-0 small mb-2 container aligncontent" style="font-weight:600">
+			<ul class="list-bullet-inline list-unstyled d-inline-flex flex-wrap list-bullet-inline align-items-center small mb-0">
+										<li class="m-0 d-inline-flex align-items-center">
+							<a
+								href="https://www.microsoft.com/en-us/education/blog/topic/ai-in-education/"
+								data-bi-cn="AI in education"
+								data-bi-ct="cta link"
+								data-bi-an="Single header"
+							>
+								AI in education							</a>
+						</li>
+										<li class="m-0 d-inline-flex align-items-center">
+					<time datetime="2024-01-23T09:00:00-08:00">Published Jan 23, 2024</time>
+				</li>
+				<li class="m-0 d-inline-flex align-items-center">
+					5 min read				</li>
+			</ul>
+		</div>
+		<h1 class="content-hero__title px-0 mb-2 container aligncontent">Meet your AI assistant for education: Microsoft Copilot</h1>
+		<div class="content-hero__byline px-0 small container aligncontent">
+			<span>By</span>	<a
+		class="msx-byline__author-link"
+		href="https://www.microsoft.com/en-us/education/blog/author/microsoft-education-team/"
+		data-bi-slot="1"
+		data-bi-name="microsoft education team"
+		data-bi-cn="Microsoft Education Team"
+		data-bi-ct="author link"
+		data-bi-an="Single header"
+	>Microsoft Education Team</a>		</div>
+	</div>
+			<img width="1024" height="545" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1024x545.webp" class="mt-4 mt-md-sm alignmedium embed-responsive-item img-object-cover aspect-ratio-16-9 border-radius-20 border-radius-md-40" alt="" decoding="async" fetchpriority="high" srcset="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1024x545.webp 1024w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-300x160.webp 300w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-768x409.webp 768w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-1536x818.webp 1536w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/AI-assistant-for-education-Microsoft-Copilot-2048x1090.webp 2048w" sizes="(max-width: 1024px) 100vw, 1024px" />	</header>
+					</div>
+
+		<div data-bi-an="Left Rail" class="single-layout__left-rail">
+			<div class="mb-3 mb-md-4">
+				
+<div class="social-share">
+	<div class="small font-weight-semibold mb-3 mb-md-4 eyebrow uppercase social-share__headline">
+		Share	</div>
+	<ul class="d-inline-flex list-unstyled mb-0 align-middle social-share__list" data-bi-an="Rail">
+					<li class="my-0 list-inline-item social-share__item">
+				<a
+					href="https://www.facebook.com/sharer/sharer.php?u=https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/"
+					data-bi-bhvr="120"
+					data-bi-tn="Social share"
+					data-bi-ct="share link"
+					data-bi-cn="Share on Facebook"
+					aria-label="Share on Facebook"
+					target="_blank"
+					rel="noreferrer noopener"
+					class="d-flex action-trigger social-share__link social-share__link--facebook"
+				>
+					<span  aria-hidden="true" class="msx-svg"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="currentColor" d="M12 0c6.628 0 12 5.372 12 12 0 5.99-4.387 10.955-10.124 11.856V15.47h2.795l.532-3.47h-3.327V9.75c0-.949.464-1.875 1.955-1.875h1.514V4.922s-.567-.097-1.32-.166c-.42-.039-.897-.069-1.367-.069-2.743 0-4.533 1.663-4.533 4.67V12H7.078v3.47h3.047v8.386C4.387 22.956 0 17.992 0 12 0 5.372 5.372 0 12 0" /></svg></span>				</a>
+			</li>
+			<li class="my-0 list-inline-item social-share__item">
+				<a
+					href="https://twitter.com/intent/tweet?url=https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/&#038;text=Meet%20your%20AI%20assistant%20for%20education:%20Microsoft%20Copilot"
+					data-bi-bhvr="120"
+					data-bi-tn="Social share"
+					data-bi-ct="share link"
+					data-bi-cn="Share on X"
+					aria-label="Share on X"
+					target="_blank"
+					rel="noreferrer noopener"
+					class="d-flex action-trigger social-share__link social-share__link--x"
+				>
+					<span  aria-hidden="true" class="msx-svg"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 25.07 25.41"><path fill="currentColor" d="M12.5 0A12.5 12.5 0 1 0 25 12.5C25 5.6 19.4 0 12.5 0M5.07 5.51h4.44l3.78 5.06 4.68-5.06h1.3l-5.4 5.84 6.1 8.14h-4.45L11.42 14l-5.08 5.5h-1.3l5.8-6.27zm1.92.96L16 18.53h2.04L9.03 6.47Z" /></svg></span>				</a>
+			</li>
+				<li class="my-0 list-inline-item social-share__item">
+			<a
+				href="https://www.linkedin.com/sharing/share-offsite/?url=https://www.microsoft.com/en-us/education/blog/2024/01/meet-your-ai-assistant-for-education-microsoft-copilot/"
+				data-bi-bhvr="120"
+				data-bi-tn="Social share"
+				data-bi-ct="share link"
+				data-bi-cn="Share on LinkedIn"
+				aria-label="Share on LinkedIn"
+				target="_blank"
+				rel="noreferrer noopener"
+				class="d-flex action-trigger social-share__link social-share__link--linkedin"
+			>
+				<span  aria-hidden="true" class="msx-svg"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"><path fill="currentColor" d="M19.927 20.283h-3.45v-5.535c0-1.305-.038-3.005-1.783-3.005-1.783 0-2.093 1.423-2.093 2.926v5.614h-3.45V8.936h3.295v1.542h.04a3.54 3.54 0 0 1 3.294-1.819c3.488 0 4.147 2.372 4.147 5.417zM5.237 7.393c-1.124 0-2.016-.909-2.016-2.055s.892-2.056 2.016-2.056 2.015.91 2.015 2.056-.891 2.056-2.015 2.056Zm1.744 12.89H3.493V8.936h3.45v11.347zM21.671 0H1.748C.818 0 .043.751.043 1.7v20.402c0 .95.775 1.74 1.705 1.7h19.885c.93 0 1.705-.75 1.744-1.7V1.7c0-.949-.775-1.7-1.706-1.7" /></svg></span>			</a>
+		</li>
+	</ul>
+</div>
+			</div>
+			
+<div class="tags" id="single-tags">
+					<ul class="list-unstyled align-middle tags__list">
+							<li class="tags__title small font-weight-semibold eyebrow uppercase">
+					Content type				</li>
+			
+							<li class="tags__item">
+					<a
+						data-bi-id="155"
+						data-bi-name="news"
+						href="https://www.microsoft.com/en-us/education/blog/content-type/news/"
+						data-bi-cn="News"
+						data-bi-ct="cta link"
+						class="btn btn-sm btn-light font-weight-normal tags__link"
+					>
+						News					</a>
+				</li>
+							<li class="tags__item">
+					<a
+						data-bi-id="327"
+						data-bi-name="tips and guides"
+						href="https://www.microsoft.com/en-us/education/blog/content-type/tips-and-guides/"
+						data-bi-cn="Tips and guides"
+						data-bi-ct="cta link"
+						class="btn btn-sm btn-light font-weight-normal tags__link"
+					>
+						Tips and guides					</a>
+				</li>
+					</ul>
+					<ul class="list-unstyled align-middle tags__list">
+							<li class="tags__title small font-weight-semibold eyebrow uppercase">
+					Topic				</li>
+			
+							<li class="tags__item">
+					<a
+						data-bi-id="166"
+						data-bi-name="ai in education"
+						href="https://www.microsoft.com/en-us/education/blog/topic/ai-in-education/"
+						data-bi-cn="AI in education"
+						data-bi-ct="cta link"
+						class="btn btn-sm btn-light font-weight-normal tags__link"
+					>
+						AI in education					</a>
+				</li>
+					</ul>
+					<ul class="list-unstyled align-middle tags__list">
+							<li class="tags__title small font-weight-semibold eyebrow uppercase">
+					Audience				</li>
+			
+							<li class="tags__item">
+					<a
+						data-bi-id="150"
+						data-bi-name="educators"
+						href="https://www.microsoft.com/en-us/education/blog/audience/educators/"
+						data-bi-cn="Educators"
+						data-bi-ct="cta link"
+						class="btn btn-sm btn-light font-weight-normal tags__link"
+					>
+						Educators					</a>
+				</li>
+					</ul>
+					<ul class="list-unstyled align-middle tags__list">
+							<li class="tags__title small font-weight-semibold eyebrow uppercase">
+					Product				</li>
+			
+							<li class="tags__item">
+					<a
+						data-bi-id="158"
+						data-bi-name="microsoft 365 copilot"
+						href="https://www.microsoft.com/en-us/education/blog/product/microsoft-365-copilot/"
+						data-bi-cn="Microsoft 365 Copilot"
+						data-bi-ct="cta link"
+						class="btn btn-sm btn-light font-weight-normal tags__link"
+					>
+						Microsoft 365 Copilot					</a>
+				</li>
+					</ul>
+	</div>
+		</div>
+
+		<div class="block-content single-layout__content" data-bi-an="Blog Body">
+			
+
+<div class="alert alert--post mb-4 d-block bg-primary" role="alert" aria-live="polite" data-bi-an="alert">
+	<div class="alert-content w-100 base">
+		<p>
+			Microsoft Copilot with enterprise data protection is now Microsoft 365 Copilot Chat.							<a
+					href="https://aka.ms/Bettnews2025"
+					data-bi-cn="Read the blog"
+					data-bi-ct="cta link"
+									>
+					Read the blog				</a>
+					</p>
+	</div>
+</div>
+			
+<article id="post-2240" class="post-2240 post type-post status-publish format-standard has-post-thumbnail hentry audience-educators content-type-news content-type-tips-and-guides product-microsoft-365-copilot topic-ai-in-education review-flag-1722542297-467 review-flag-5-1722542297-784 review-flag-alway-1722542295-740 review-flag-free review-flag-integ-1722542295-670 review-flag-machi-1722542303-346 review-flag-new-1722542295-257 review-flag-watch-1722542301-209">
+
+	
+	<div>
+		<div class="msx-summary">
+			Explore your AI assistant for education: Microsoft 365 Copilot Chat. Learn how to get started, ways to use Copilot Chat in education, and more.		</div>
+		<div class="msx-summary-more">
+					</div>
+		
+<p id="isPasted">With new advancements in AI happening faster than ever before, you might be wondering how you can use these tools in your classroom to save you time and energy. <a title="" href="https://www.microsoft.com/en-us/education/blog/2023/12/14/expanding-microsoft-copilot-access-in-education/" target="_blank" rel="noopener noreferrer" aria-label="Click to learn more about Educators worldwide">Educators worldwide</a> are making strides to understand and integrate AI into their work and often find it to be a valuable tool. You can <a title="" href="https://www.microsoft.com/en-us/education/blog/2024/01/18/unlocking-productivity-and-personalizing-learning-with-ai/" target="_blank" rel="noopener noreferrer" aria-label="Click to learn more about using AI to save time">use AI to save time</a> creating rubrics, personalized content for students, and educational materials such as quizzes and lesson plans.  &nbsp;</p>
+
+
+
+<p>Generative AI is a newer piece of technology and a unique category of AI that focuses on creating new content. With generative AI you can generate new content like text, images, code, or audio. It achieves this by learning patterns from existing data and understanding the context and intent of language. This provides you with new opportunities for content creation, personalization, and innovation. Because this technology is creating new content, checking for accuracy in generative AI is essential—especially in the field of education. &nbsp;</p>
+
+
+
+<figure class="wp-block-image size-full"><img decoding="async" width="1920" height="1280" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2025/11/EDU22_Remote_K12_Student_009_1920px.jpg" alt="A teacher engages with a student at a desk." class="wp-image-9761" srcset="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2025/11/EDU22_Remote_K12_Student_009_1920px.jpg 1920w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2025/11/EDU22_Remote_K12_Student_009_1920px-300x200.jpg 300w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2025/11/EDU22_Remote_K12_Student_009_1920px-1024x683.jpg 1024w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2025/11/EDU22_Remote_K12_Student_009_1920px-768x512.jpg 768w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2025/11/EDU22_Remote_K12_Student_009_1920px-1536x1024.jpg 1536w" sizes="(max-width: 1920px) 100vw, 1920px" /></figure>
+
+
+
+<div class="wp-block-buttons is-content-justification-center is-layout-flex wp-container-core-buttons-is-layout-a89b3969 wp-block-buttons-is-layout-flex">
+<div class="wp-block-button has-custom-width wp-block-button__width-50 is-style-chevron-right"><a class="wp-block-button__link wp-element-button" href="https://youtu.be/K5z6t9gSO4E" target="_blank" rel="noreferrer noopener nofollow">Meet your AI assistant for education: Watch the video</a></div>
+</div>
+
+
+
+<p><a href="https://m365copilot.com/" target="_blank" rel="noreferrer noopener">Copilot</a> is a tool that uses generative AI to serve as a helpful assistant to you in the classroom. Copilot can help you save time, differentiate instruction, and enhance student learning. With Copilot, you can easily create lesson plans, quizzes, rubrics, and other class resources for any level of learner. &nbsp;</p>
+
+
+
+<h2 class="wp-block-heading" id="5-ways-to-use-copilot-in-education">5 ways to use Copilot in education&nbsp;</h2>
+
+
+
+<p>Here are just a few examples of the many ways you can use Microsoft Copilot to save time and energy:&nbsp;</p>
+
+
+
+<ul class="wp-block-list">
+<li><strong>Personalized learning:</strong> Copilot can support personalized learning by helping you create content, tailored feedback, and guidance for students based on their individual needs and learning styles.&nbsp;</li>
+
+
+
+<li><strong>Brainstorming:</strong> You can use Copilot to brainstorm new ideas for activities, lesson plans, supporting materials, and assignments. &nbsp;</li>
+
+
+
+<li><strong>Lesson planning:</strong> Copilot can help you plan lessons by suggesting or drafting activities, resources, and assessments that align with learning objectives. You can also use Copilot to start a rubric for the lessons.&nbsp;</li>
+
+
+
+<li><strong>Provide feedback:</strong> Copilot can help you draft initial feedback and ideas for students on their work, which you can edit and personalize for your students. &nbsp;</li>
+
+
+
+<li><strong>Get quick answers:</strong> Copilot can help you get quick answers to your questions without having to read through multiple search results. Also, Copilot provides links to content sources so you can assess the source or dive deeper into the original content.&nbsp;</li>
+</ul>
+
+
+<figure class="wp-block-image size-full"><img decoding="async" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/01/Microsoft-Copilot-Faculty-example-Free.webp" alt="Decorative. The landing page for Microsoft Copilot showing suggested prompts for educators." class="wp-image-6778 webp-format" data-orig-src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/01/Microsoft-Copilot-Faculty-example-Free.webp"><figcaption class="wp-element-caption">Microsoft Copilot showing suggested prompts for educators. Copilot uses generative AI to serve as a helpful assistant to you in the classroom.</figcaption></figure>
+
+
+
+<h2 class="wp-block-heading" id="getting-started-with-microsoft-copilot">Getting started with Microsoft Copilot</h2>
+
+
+
+<p>To get started with Microsoft Copilot, you can follow these steps: &nbsp;</p>
+
+
+
+<ol class="wp-block-list">
+<li>Open <a href="https://m365copilot.com/" target="_blank" rel="noreferrer noopener">m365copilot.com</a> or select the Copilot icon on the sidebar in your <a aria-label=" Click to go to Microsoft Edge" title="" href="https://www.microsoft.com/en-us/education/products/edge" target="_blank" rel="noopener noreferrer">Microsoft Edge</a> browser.&nbsp;</li>
+
+
+
+<li>Type your prompt into the chat window.&nbsp;</li>
+
+
+
+<li>Review the sources linked at the bottom by “Learn more.” You can fact-check the information provided or dive deeper into a topic by accessing the original articles, studies, or reports.&nbsp;</li>
+
+
+
+<li>Review the response to make sure the output is what you want and accurate. You are the expert, and you decide what goes into the classroom.&nbsp;</li>
+
+
+
+<li>To get the most out of Copilot, you can keep the conversation going by following up on your prompts. This helps you collaborate with Copilot to gain more useful, tailored responses.  &nbsp;</li>
+</ol>
+
+
+
+<p>You can also give feedback to Copilot based on the quality of its responses to help the AI learn and match your preferences. &nbsp;</p>
+
+
+
+<h2 class="wp-block-heading" id="how-to-write-a-prompt-for-ai">How to write a prompt for AI&nbsp;</h2>
+
+
+
+<p>To effectively guide generative AI, you want to give it clear and concise instructions, known as prompts. A well-crafted prompt enhances the generative AI’s output in the quality, relevance, and diversity. A good prompt should be clear, specific, and aligned with the goal of the generation task. A bad prompt can lead to ambiguous, irrelevant, or biased output. To get the best response from Copilot, consider the following tips: &nbsp;</p>
+
+
+
+<ul class="wp-block-list">
+<li><strong>Define clear objectives.</strong> Determine the main goal of the prompt and the role AI should take. Whether creating a syllabus, drafting a quiz, or revising lesson content, have a clear vision of the end goal.&nbsp;</li>
+
+
+
+<li><strong>Be specific. </strong>Chat experiences operate best when given detailed instructions. Specify grade level, subject, topic, or any other relevant parameters. For instance, &#8220;secondary math quiz on algebraic expressions&#8221; is clearer than &#8220;math quiz.&#8221;&nbsp;</li>
+
+
+
+<li><strong>Structure the prompt.</strong> Break complex tasks into smaller parts. Instead of asking the AI to draft an entire lesson, request an outline, then delve into specific sections.&nbsp;</li>
+
+
+
+<li><strong>Iterate and refine.</strong> The first response from AI might not always align perfectly with expectations. Don&#8217;t hesitate to rephrase the prompt, ask follow-up questions, or provide more context based on the initial output.&nbsp;</li>
+
+
+
+<li><strong>Combine expertise.</strong> Use AI as a tool to enhance and streamline work but remember to overlay its suggestions with your educational expertise. AI can suggest content, but the educator decides the best way to edit and present it to their audience. &nbsp;&nbsp;</li>
+</ul>
+
+
+
+<figure class="wp-block-image size-large"><img decoding="async" width="791" height="1024" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-3-791x1024.jpeg" alt="An infographic that explains how to craft effective prompts for AI tools and provides five key elements: conversation style, specific instructions, tailor for audience, specify length, specify format." class="wp-image-5422" srcset="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-3-791x1024.jpeg 791w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-3-232x300.jpeg 232w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-3-768x994.jpeg 768w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-3-1187x1536.jpeg 1187w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-3.jpeg 1200w" sizes="(max-width: 791px) 100vw, 791px" /><figcaption class="wp-element-caption"><em>An infographic about how to write AI prompts to get better answers from Copilot. A good prompt should be clear, specific, and aligned with the goal of the task.&nbsp;</em></figcaption></figure>
+
+
+
+<p>Want a fun way to practice creating effective prompts? Minecraft Education just announced <a title="" href="https://education.minecraft.net/en-us/blog/prompt-lab-bett" target="_blank" rel="noopener noreferrer" aria-label="Click to learn more about Prompt Lab for Minecraft Educators">Prompt Lab for Minecraft Educators</a>, a free playbook on how to use Microsoft Copilot to write compelling prompts, develop interactive learning content and assessments, and generate creative ideas for Minecraft lesson plans. &nbsp;&nbsp;</p>
+
+
+
+<h2 class="wp-block-heading" id="create-images-from-text-with-copilot">Create images from text with Copilot&nbsp;</h2>
+
+
+
+<p>You can use Image Creator from Designer in Copilot to create personalized, engaging visuals for all sorts of lessons or topics. You can type in a description of an image, provide additional context like location or activity, and choose an art style. Image Creator generates an image straight from your imagination. Prompts can begin with “draw an image” or “create an image.” You can use this tool to create images for a class newsletter, lesson, or <a title="" href="https://www.microsoft.com/en-us/education/products/teams" target="_blank" rel="noopener noreferrer" aria-label=" Click to go to Teams">Teams</a> post. &nbsp;&nbsp;</p>
+
+
+
+<ul class="wp-block-list">
+<li>Get started in <a href="https://m365copilot.com/" target="_blank" rel="noreferrer noopener">Copilot</a> prompting “create an image…” &nbsp;</li>
+
+
+
+<li>Then build out your prompt with adjective + noun + verb + style. &nbsp;</li>
+
+
+
+<li>Click on your favorite image to open the result in a new tab and save the image.&nbsp;</li>
+</ul>
+
+
+
+<p>&nbsp;An example would be “Create an image of an adorable black puppy wearing a hat in photorealistic style.”&nbsp;</p>
+
+
+<figure class="wp-block-image size-large"><img decoding="async" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1-1024x871.webp" alt="A Microsoft Copilot chat displaying four generated images of a black puppy wearing a hat in photorealistic style, with options to ask anything or continue the conversation." class="wp-image-5423 webp-format" srcset="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1-1024x871.webp 1024w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1-300x255.webp 300w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1-768x653.webp 768w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1-1536x1306.webp 1536w, https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1.webp 1722w" sizes="(max-width: 1024px) 100vw, 1024px" data-orig-src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/image-1-1024x871.webp"><figcaption class="wp-element-caption"><em>An example of Copilot creating an image of a black dog wearing a hat in a photorealistic style, based on text descriptions.&nbsp;</em></figcaption></figure>
+
+
+
+<p>Try creating an image in <a href="https://m365copilot.com/" target="_blank" rel="noreferrer noopener">Copilot</a> for your lesson, or just for fun! &nbsp;&nbsp;</p>
+
+
+
+<h2 class="wp-block-heading" id="protected-ai-powered-chat">Protected AI-powered chat</h2>
+
+
+<div class="wp-block-msxcm-kicker-container">
+	<div class=" wp-block-msxcm-kicker-block wp-block-msxcm-kicker--align-left" data-bi-an="Kicker Left">
+		<p class="wp-block-msxcm-kicker__title small text-neutral-400 text-uppercase">
+			large language models		</p>
+		<a
+			class="wp-block-msxcm-kicker__cta btn btn-link p-0 text-decoration-none"
+			href="https://www.microsoft.com/en-us/microsoft-cloud/blog/2024/10/09/5-key-features-and-benefits-of-large-language-models/"
+			target="_blank"		>
+			<span>Learn more</span> <span class="glyph-append glyph-append-xsmall wp-block-msxcm-kicker__glyph glyph-append-go"></span>
+		</a>
+	</div>
+</div>
+
+
+
+<p>At Microsoft, our efforts are guided by our AI principles and Responsible AI Standard and build on decades of research on grounding and privacy-preserving machine learning. Copilot provides commercial data protection and delivers a secure AI-powered chat service for educational institutions. This means user and organizational data are protected, chat prompts and responses in Copilot are not saved, Microsoft has no eyes-on access to them, and they aren’t used to train the underlying large language models (LLMs). Additionally, our <a title="" aria-label="Click to learn more about Customer Copyright Commitment" href="https://blogs.microsoft.com/on-the-issues/2023/09/07/copilot-copyright-commitment-ai-legal-concerns/?culture=en-us&amp;country=us" target="_blank" rel="noopener noreferrer">Customer Copyright Commitment</a> means education customers can be confident using our services and the output they generate without worrying about copyright claims. &nbsp;</p>
+
+
+
+<h2 class="wp-block-heading" id="get-to-know-your-copilot">Get to know your Copilot&nbsp;</h2>
+
+
+
+<p>Dive deeper into the world of generative AI and unlock its full potential for your classroom. &nbsp;</p>
+
+
+
+<ul class="wp-block-list">
+<li>The new <a title="" href="https://aka.ms/AIforEducatorsLearningPath" target="_blank" rel="noopener noreferrer" aria-label="Click to learn more about AI for Educators Learning Path">AI for Educators Learning Path</a> on <a title="" href="https://learn.microsoft.com/en-us/" target="_blank" rel="noopener noreferrer" aria-label=" Click to go to Microsoft Learn">Microsoft Learn</a> is made up of three modules to help educators learn about and benefit from AI.&nbsp;</li>
+
+
+
+<li><a title="" href="https://education.minecraft.net/en-us/blog/prompt-lab-bett" target="_blank" rel="noopener noreferrer" aria-label=" Click to go to Prompt Lab for Minecraft Educators">Prompt Lab for Minecraft Educators</a> demonstrates how to use Microsoft Copilot with Minecraft Education to design engaging learning experiences. Level up your Minecraft teaching with this useful new resource!&nbsp;</li>
+
+
+
+<li><a title="" href="https://learn.microsoft.com/en-us/training/educator-center/instructor-materials/classroom-toolkit-unlock-generative-ai-safely-responsibly" target="_blank" rel="noopener noreferrer" aria-label=" Click to go to AI classroom toolkit">AI classroom toolkit</a> provides instructional information for educators and students to use generative AI safely and responsibly.&nbsp;</li>
+
+
+
+<li><a title="" href="https://learn.microsoft.com/en-us/training/educator-center/topics/ai-for-education" target="_blank" rel="noopener noreferrer" aria-label=" Click to go to AI for education">AI for education</a> on <a title="" href="https://learn.microsoft.com/en-us/" target="_blank" rel="noopener noreferrer" aria-label=" Click to go to Microsoft Learn">Microsoft Learn</a> is a collection of resources and courses on how to use AI for educational purposes. &nbsp;</li>
+</ul>
+
+
+
+<p>Ready to elevate your teaching with Microsoft Copilot? Start using Copilot today! <a href="https://m365copilot.com/" target="_blank" rel="noreferrer noopener">m365copilot.com</a></p>
+			</div>
+
+	
+</article><!-- #post-2240 -->
+			
+<div class="author-card" itemscope itemtype="https://schema.org/Person">
+			<div class="author-card__image">
+			<img alt='' src='https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/images/default-avatar.png' class='avatar avatar-260 photo avatar-default rounded-circle depth-2' height='260' width='260' />		</div>
+		<div class="author-card__content">
+		<h2 class="author-card__name" itemprop="name">Microsoft Education Team</h2>
+
+		
+					<ul class="list-unstyled d-flex align-items-center author-hero__social">
+									<li class="list-inline-item my-0">
+						<a
+							class="d-flex author-hero__social-link author-hero__social-link--linkedin"
+							aria-label="LinkedIn"
+							data-bi-cn="LinkedIn"
+							href="https://www.linkedin.com/showcase/microsoft-in-education"
+							target="_blank"
+							rel="noreferrer noopener"
+						>
+							<span  aria-hidden="true" class="msx-svg"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"><path fill="currentColor" d="M19.927 20.283h-3.45v-5.535c0-1.305-.038-3.005-1.783-3.005-1.783 0-2.093 1.423-2.093 2.926v5.614h-3.45V8.936h3.295v1.542h.04a3.54 3.54 0 0 1 3.294-1.819c3.488 0 4.147 2.372 4.147 5.417zM5.237 7.393c-1.124 0-2.016-.909-2.016-2.055s.892-2.056 2.016-2.056 2.015.91 2.015 2.056-.891 2.056-2.015 2.056Zm1.744 12.89H3.493V8.936h3.45v11.347zM21.671 0H1.748C.818 0 .043.751.043 1.7v20.402c0 .95.775 1.74 1.705 1.7h19.885c.93 0 1.705-.75 1.744-1.7V1.7c0-.949-.775-1.7-1.706-1.7" /></svg></span>						</a>
+					</li>
+				
+							</ul>
+		
+		
+		<a href="https://www.microsoft.com/en-us/education/blog/author/microsoft-education-team/" class="author-card__link">
+			See more articles from this author &gt;		</a>
+	</div>
+</div>
+
+		</div>
+
+					<div class="single-layout__related">
+				
+<section data-bi-an="Related Articles">
+	<div class="container px-0">
+		<h2 class="font-weight-seminormal mb-3 mb-md-4">
+			Related Posts		</h2>
+		<ul class="mb-0 list-unstyled row row-cols-1 row-cols-md-3">
+			<li class="col d-flex mb-3">
+<article class="is-entire-card-clickable msx-card h-100 msx-card--vertical" data-bi-an="Related posts">
+	<div class="msx-card__image-container">
+		<img width="755" height="472" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/Microsoft-Education-AI-in-Education-Report-hero1.jpg" class="msx-card__image img-object-cover msx-card__image--fixed-height wp-post-image" alt="Teacher engaged with a student, both looking at a laptop in a classroom." loading="lazy" />	</div>
+
+	<div class="msx-card__body">
+					<ul class="list-unstyled list-bullet-inline align-items-center small msx-card__meta">
+										<li class="m-0 d-inline-flex align-items-center" data-bi-slot="2" data-bi-name="education trends" data-bi-cn="Education trends">
+							<a href="https://www.microsoft.com/en-us/education/blog/content-type/education-trends/" data-bi-id="326" data-bi-ct="post categories">
+								Education trends							</a>
+						</li>
+														<li class="m-0 d-inline-flex align-items-center">
+					Apr 25, 2024				</li>
+				<li class="m-0 d-inline-flex align-items-center">
+					5 min read				</li>
+			</ul>
+		
+					<h3 class="msx-card__title">
+				<a data-bi-slot="2" data-bi-name="explore insights from the ai in education report" data-bi-cn="Explore insights from the AI in Education Report" data-bi-id="5196" data-bi-ct="title link" data-bi-tn="content-card" href="https://www.microsoft.com/en-us/education/blog/2024/04/explore-insights-from-the-ai-in-education-report/">
+					<span>Explore insights from the AI in Education Report</span>&nbsp;<span class="glyph glyph-append glyph-prepend-chevron-right" aria-hidden="true"></span>
+				</a>
+			</h3>
+		
+			</div>
+</article>
+</li><li class="col d-flex mb-3">
+<article class="is-entire-card-clickable msx-card h-100 msx-card--vertical" data-bi-an="Related posts">
+	<div class="msx-card__image-container">
+		<img width="755" height="472" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/Microsoft-Education-AI-Toolkit-blog-hero1.jpg" class="msx-card__image img-object-cover msx-card__image--fixed-height wp-post-image" alt="Two people engaged in conversation while looking at a computer together." loading="lazy" />	</div>
+
+	<div class="msx-card__body">
+					<ul class="list-unstyled list-bullet-inline align-items-center small msx-card__meta">
+										<li class="m-0 d-inline-flex align-items-center" data-bi-slot="3" data-bi-name="education trends" data-bi-cn="Education trends">
+							<a href="https://www.microsoft.com/en-us/education/blog/content-type/education-trends/" data-bi-id="326" data-bi-ct="post categories">
+								Education trends							</a>
+						</li>
+														<li class="m-0 d-inline-flex align-items-center">
+					Apr 9, 2024				</li>
+				<li class="m-0 d-inline-flex align-items-center">
+					4 min read				</li>
+			</ul>
+		
+					<h3 class="msx-card__title">
+				<a data-bi-slot="3" data-bi-name="kickstart your school’s ai journey with the microsoft education ai toolkit" data-bi-cn="Kickstart your school’s AI journey with the Microsoft Education AI Toolkit" data-bi-id="5228" data-bi-ct="title link" data-bi-tn="content-card" href="https://www.microsoft.com/en-us/education/blog/2024/04/kickstart-your-schools-ai-journey-with-the-microsoft-education-ai-toolkit/">
+					<span>Kickstart your school’s AI journey with the Microsoft Education AI Toolkit</span>&nbsp;<span class="glyph glyph-append glyph-prepend-chevron-right" aria-hidden="true"></span>
+				</a>
+			</h3>
+		
+			</div>
+</article>
+</li><li class="col d-flex mb-3">
+<article class="is-entire-card-clickable msx-card h-100 msx-card--vertical" data-bi-an="Related posts">
+	<div class="msx-card__image-container">
+		<img width="755" height="472" src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/06/Microsoft-Education-prompting-tips.jpg" class="msx-card__image img-object-cover msx-card__image--fixed-height wp-post-image" alt="Decorative. A teacher sitting at a desk in a classroom and using Microsoft Copilot on a laptop. There are blue graphic designs framing the photo and it says, “Five quick tips to get more from your AI assistant” on the left side." loading="lazy" />	</div>
+
+	<div class="msx-card__body">
+					<ul class="list-unstyled list-bullet-inline align-items-center small msx-card__meta">
+										<li class="m-0 d-inline-flex align-items-center" data-bi-slot="4" data-bi-name="tips and guides" data-bi-cn="Tips and guides">
+							<a href="https://www.microsoft.com/en-us/education/blog/content-type/tips-and-guides/" data-bi-id="327" data-bi-ct="post categories">
+								Tips and guides							</a>
+						</li>
+														<li class="m-0 d-inline-flex align-items-center">
+					Jun 11, 2024				</li>
+				<li class="m-0 d-inline-flex align-items-center">
+					3 min read				</li>
+			</ul>
+		
+					<h3 class="msx-card__title">
+				<a data-bi-slot="4" data-bi-name="five quick prompting tips to get more from your ai assistant" data-bi-cn="Five quick prompting tips to get more from your AI assistant" data-bi-id="5794" data-bi-ct="title link" data-bi-tn="content-card" href="https://www.microsoft.com/en-us/education/blog/2024/06/five-quick-prompting-tips-to-get-more-from-your-ai-assistant/">
+					<span>Five quick prompting tips to get more from your AI assistant</span>&nbsp;<span class="glyph glyph-append glyph-prepend-chevron-right" aria-hidden="true"></span>
+				</a>
+			</h3>
+		
+			</div>
+</article>
+</li>		</ul>
+	</div>
+</section>
+			</div>
+		
+</main>
+
+<div class="background-ornaments" aria-hidden="true">
+	<div class="background-ornaments__item background-ornaments__item--1"></div>
+	<div class="background-ornaments__item background-ornaments__item--2"></div>
+	<div class="background-ornaments__item background-ornaments__item--3"></div>
+	<div class="background-ornaments__item background-ornaments__item--4"></div>
+</div>
+
+ 	<div class="footer-prefix-container">
+		
+<div class="wp-block-group alignfull is-style-rounded-top footer-prefix has-brand-dark-background-color has-background is-layout-flow wp-block-group-is-layout-flow"><div class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile"><div class="wp-block-media-text__content">
+<h2 class="wp-block-heading" id="discover-the-possibilities-of-ai-in-education-1"><span class="text-gradient"><strong>AI in education brings opportunity to life</strong></span></h2>
+
+
+
+<p>Watch Reimagine Education</p>
+
+
+
+<div class="wp-block-buttons is-layout-flex wp-block-buttons-is-layout-flex">
+<div class="wp-block-button is-style-light"><a class="wp-block-button__link wp-element-button" href="https://www.microsoft.com/en-us/education/reimagine">Learn more</a></div>
+</div>
+
+
+
+<div class="wp-block-group footer-prefix__social is-nowrap is-layout-flex wp-container-core-group-is-layout-6c531013 wp-block-group-is-layout-flex">
+<p>Connect with us on social</p>
+
+
+
+<ul class="wp-block-social-links alignleft is-style-light is-content-justification-left is-layout-flex wp-container-core-social-links-is-layout-24a44033 wp-block-social-links-is-layout-flex"><li class="wp-social-link wp-social-link-x  wp-block-social-link"><a href="https://twitter.com/MicrosoftEDU/" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M13.982 10.622 20.54 3h-1.554l-5.693 6.618L8.745 3H3.5l6.876 10.007L3.5 21h1.554l6.012-6.989L15.868 21h5.245l-7.131-10.378Zm-2.128 2.474-.697-.997-5.543-7.93H8l4.474 6.4.697.996 5.815 8.318h-2.387l-4.745-6.787Z"></path></svg><span class="wp-block-social-link-label screen-reader-text">X</span></a></li>
+
+<li class="wp-social-link wp-social-link-youtube  wp-block-social-link"><a href="https://www.youtube.com/user/Microsoftedu" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M21.8,8.001c0,0-0.195-1.378-0.795-1.985c-0.76-0.797-1.613-0.801-2.004-0.847c-2.799-0.202-6.997-0.202-6.997-0.202 h-0.009c0,0-4.198,0-6.997,0.202C4.608,5.216,3.756,5.22,2.995,6.016C2.395,6.623,2.2,8.001,2.2,8.001S2,9.62,2,11.238v1.517 c0,1.618,0.2,3.237,0.2,3.237s0.195,1.378,0.795,1.985c0.761,0.797,1.76,0.771,2.205,0.855c1.6,0.153,6.8,0.201,6.8,0.201 s4.203-0.006,7.001-0.209c0.391-0.047,1.243-0.051,2.004-0.847c0.6-0.607,0.795-1.985,0.795-1.985s0.2-1.618,0.2-3.237v-1.517 C22,9.62,21.8,8.001,21.8,8.001z M9.935,14.594l-0.001-5.62l5.404,2.82L9.935,14.594z"></path></svg><span class="wp-block-social-link-label screen-reader-text">YouTube</span></a></li>
+
+<li class="wp-social-link wp-social-link-linkedin  wp-block-social-link"><a href="https://www.linkedin.com/showcase/microsoft-in-education" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M19.7,3H4.3C3.582,3,3,3.582,3,4.3v15.4C3,20.418,3.582,21,4.3,21h15.4c0.718,0,1.3-0.582,1.3-1.3V4.3 C21,3.582,20.418,3,19.7,3z M8.339,18.338H5.667v-8.59h2.672V18.338z M7.004,8.574c-0.857,0-1.549-0.694-1.549-1.548 c0-0.855,0.691-1.548,1.549-1.548c0.854,0,1.547,0.694,1.547,1.548C8.551,7.881,7.858,8.574,7.004,8.574z M18.339,18.338h-2.669 v-4.177c0-0.996-0.017-2.278-1.387-2.278c-1.389,0-1.601,1.086-1.601,2.206v4.249h-2.667v-8.59h2.559v1.174h0.037 c0.356-0.675,1.227-1.387,2.526-1.387c2.703,0,3.203,1.779,3.203,4.092V18.338z"></path></svg><span class="wp-block-social-link-label screen-reader-text">LinkedIn</span></a></li>
+
+<li class="wp-social-link wp-social-link-instagram  wp-block-social-link"><a href="https://www.instagram.com/microsoftedu/" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M12,4.622c2.403,0,2.688,0.009,3.637,0.052c0.877,0.04,1.354,0.187,1.671,0.31c0.42,0.163,0.72,0.358,1.035,0.673 c0.315,0.315,0.51,0.615,0.673,1.035c0.123,0.317,0.27,0.794,0.31,1.671c0.043,0.949,0.052,1.234,0.052,3.637 s-0.009,2.688-0.052,3.637c-0.04,0.877-0.187,1.354-0.31,1.671c-0.163,0.42-0.358,0.72-0.673,1.035 c-0.315,0.315-0.615,0.51-1.035,0.673c-0.317,0.123-0.794,0.27-1.671,0.31c-0.949,0.043-1.233,0.052-3.637,0.052 s-2.688-0.009-3.637-0.052c-0.877-0.04-1.354-0.187-1.671-0.31c-0.42-0.163-0.72-0.358-1.035-0.673 c-0.315-0.315-0.51-0.615-0.673-1.035c-0.123-0.317-0.27-0.794-0.31-1.671C4.631,14.688,4.622,14.403,4.622,12 s0.009-2.688,0.052-3.637c0.04-0.877,0.187-1.354,0.31-1.671c0.163-0.42,0.358-0.72,0.673-1.035 c0.315-0.315,0.615-0.51,1.035-0.673c0.317-0.123,0.794-0.27,1.671-0.31C9.312,4.631,9.597,4.622,12,4.622 M12,3 C9.556,3,9.249,3.01,8.289,3.054C7.331,3.098,6.677,3.25,6.105,3.472C5.513,3.702,5.011,4.01,4.511,4.511 c-0.5,0.5-0.808,1.002-1.038,1.594C3.25,6.677,3.098,7.331,3.054,8.289C3.01,9.249,3,9.556,3,12c0,2.444,0.01,2.751,0.054,3.711 c0.044,0.958,0.196,1.612,0.418,2.185c0.23,0.592,0.538,1.094,1.038,1.594c0.5,0.5,1.002,0.808,1.594,1.038 c0.572,0.222,1.227,0.375,2.185,0.418C9.249,20.99,9.556,21,12,21s2.751-0.01,3.711-0.054c0.958-0.044,1.612-0.196,2.185-0.418 c0.592-0.23,1.094-0.538,1.594-1.038c0.5-0.5,0.808-1.002,1.038-1.594c0.222-0.572,0.375-1.227,0.418-2.185 C20.99,14.751,21,14.444,21,12s-0.01-2.751-0.054-3.711c-0.044-0.958-0.196-1.612-0.418-2.185c-0.23-0.592-0.538-1.094-1.038-1.594 c-0.5-0.5-1.002-0.808-1.594-1.038c-0.572-0.222-1.227-0.375-2.185-0.418C14.751,3.01,14.444,3,12,3L12,3z M12,7.378 c-2.552,0-4.622,2.069-4.622,4.622S9.448,16.622,12,16.622s4.622-2.069,4.622-4.622S14.552,7.378,12,7.378z M12,15 c-1.657,0-3-1.343-3-3s1.343-3,3-3s3,1.343,3,3S13.657,15,12,15z M16.804,6.116c-0.596,0-1.08,0.484-1.08,1.08 s0.484,1.08,1.08,1.08c0.596,0,1.08-0.484,1.08-1.08S17.401,6.116,16.804,6.116z"></path></svg><span class="wp-block-social-link-label screen-reader-text">Instagram</span></a></li>
+
+<li class="wp-social-link wp-social-link-tiktok  wp-block-social-link"><a href="https://www.tiktok.com/@microsoftedu" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 32 32" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M16.708 0.027c1.745-0.027 3.48-0.011 5.213-0.027 0.105 2.041 0.839 4.12 2.333 5.563 1.491 1.479 3.6 2.156 5.652 2.385v5.369c-1.923-0.063-3.855-0.463-5.6-1.291-0.76-0.344-1.468-0.787-2.161-1.24-0.009 3.896 0.016 7.787-0.025 11.667-0.104 1.864-0.719 3.719-1.803 5.255-1.744 2.557-4.771 4.224-7.88 4.276-1.907 0.109-3.812-0.411-5.437-1.369-2.693-1.588-4.588-4.495-4.864-7.615-0.032-0.667-0.043-1.333-0.016-1.984 0.24-2.537 1.495-4.964 3.443-6.615 2.208-1.923 5.301-2.839 8.197-2.297 0.027 1.975-0.052 3.948-0.052 5.923-1.323-0.428-2.869-0.308-4.025 0.495-0.844 0.547-1.485 1.385-1.819 2.333-0.276 0.676-0.197 1.427-0.181 2.145 0.317 2.188 2.421 4.027 4.667 3.828 1.489-0.016 2.916-0.88 3.692-2.145 0.251-0.443 0.532-0.896 0.547-1.417 0.131-2.385 0.079-4.76 0.095-7.145 0.011-5.375-0.016-10.735 0.025-16.093z"></path></svg><span class="wp-block-social-link-label screen-reader-text">TikTok</span></a></li>
+
+<li class="wp-social-link wp-social-link-facebook  wp-block-social-link"><a href="https://www.facebook.com/microsoftineducation" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M12 2C6.5 2 2 6.5 2 12c0 5 3.7 9.1 8.4 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.3v7C18.3 21.1 22 17 22 12c0-5.5-4.5-10-10-10z"></path></svg><span class="wp-block-social-link-label screen-reader-text">Facebook</span></a></li>
+
+<li class="wp-social-link wp-social-link-pinterest  wp-block-social-link"><a href="https://www.pinterest.com/microsoftedu/" class="wp-block-social-link-anchor"><svg width="24" height="24" viewbox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M12.289,2C6.617,2,3.606,5.648,3.606,9.622c0,1.846,1.025,4.146,2.666,4.878c0.25,0.111,0.381,0.063,0.439-0.169 c0.044-0.175,0.267-1.029,0.365-1.428c0.032-0.128,0.017-0.237-0.091-0.362C6.445,11.911,6.01,10.75,6.01,9.668 c0-2.777,2.194-5.464,5.933-5.464c3.23,0,5.49,2.108,5.49,5.122c0,3.407-1.794,5.768-4.13,5.768c-1.291,0-2.257-1.021-1.948-2.277 c0.372-1.495,1.089-3.112,1.089-4.191c0-0.967-0.542-1.775-1.663-1.775c-1.319,0-2.379,1.309-2.379,3.059 c0,1.115,0.394,1.869,0.394,1.869s-1.302,5.279-1.54,6.261c-0.405,1.666,0.053,4.368,0.094,4.604 c0.021,0.126,0.167,0.169,0.25,0.063c0.129-0.165,1.699-2.419,2.142-4.051c0.158-0.59,0.817-2.995,0.817-2.995 c0.43,0.784,1.681,1.446,3.013,1.446c3.963,0,6.822-3.494,6.822-7.833C20.394,5.112,16.849,2,12.289,2"></path></svg><span class="wp-block-social-link-label screen-reader-text">Pinterest</span></a></li></ul>
+</div>
+</div><figure class="wp-block-media-text__media"><img src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/People_New.webp" alt="" class="wp-image-5704 size-full webp-format" data-orig-src="https://www.microsoft.com/en-us/education/blog/wp-content/uploads/2024/05/People_New.webp"></figure></div>
+</div>
+
+
+
+<div class="wp-block-group alignfull footer-prefix-blocks is-layout-flow wp-block-group-is-layout-flow">
+<div class="wp-block-columns alignwide is-layout-flex wp-container-core-columns-is-layout-28f84493 wp-block-columns-is-layout-flex">
+<div class="wp-block-column is-layout-flow wp-block-column-is-layout-flow">
+<div class="wp-block-group is-style-rounded is-entire-card-clickable has-body-background-background-color has-background is-layout-constrained wp-block-group-is-layout-constrained">
+<figure class="wp-block-image size-medium"><img src="https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/images/icon-stories.png" alt="Stories"/></figure>
+
+
+
+<h2 class="wp-block-heading" id="subscribe-to-our-newsletter">School stories</h2>
+
+
+
+<p>Get inspired by stories from Microsoft Education customers.</p>
+
+
+
+<div class="wp-block-buttons is-layout-flex wp-block-buttons-is-layout-flex">
+<div class="wp-block-button is-style-link"><a class="wp-block-button__link wp-element-button" href="https://www.microsoft.com/en-us/customers/search?filters=industry%3Aeducation">Read now</a></div>
+</div>
+</div>
+</div>
+
+
+
+<div class="wp-block-column is-layout-flow wp-block-column-is-layout-flow">
+<div class="wp-block-group is-style-rounded is-entire-card-clickable has-body-background-background-color has-background is-layout-constrained wp-block-group-is-layout-constrained">
+<figure class="wp-block-image size-medium"><img src="https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/images/icon-education-center.png" alt="Edu Center"/></figure>
+
+
+
+<h2 class="wp-block-heading" id="subscribe-to-our-newsletter">Microsoft Learn Educator Center</h2>
+
+
+
+<p>Expand possibilities with educator training and professional learning resources.</p>
+
+
+
+<div class="wp-block-buttons is-layout-flex wp-block-buttons-is-layout-flex">
+<div class="wp-block-button is-style-link"><a class="wp-block-button__link wp-element-button" href="https://education.microsoft.com/">Visit center</a></div>
+</div>
+</div>
+</div>
+
+
+
+<div class="wp-block-column is-layout-flow wp-block-column-is-layout-flow">
+<div class="wp-block-group is-style-rounded is-entire-card-clickable has-body-background-background-color has-background is-layout-constrained wp-block-group-is-layout-constrained">
+<figure class="wp-block-image size-medium"><img src="https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/images/icon-resources.png" alt="Resources"/></figure>
+
+
+
+<h2 class="wp-block-heading" id="subscribe-to-our-newsletter">Resources</h2>
+
+
+
+<p>Discover a collection of resources to support a variety of educational topics.</p>
+
+
+
+<div class="wp-block-buttons is-layout-flex wp-block-buttons-is-layout-flex">
+<div class="wp-block-button is-style-link"><a class="wp-block-button__link wp-element-button" href="https://www.microsoft.com/en-us/education/school-leaders/resource-center">View resources</a></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+	</div>
+	<div id="footerArea" class="uhf"  data-m='{"cN":"footerArea","cT":"Area_coreuiArea","id":"a2Body","sN":2,"aN":"Body"}'>
+                <div id="footerRegion"      data-region-key="footerregion" data-m='{"cN":"footerRegion","cT":"Region_coreui-region","id":"r1a2","sN":1,"aN":"a2"}' >
+
+    <div  id="footerUniversalFooter" data-m='{"cN":"footerUniversalFooter","cT":"Module_coreui-universalfooter","id":"m1r1a2","sN":1,"aN":"r1a2"}'  data-module-id="Category|footerRegion|coreui-region|footerUniversalFooter|coreui-universalfooter">
+        
+
+
+
+<footer id="uhf-footer" class="c-uhff context-uhf"  data-uhf-mscc-rq="false" data-footer-footprint="/epgeam/epgeamfooter_edu, fromService: True" data-m='{"cN":"Uhf footer_cont","cT":"Container","id":"c1m1r1a2","sN":1,"aN":"m1r1a2"}'>
+        <nav class="c-uhff-nav" aria-label="Footer Resource links" data-m='{"cN":"Footer nav_cont","cT":"Container","id":"c1c1m1r1a2","sN":1,"aN":"c1m1r1a2"}'>
+            
+                <div class="c-uhff-nav-row">
+                    <div class="c-uhff-nav-group" data-m='{"cN":"footerNavColumn1_cont","cT":"Container","id":"c1c1c1m1r1a2","sN":1,"aN":"c1c1m1r1a2"}'>
+                        <div class="c-heading-4" role="heading" aria-level="2">What&#39;s new</div>
+                        <ul class="c-list f-bare">
+                            <li>
+                                <a aria-label="Surface Pro What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/surface/devices/surface-pro" data-m='{"cN":"Footer_WhatsNew_NewSurfacePro_nav","id":"n1c1c1c1m1r1a2","sN":1,"aN":"c1c1c1m1r1a2"}'>Surface Pro</a>
+                            </li>
+                            <li>
+                                <a aria-label="Surface Laptop What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/surface/devices/surface-laptop" data-m='{"cN":"Footer_WhatsNew_SurfaceLaptop_nav","id":"n2c1c1c1m1r1a2","sN":2,"aN":"c1c1c1m1r1a2"}'>Surface Laptop</a>
+                            </li>
+                            <li>
+                                <a aria-label="Surface Laptop Studio 2 What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/en-us/d/Surface-Laptop-Studio-2/8rqr54krf1dz" data-m='{"cN":"Footer_WhatsNew_SurfaceLaptopStudio2_nav","id":"n3c1c1c1m1r1a2","sN":3,"aN":"c1c1c1m1r1a2"}'>Surface Laptop Studio 2</a>
+                            </li>
+                            <li>
+                                <a aria-label="Copilot for organizations What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/en-us/microsoft-copilot/organizations?icid=DSM_Footer_CopilotOrganizations" data-m='{"cN":"Footer_WhatsNew_CopilotMicrosoft_nav","id":"n4c1c1c1m1r1a2","sN":4,"aN":"c1c1c1m1r1a2"}'>Copilot for organizations</a>
+                            </li>
+                            <li>
+                                <a aria-label="Copilot for personal use What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/en-us/microsoft-copilot/for-individuals?form=MY02PT&amp;OCID=GE_web_Copilot_Free_868g3t5nj" data-m='{"cN":"Footer_WhatsNew_CopilotPersonal_nav","id":"n5c1c1c1m1r1a2","sN":5,"aN":"c1c1c1m1r1a2"}'>Copilot for personal use</a>
+                            </li>
+                            <li>
+                                <a aria-label="AI in Windows What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/en-us/windows/ai-features?icid=DSM_Footer_WhatsNew_AIinWindows" data-m='{"cN":"Whatsnew_AIinWindows_nav","id":"n6c1c1c1m1r1a2","sN":6,"aN":"c1c1c1m1r1a2"}'>AI in Windows</a>
+                            </li>
+                            <li>
+                                <a aria-label="Explore Microsoft products What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/en-us/microsoft-products-and-apps" data-m='{"cN":"Footer_WhatsNew_ExploreMicrosoftProducts_nav","id":"n7c1c1c1m1r1a2","sN":7,"aN":"c1c1c1m1r1a2"}'>Explore Microsoft products</a>
+                            </li>
+                            <li>
+                                <a aria-label="Windows 11 apps What&#39;s new" class="c-uhff-link" href="https://www.microsoft.com/en-us/windows/apps-for-windows?icid=DSM_Footer_WhatsNew_Windows11apps" data-m='{"cN":"Footer_WhatsNew_Windows_11_apps_nav","id":"n8c1c1c1m1r1a2","sN":8,"aN":"c1c1c1m1r1a2"}'>Windows 11 apps</a>
+                            </li>
+
+                        </ul>
+                        
+                    </div>
+                    <div class="c-uhff-nav-group" data-m='{"cN":"footerNavColumn2_cont","cT":"Container","id":"c2c1c1m1r1a2","sN":2,"aN":"c1c1m1r1a2"}'>
+                        <div class="c-heading-4" role="heading" aria-level="2">Microsoft Store</div>
+                        <ul class="c-list f-bare">
+                            <li>
+                                <a aria-label="Account profile Microsoft Store" class="c-uhff-link" href="https://account.microsoft.com/" data-m='{"cN":"Footer_StoreandSupport_AccountProfile_nav","id":"n1c2c1c1m1r1a2","sN":1,"aN":"c2c1c1m1r1a2"}'>Account profile</a>
+                            </li>
+                            <li>
+                                <a aria-label="Download Center Microsoft Store" class="c-uhff-link" href="https://www.microsoft.com/en-us/download" data-m='{"cN":"Footer_StoreandSupport_DownloadCenter_nav","id":"n2c2c1c1m1r1a2","sN":2,"aN":"c2c1c1m1r1a2"}'>Download Center</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Store support Microsoft Store" class="c-uhff-link" href="https://go.microsoft.com/fwlink/?linkid=2139749" data-m='{"cN":"Footer_StoreandSupport_SalesAndSupport_nav","id":"n3c2c1c1m1r1a2","sN":3,"aN":"c2c1c1m1r1a2"}'>Microsoft Store support</a>
+                            </li>
+                            <li>
+                                <a aria-label="Returns Microsoft Store" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/returns" data-m='{"cN":"Footer_StoreandSupport_Returns_nav","id":"n4c2c1c1m1r1a2","sN":4,"aN":"c2c1c1m1r1a2"}'>Returns</a>
+                            </li>
+                            <li>
+                                <a aria-label="Order tracking Microsoft Store" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/order-tracking" data-m='{"cN":"Footer_StoreandSupport_OrderTracking_nav","id":"n5c2c1c1m1r1a2","sN":5,"aN":"c2c1c1m1r1a2"}'>Order tracking</a>
+                            </li>
+                            <li>
+                                <a aria-label="Certified Refurbished Microsoft Store" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/certified-refurbished-products" data-m='{"cN":"Footer_StoreandSupport_StoreLocations_nav","id":"n6c2c1c1m1r1a2","sN":6,"aN":"c2c1c1m1r1a2"}'>Certified Refurbished</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Store Promise Microsoft Store" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/why-microsoft-store?icid=footer_why-msft-store_7102020" data-m='{"cN":"Footer_StoreandSupport_MicrosoftPromise_nav","id":"n7c2c1c1m1r1a2","sN":7,"aN":"c2c1c1m1r1a2"}'>Microsoft Store Promise</a>
+                            </li>
+                            <li>
+                                <a aria-label="Flexible Payments Microsoft Store" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/payment-financing-options?icid=footer_financing_vcc" data-m='{"cN":"Footer_StoreandSupport_Financing_nav","id":"n8c2c1c1m1r1a2","sN":8,"aN":"c2c1c1m1r1a2"}'>Flexible Payments</a>
+                            </li>
+
+                        </ul>
+                        
+                    </div>
+                    <div class="c-uhff-nav-group" data-m='{"cN":"footerNavColumn3_cont","cT":"Container","id":"c3c1c1m1r1a2","sN":3,"aN":"c1c1m1r1a2"}'>
+                        <div class="c-heading-4" role="heading" aria-level="2">Education</div>
+                        <ul class="c-list f-bare">
+                            <li>
+                                <a aria-label="Microsoft in education Education" class="c-uhff-link" href="https://www.microsoft.com/en-us/education" data-m='{"cN":"Footer_Education_MicrosoftInEducation_nav","id":"n1c3c1c1m1r1a2","sN":1,"aN":"c3c1c1m1r1a2"}'>Microsoft in education</a>
+                            </li>
+                            <li>
+                                <a aria-label="Devices for education Education" class="c-uhff-link" href="https://www.microsoft.com/en-us/education/devices/overview" data-m='{"cN":"Footer_Education_DevicesforEducation_nav","id":"n2c3c1c1m1r1a2","sN":2,"aN":"c3c1c1m1r1a2"}'>Devices for education</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Teams for Education Education" class="c-uhff-link" href="https://www.microsoft.com/en-us/education/products/teams" data-m='{"cN":"Footer_Education_MicrosoftTeamsforEducation_nav","id":"n3c3c1c1m1r1a2","sN":3,"aN":"c3c1c1m1r1a2"}'>Microsoft Teams for Education</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft 365 Education Education" class="c-uhff-link" href="https://www.microsoft.com/en-us/education/products/microsoft-365" data-m='{"cN":"Footer_Education_Microsoft365Education_nav","id":"n4c3c1c1m1r1a2","sN":4,"aN":"c3c1c1m1r1a2"}'>Microsoft 365 Education</a>
+                            </li>
+                            <li>
+                                <a aria-label="How to buy for your school Education" class="c-uhff-link" href="https://www.microsoft.com/education/how-to-buy" data-m='{"cN":"Footer_Howtobuyforyourschool_nav","id":"n5c3c1c1m1r1a2","sN":5,"aN":"c3c1c1m1r1a2"}'>How to buy for your school</a>
+                            </li>
+                            <li>
+                                <a aria-label="Educator training and development Education" class="c-uhff-link" href="https://education.microsoft.com/" data-m='{"cN":"Footer_Education_EducatorTrainingDevelopment_nav","id":"n6c3c1c1m1r1a2","sN":6,"aN":"c3c1c1m1r1a2"}'>Educator training and development</a>
+                            </li>
+                            <li>
+                                <a aria-label="Deals for students and parents Education" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/education" data-m='{"cN":"Footer_Education_DealsForStudentsandParents_nav","id":"n7c3c1c1m1r1a2","sN":7,"aN":"c3c1c1m1r1a2"}'>Deals for students and parents</a>
+                            </li>
+                            <li>
+                                <a aria-label="AI for education Education" class="c-uhff-link" href="https://www.microsoft.com/en-us/education/ai-in-education" data-m='{"cN":"Footer_Education_Azureforstudents_nav","id":"n8c3c1c1m1r1a2","sN":8,"aN":"c3c1c1m1r1a2"}'>AI for education</a>
+                            </li>
+
+                        </ul>
+                        
+                    </div>
+                </div>
+                <div class="c-uhff-nav-row">
+                    <div class="c-uhff-nav-group" data-m='{"cN":"footerNavColumn4_cont","cT":"Container","id":"c4c1c1m1r1a2","sN":4,"aN":"c1c1m1r1a2"}'>
+                        <div class="c-heading-4" role="heading" aria-level="2">Business</div>
+                        <ul class="c-list f-bare">
+                            <li>
+                                <a aria-label="Microsoft Security Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/security" data-m='{"cN":"Footer_Business_Microsoft Security_nav","id":"n1c4c1c1m1r1a2","sN":1,"aN":"c4c1c1m1r1a2"}'>Microsoft Security</a>
+                            </li>
+                            <li>
+                                <a aria-label="Dynamics 365 Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/dynamics-365" data-m='{"cN":"Footer_Business_MicrosoftDynamics365_nav","id":"n2c4c1c1m1r1a2","sN":2,"aN":"c4c1c1m1r1a2"}'>Dynamics 365</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft 365 Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/microsoft-365/business" data-m='{"cN":"Footer_Business_M365_nav","id":"n3c4c1c1m1r1a2","sN":3,"aN":"c4c1c1m1r1a2"}'>Microsoft 365</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Power Platform Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/power-platform" data-m='{"cN":"Footer_DeveloperAndIT_Power Platform_nav","id":"n4c4c1c1m1r1a2","sN":4,"aN":"c4c1c1m1r1a2"}'>Microsoft Power Platform</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Teams Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/microsoft-teams/group-chat-software" data-m='{"cN":"Footer_Business_Microsoft365_nav","id":"n5c4c1c1m1r1a2","sN":5,"aN":"c4c1c1m1r1a2"}'>Microsoft Teams</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft 365 Copilot Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/microsoft-365-copilot?icid=DSM_Footer_Microsoft365Copilot" data-m='{"cN":"Footer_CopilotMicrosoft365_nav","id":"n6c4c1c1m1r1a2","sN":6,"aN":"c4c1c1m1r1a2"}'>Microsoft 365 Copilot</a>
+                            </li>
+                            <li>
+                                <a aria-label="Small Business Business" class="c-uhff-link" href="https://www.microsoft.com/en-us/store/b/business?icid=CNavBusinessStore" data-m='{"cN":"Footer_Business-SmallBusiness_nav","id":"n7c4c1c1m1r1a2","sN":7,"aN":"c4c1c1m1r1a2"}'>Small Business</a>
+                            </li>
+
+                        </ul>
+                        
+                    </div>
+                    <div class="c-uhff-nav-group" data-m='{"cN":"footerNavColumn5_cont","cT":"Container","id":"c5c1c1m1r1a2","sN":5,"aN":"c1c1m1r1a2"}'>
+                        <div class="c-heading-4" role="heading" aria-level="2">Developer &amp; IT</div>
+                        <ul class="c-list f-bare">
+                            <li>
+                                <a aria-label="Azure Developer &amp; IT" class="c-uhff-link" href="https://azure.microsoft.com/en-us/" data-m='{"cN":"Footer_DeveloperAndIT_MicrosoftAzure_nav","id":"n1c5c1c1m1r1a2","sN":1,"aN":"c5c1c1m1r1a2"}'>Azure</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Developer Developer &amp; IT" class="c-uhff-link" href="https://developer.microsoft.com/en-us/" data-m='{"cN":"Footer_DeveloperAndIT_MicrosoftDeveloper_nav","id":"n2c5c1c1m1r1a2","sN":2,"aN":"c5c1c1m1r1a2"}'>Microsoft Developer</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Learn Developer &amp; IT" class="c-uhff-link" href="https://learn.microsoft.com/" data-m='{"cN":"Footer_DeveloperAndIT_MicrosoftLearn_nav","id":"n3c5c1c1m1r1a2","sN":3,"aN":"c5c1c1m1r1a2"}'>Microsoft Learn</a>
+                            </li>
+                            <li>
+                                <a aria-label="Support for AI marketplace apps Developer &amp; IT" class="c-uhff-link" href="https://www.microsoft.com/software-development-companies/offers-benefits/isv-success?icid=DSM_Footer_SupportAIMarketplace&amp;ocid=cmm3atxvn98" data-m='{"cN":"Footer_DeveloperAndIT_Marketplace_nav","id":"n4c5c1c1m1r1a2","sN":4,"aN":"c5c1c1m1r1a2"}'>Support for AI marketplace apps</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Tech Community Developer &amp; IT" class="c-uhff-link" href="https://techcommunity.microsoft.com/" data-m='{"cN":"Footer_DeveloperAndIT_MicrosoftTechCommunity_nav","id":"n5c5c1c1m1r1a2","sN":5,"aN":"c5c1c1m1r1a2"}'>Microsoft Tech Community</a>
+                            </li>
+                            <li>
+                                <a aria-label="Microsoft Marketplace Developer &amp; IT" class="c-uhff-link" href="https://marketplace.microsoft.com?icid=DSM_Footer_Marketplace&amp;ocid=cmm3atxvn98" data-m='{"cN":"Footer_DeveloperAndIT_Marketplace_nav","id":"n6c5c1c1m1r1a2","sN":6,"aN":"c5c1c1m1r1a2"}'>Microsoft Marketplace</a>
+                            </li>
+                            <li>
+                                <a aria-label="Marketplace Rewards Developer &amp; IT" class="c-uhff-link" href="https://www.microsoft.com/software-development-companies/offers-benefits/marketplace-rewards?icid=DSM_Footer_MarketplaceRewards&amp;ocid=cmm3atxvn98" data-m='{"cN":"Footer_DeveloperAndIT_MarketplaceRewards_nav","id":"n7c5c1c1m1r1a2","sN":7,"aN":"c5c1c1m1r1a2"}'>Marketplace Rewards</a>
+                            </li>
+                            <li>
+                                <a aria-label="Visual Studio Developer &amp; IT" class="c-uhff-link" href="https://visualstudio.microsoft.com/" data-m='{"cN":"Footer_DeveloperAndIT_MicrosoftVisualStudio_nav","id":"n8c5c1c1m1r1a2","sN":8,"aN":"c5c1c1m1r1a2"}'>Visual Studio</a>
+                            </li>
+
+                        </ul>
+                        
+                    </div>
+                    <div class="c-uhff-nav-group" data-m='{"cN":"footerNavColumn6_cont","cT":"Container","id":"c6c1c1m1r1a2","sN":6,"aN":"c1c1m1r1a2"}'>
+                        <div class="c-heading-4" role="heading" aria-level="2">Company</div>
+                        <ul class="c-list f-bare">
+                            <li>
+                                <a aria-label="Careers Company" class="c-uhff-link" href="https://careers.microsoft.com/" data-m='{"cN":"Footer_Company_Careers_nav","id":"n1c6c1c1m1r1a2","sN":1,"aN":"c6c1c1m1r1a2"}'>Careers</a>
+                            </li>
+                            <li>
+                                <a aria-label="About Microsoft Company" class="c-uhff-link" href="https://www.microsoft.com/about" data-m='{"cN":"Footer_Company_AboutMicrosoft_nav","id":"n2c6c1c1m1r1a2","sN":2,"aN":"c6c1c1m1r1a2"}'>About Microsoft</a>
+                            </li>
+                            <li>
+                                <a aria-label="Company news Company" class="c-uhff-link" href="https://news.microsoft.com/source/?icid=DSM_Footer_Company_CompanyNews" data-m='{"cN":"Footer_Company_CompanyNews_nav","id":"n3c6c1c1m1r1a2","sN":3,"aN":"c6c1c1m1r1a2"}'>Company news</a>
+                            </li>
+                            <li>
+                                <a aria-label="Privacy at Microsoft Company" class="c-uhff-link" href="https://www.microsoft.com/en-us/privacy?icid=DSM_Footer_Company_Privacy" data-m='{"cN":"Footer_Company_PrivacyAtMicrosoft_nav","id":"n4c6c1c1m1r1a2","sN":4,"aN":"c6c1c1m1r1a2"}'>Privacy at Microsoft</a>
+                            </li>
+                            <li>
+                                <a aria-label="Investors Company" class="c-uhff-link" href="https://www.microsoft.com/investor/default.aspx" data-m='{"cN":"Footer_Company_Investors_nav","id":"n5c6c1c1m1r1a2","sN":5,"aN":"c6c1c1m1r1a2"}'>Investors</a>
+                            </li>
+                            <li>
+                                <a aria-label="Diversity and inclusion Company" class="c-uhff-link" href="https://www.microsoft.com/en-us/diversity/default?icid=DSM_Footer_Company_Diversity" data-m='{"cN":"Footer_Company_DiversityAndInclusion_nav","id":"n6c6c1c1m1r1a2","sN":6,"aN":"c6c1c1m1r1a2"}'>Diversity and inclusion</a>
+                            </li>
+                            <li>
+                                <a aria-label="Accessibility Company" class="c-uhff-link" href="https://www.microsoft.com/en-us/accessibility" data-m='{"cN":"Footer_Company_Accessibility_nav","id":"n7c6c1c1m1r1a2","sN":7,"aN":"c6c1c1m1r1a2"}'>Accessibility</a>
+                            </li>
+                            <li>
+                                <a aria-label="Sustainability Company" class="c-uhff-link" href="https://www.microsoft.com/en-us/sustainability/" data-m='{"cN":"Footer_Company_Sustainability_nav","id":"n8c6c1c1m1r1a2","sN":8,"aN":"c6c1c1m1r1a2"}'>Sustainability</a>
+                            </li>
+
+                        </ul>
+                        
+                    </div>
+                </div>
+        </nav>
+    <div class="c-uhff-base">
+                <a id="locale-picker-link" aria-label="Content Language Selector. Currently set to English (United States)" class="c-uhff-link c-uhff-lang-selector c-glyph glyph-world" href="https://www.microsoft.com/en-us/education/locale" data-m='{"cN":"locale_picker(US)_nav","id":"n7c1c1m1r1a2","sN":7,"aN":"c1c1m1r1a2"}'>English (United States)</a>
+
+            <a data-m='{"id":"n8c1c1m1r1a2","sN":8,"aN":"c1c1m1r1a2"}' href="https://aka.ms/yourcaliforniaprivacychoices" class='c-uhff-link c-uhff-ccpa'>
+        <svg role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 14" xml:space="preserve" height="16" width="43">
+            <title>Your Privacy Choices Opt-Out Icon</title>
+            <path d="M7.4 12.8h6.8l3.1-11.6H7.4C4.2 1.2 1.6 3.8 1.6 7s2.6 5.8 5.8 5.8z" style="fill-rule:evenodd;clip-rule:evenodd;fill:#fff"/>
+            <path d="M22.6 0H7.4c-3.9 0-7 3.1-7 7s3.1 7 7 7h15.2c3.9 0 7-3.1 7-7s-3.2-7-7-7zm-21 7c0-3.2 2.6-5.8 5.8-5.8h9.9l-3.1 11.6H7.4c-3.2 0-5.8-2.6-5.8-5.8z" style="fill-rule:evenodd;clip-rule:evenodd;fill:#06f"/>
+            <path d="M24.6 4c.2.2.2.6 0 .8L22.5 7l2.2 2.2c.2.2.2.6 0 .8-.2.2-.6.2-.8 0l-2.2-2.2-2.2 2.2c-.2.2-.6.2-.8 0-.2-.2-.2-.6 0-.8L20.8 7l-2.2-2.2c-.2-.2-.2-.6 0-.8.2-.2.6-.2.8 0l2.2 2.2L23.8 4c.2-.2.6-.2.8 0z" style="fill:#fff"/>
+            <path d="M12.7 4.1c.2.2.3.6.1.8L8.6 9.8c-.1.1-.2.2-.3.2-.2.1-.5.1-.7-.1L5.4 7.7c-.2-.2-.2-.6 0-.8.2-.2.6-.2.8 0L8 8.6l3.8-4.5c.2-.2.6-.2.9 0z" style="fill:#06f"/>
+        </svg>
+        <span>Your Privacy Choices</span>
+    </a>
+
+        <noscript>
+                <a data-m='{"id":"n9c1c1m1r1a2","sN":9,"aN":"c1c1m1r1a2"}' href="https://aka.ms/yourcaliforniaprivacychoices" class='c-uhff-link c-uhff-ccpa'>
+        <svg role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 14" xml:space="preserve" height="16" width="43">
+            <title>Your Privacy Choices Opt-Out Icon</title>
+            <path d="M7.4 12.8h6.8l3.1-11.6H7.4C4.2 1.2 1.6 3.8 1.6 7s2.6 5.8 5.8 5.8z" style="fill-rule:evenodd;clip-rule:evenodd;fill:#fff"/>
+            <path d="M22.6 0H7.4c-3.9 0-7 3.1-7 7s3.1 7 7 7h15.2c3.9 0 7-3.1 7-7s-3.2-7-7-7zm-21 7c0-3.2 2.6-5.8 5.8-5.8h9.9l-3.1 11.6H7.4c-3.2 0-5.8-2.6-5.8-5.8z" style="fill-rule:evenodd;clip-rule:evenodd;fill:#06f"/>
+            <path d="M24.6 4c.2.2.2.6 0 .8L22.5 7l2.2 2.2c.2.2.2.6 0 .8-.2.2-.6.2-.8 0l-2.2-2.2-2.2 2.2c-.2.2-.6.2-.8 0-.2-.2-.2-.6 0-.8L20.8 7l-2.2-2.2c-.2-.2-.2-.6 0-.8.2-.2.6-.2.8 0l2.2 2.2L23.8 4c.2-.2.6-.2.8 0z" style="fill:#fff"/>
+            <path d="M12.7 4.1c.2.2.3.6.1.8L8.6 9.8c-.1.1-.2.2-.3.2-.2.1-.5.1-.7-.1L5.4 7.7c-.2-.2-.2-.6 0-.8.2-.2.6-.2.8 0L8 8.6l3.8-4.5c.2-.2.6-.2.9 0z" style="fill:#06f"/>
+        </svg>
+        <span>Your Privacy Choices</span>
+    </a>
+
+        </noscript>
+            <a data-m='{"id":"n10c1c1m1r1a2","sN":10,"aN":"c1c1m1r1a2"}' href="https://go.microsoft.com/fwlink/?linkid=2259814" class="c-uhff-link c-uhff-consumer">
+        <span>Consumer Health Privacy</span>
+    </a>
+
+        <nav aria-label="Microsoft corporate links">
+            <ul class="c-list f-bare" data-m='{"cN":"Corp links_cont","cT":"Container","id":"c11c1c1m1r1a2","sN":11,"aN":"c1c1m1r1a2"}'>
+                                <li  id="c-uhff-footer_contactus">
+                    <a class="c-uhff-link" href="https://support.microsoft.com/contactus" data-mscc-ic="false" data-m='{"cN":"Footer_ContactUs_nav","id":"n1c11c1c1m1r1a2","sN":1,"aN":"c11c1c1m1r1a2"}'>Contact us</a>
+                </li>
+                <li  id="c-uhff-footer_privacyandcookies">
+                    <a class="c-uhff-link" href="https://go.microsoft.com/fwlink/?LinkId=248681" data-mscc-ic="false" data-m='{"cN":"Footer_PrivacyandCookies_nav","id":"n2c11c1c1m1r1a2","sN":2,"aN":"c11c1c1m1r1a2"}'>Privacy</a>
+                </li>
+                <li class=" x-hidden" id="c-uhff-footer_managecookies">
+                    <a class="c-uhff-link" href="#" data-mscc-ic="false" data-m='{"cN":"Footer_ManageCookies_nav","id":"n3c11c1c1m1r1a2","sN":3,"aN":"c11c1c1m1r1a2"}'>Manage cookies</a>
+                </li>
+                <li  id="c-uhff-footer_termsofuse">
+                    <a class="c-uhff-link" href="https://go.microsoft.com/fwlink/?LinkID=530144" data-mscc-ic="false" data-m='{"cN":"Footer_TermsOfUse_nav","id":"n4c11c1c1m1r1a2","sN":4,"aN":"c11c1c1m1r1a2"}'>Terms of use</a>
+                </li>
+                <li  id="c-uhff-footer_trademarks">
+                    <a class="c-uhff-link" href="https://www.microsoft.com/trademarks" data-mscc-ic="false" data-m='{"cN":"Footer_Trademarks_nav","id":"n5c11c1c1m1r1a2","sN":5,"aN":"c11c1c1m1r1a2"}'>Trademarks</a>
+                </li>
+                <li  id="c-uhff-footer_aboutourads">
+                    <a class="c-uhff-link" href="https://choice.microsoft.com/" data-mscc-ic="false" data-m='{"cN":"Footer_AboutourAds_nav","id":"n6c11c1c1m1r1a2","sN":6,"aN":"c11c1c1m1r1a2"}'>About our ads</a>
+                </li>
+
+                <li>&#169; Microsoft 2026</li>
+                
+            </ul>
+        </nav>
+        
+    </div>
+    
+</footer>
+
+<script id="uhf-footer-ccpa">
+    const globalPrivacyControlEnabled = navigator.globalPrivacyControl;
+
+    const GPC_DataSharingOptIn = (globalPrivacyControlEnabled) ? false : checkThirdPartyAdsOptOutCookie();
+
+    if(window.onGPCLoaded) {
+        window.onGPCLoaded();
+    }
+    
+    function checkThirdPartyAdsOptOutCookie() {
+        try {
+            const ThirdPartyAdsOptOutCookieName = '3PAdsOptOut';
+            var cookieValue = getCookie(ThirdPartyAdsOptOutCookieName);
+            return cookieValue != 1;
+        } catch {
+            return true;
+        }
+    }
+
+    function getCookie(cookieName) {
+        var cookieValue = document.cookie.match('(^|;)\\s*' + cookieName + '\\s*=\\s*([^;]+)');
+        return (cookieValue) ? cookieValue[2] : '';
+    }
+</script>
+
+
+
+
+
+
+
+    </div>
+        </div>
+
+    </div><script type="speculationrules">
+{"prefetch":[{"source":"document","where":{"and":[{"href_matches":"\/en-us\/education\/blog\/*"},{"not":{"href_matches":["\/en-us\/education\/blog\/wp-*.php","\/en-us\/education\/blog\/wp-admin\/*","\/en-us\/education\/blog\/wp-content\/uploads\/*","\/en-us\/education\/blog\/wp-content\/*","\/en-us\/education\/blog\/wp-content\/plugins\/*","\/en-us\/education\/blog\/wp-content\/themes\/education-blog\/*","\/en-us\/education\/blog\/wp-content\/themes\/xtheme-moray\/*","\/en-us\/education\/blog\/*\\?(.+)"]}},{"not":{"selector_matches":"a[rel~=\"nofollow\"]"}},{"not":{"selector_matches":".no-prefetch, .no-prefetch a"}}]},"eagerness":"conservative"}]}
+</script>
+	<script>
+		let retryCount = 0;
+		const maxRetries = 50;
+
+		// Check if analytics is initialized before using it.
+		function maybeMetrics3pScripts() {
+			// Check if 1DS analytics is initialized.
+			if (
+				typeof analytics !== 'undefined' &&
+				typeof analytics.isInitialized === 'function' &&
+				analytics.isInitialized()
+			) {
+				// 1DS is ready, call the original function.
+				Metrics_3P_Scripts();
+			} else if (retryCount < maxRetries) {
+				retryCount++;
+				// If 1DS isn't ready yet, wait and try again.
+				setTimeout(maybeMetrics3pScripts, 100);
+			} else {
+				console.warn('Analytics initialization failed after maximum retries.');
+			}
+		}
+
+		function onConsentChanged( categoryPreferences ) {
+			maybeMetrics3pScripts();
+
+			// If any categories are disabled, clear all cookies
+			if ( ! siteConsent.getConsentFor( WcpConsent.consentCategories.Analytics ) ) {
+				Metrics_Clear_Cookies( 'Analytics' );
+			}
+
+			if ( ! siteConsent.getConsentFor( WcpConsent.consentCategories.Advertising ) ) {
+				Metrics_Clear_Cookies( 'Advertising' );
+			}
+
+			if ( ! siteConsent.getConsentFor( WcpConsent.consentCategories.SocialMedia ) ) {
+				Metrics_Clear_Cookies( 'SocialMedia' );
+			}
+		}
+
+		function Metrics_Clear_Cookies( category ) {
+			var all_cookies = document.cookie.split(";");
+
+			// array of cookie names to clear
+			const cookie_names = [
+				'_clck',
+				'_clsk',
+				'_fbp',
+				'_uetvid',
+				'mbox',
+				'AnalyticsSyncHistory',
+				'bcookie',
+				'bscookie',
+				'li_sugr',
+				'lidc',
+				'li_gc',
+				'UserMatchHistory',
+				'_mkto_trk',
+				'ROLLOUT_TOKEN',
+				'VISITOR_INFO1_LIVE',
+				'VISITOR_PRIVACY_METADATA',
+				'YSC'
+			];
+
+			for ( var i = 0; i < all_cookies.length; i++ ) {
+				var cookie_name = all_cookies[i].split("=")[0].trim();
+				if ( cookie_names.includes( cookie_name ) ) {
+					document.cookie = cookie_name + '=;expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+				}
+			}
+		}
+
+		function Metrics_3P_Scripts() {
+			// Default to true when undefined to match oneds.php behavior for US visitors.
+			var GPC_DataSharingOptIn_value = ( typeof GPC_DataSharingOptIn !== 'undefined' ) ? GPC_DataSharingOptIn : true;
+			// If GPC_DataSharingOptIn is set and true set Metrics_3POptIn.
+			var Metrics_3P_OptIn = false;
+			if ( GPC_DataSharingOptIn_value ) {
+				Metrics_3P_OptIn = true;
+			} else {
+				Metrics_3P_OptIn = false;
+				Metrics_Clear_Cookies();
+			}
+
+			if ( siteConsent.getConsentFor( WcpConsent.consentCategories.Analytics ) && Metrics_3P_OptIn ) {
+									if ( typeof marketoTracking === "function" ) {
+						marketoTracking(); 
+					}
+				
+				if ( siteConsent.getConsentFor( WcpConsent.consentCategories.Advertising ) ) {
+											if ( typeof adobeTargetTracking === "function" ) {
+							adobeTargetTracking(); 
+						}
+											if ( typeof clarityTracking === "function" ) {
+							clarityTracking(); 
+						}
+					
+					if ( siteConsent.getConsentFor( WcpConsent.consentCategories.SocialMedia ) ) {
+													if ( typeof facebookTracking === "function" ) {
+								facebookTracking(); 
+							}
+											}
+				}
+
+				if ( siteConsent.getConsentFor( WcpConsent.consentCategories.SocialMedia ) ) {
+									}
+			}
+
+			if ( siteConsent.getConsentFor( WcpConsent.consentCategories.Advertising ) && Metrics_3P_OptIn ) {
+				
+				if ( siteConsent.getConsentFor( WcpConsent.consentCategories.SocialMedia ) ) {
+									}
+			}
+
+			if ( siteConsent.getConsentFor( WcpConsent.consentCategories.SocialMedia ) && Metrics_3P_OptIn ) {
+							}
+		}
+
+					window.WcpConsent && WcpConsent.init( "en-US", "ms-cookie-banner", function (err, _siteConsent) {
+
+				if ( ! err ) {
+					siteConsent = _siteConsent;  //siteConsent is used to get the current consent
+
+					var consentRequiredElementExists = document.getElementById( "c-uhff-footer_managecookies" ) && siteConsent.isConsentRequired;
+
+					if ( consentRequiredElementExists ) {
+						document.getElementById( "c-uhff-footer_managecookies" ).classList.remove("x-hidden");
+						document.getElementById( "c-uhff-footer_managecookies" ).onclick = function() {
+							siteConsent.manageConsent();
+						};
+					}
+
+					maybeMetrics3pScripts();
+
+				} else {
+					console.log( "Error initializing WcpConsent: " + err );
+				}
+			}, onConsentChanged );
+				</script>
+	<style id='core-block-supports-inline-css' type='text/css'>
+.wp-container-core-buttons-is-layout-a89b3969{justify-content:center;}.wp-container-core-social-links-is-layout-24a44033{justify-content:flex-start;}.wp-container-core-group-is-layout-6c531013{flex-wrap:nowrap;}.wp-container-core-columns-is-layout-28f84493{flex-wrap:nowrap;}
+</style>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-performance/dist/js/frontend.js?ver=ae989b56d33d5f3aaf7f" id="ms_performance_frontend-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/themes/education-blog/dist/js/frontend.js?ver=03b651a7cd948a94f376" id="frontend-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/js/moray.js?ver=1765905993" id="msx-moray-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-includes/js/dist/dom-ready.min.js?ver=f77871ff7694fffea381" id="wp-dom-ready-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-includes/js/dist/hooks.min.js?ver=4d63a3d491d11ffd8ac6" id="wp-hooks-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-includes/js/dist/i18n.min.js?ver=5e580eb46a90c2b997e6" id="wp-i18n-js"></script>
+<script type="text/javascript" id="wp-i18n-js-after">
+/* <![CDATA[ */
+wp.i18n.setLocaleData( { 'text direction\u0004ltr': [ 'ltr' ] } );
+/* ]]> */
+</script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-includes/js/dist/a11y.min.js?ver=3156534cc54473497e14" id="wp-a11y-js"></script>
+<script type="text/javascript" id="msx-frontend-js-extra">
+/* <![CDATA[ */
+var msx = {"darkModeToggle":"1","i18n":{"light":"Switch the site theme to: dark","dark":"Switch the site theme to: light","toggleOptionLight":"Light","toggleOptionDark":"Dark","more":"more","less":"less","jumpMenuSearchPlaceholder":"Filter products...","jumpMenuAllLinksLabel":"All products"}};
+/* ]]> */
+</script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/themes/xtheme-moray/dist/js/frontend.js?ver=1765905993" id="msx-frontend-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-cloud-marketing-modules/dist/js/frontend.js?ver=1765905712" id="msxcm-frontend-js"></script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-oembeds/assets/js/vendor/focus-within.js?ver=1.3.10" id="ms-oembed-focus-within-js"></script>
+<script type="text/javascript" id="ms-oembed-gif-script-js-extra">
+/* <![CDATA[ */
+var msgifs = {"play":"Play animated gif","pause":"Pause animated gif"};
+/* ]]> */
+</script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-oembeds/dist/js/ms-oembed-lib-gif.js?ver=ea91bbfc3271b6d595e7" id="ms-oembed-gif-script-js"></script>
+<script type="text/javascript" id="microsoft-uhf-js-extra">
+/* <![CDATA[ */
+var microsoftUhfSettings = {"homePath":"\/en-us\/education\/blog\/","loginUrl":"","logoutUrl":"","scripts":[],"inline":[]};
+/* ]]> */
+</script>
+<script type="text/javascript" src="https://www.microsoft.com/en-us/education/blog/wp-content/plugins/ms-uhf/assets/microsoft-uhf.js?ver=0.6.1" id="microsoft-uhf-js"></script>
+	<!-- JSLL tracking -->
+	<script>
+		// 1DS initialization.
+		const analytics = new oneDS.ApplicationInsights();
+		const config = {
+			instrumentationKey: "5a56994cc104439294382c53832eff1c-4e9e2ce1-ab59-4631-a65c-3985e88c6cce-6629",
+			channelConfiguration: {
+				eventsLimitInMem: 50
+			},
+			cookieCfg: {
+				enabled: true,
+				domainCookiesEnabled: true,
+				domain: ".microsoft.com",
+			},
+			propertyConfiguration: {
+				gpcDataSharingOptIn: ( typeof GPC_DataSharingOptIn !== "undefined" ) ? GPC_DataSharingOptIn : true,
+				callback: {
+					userConsentDetails: ( typeof siteConsent !== "undefined" ) ? siteConsent.getConsent : WcpConsent.siteConsent
+				},
+			},
+			webAnalyticsConfiguration:{
+				autoCapture: {
+					scroll: true,
+					pageView: true,
+					onLoad: true,
+					onUnload: true,
+					click: true,
+					resize: true,
+					jsError: true
+				},
+				coreData: {"pageName":"Meet your AI assistant for education: Microsoft Copilot","pageType":"Post"},
+				urlCollectQuery: true,
+				urlCollectHash: true,
+			},
+			customProperties: {
+				_mkto_trk: function() {
+					return document.cookie.replace(/(?:(?:^|.*;\s*)_mkto_trk\s*\=\s*([^;]*).*$)|^.*$/, "$1");
+				}
+			}
+		};
+		// Initialize OneDS SDK
+		analytics.initialize( config, [] );
+	</script>
+	</body>
+</html>
+<!--
+Performance optimized by Redis Object Cache. Learn more: https://wprediscache.com
+
+Retrieved 2380 objects (335 KB) from Redis using PhpRedis (v6.3.0).
+-->

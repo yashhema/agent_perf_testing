@@ -1,0 +1,96 @@
+"""Enumeration types for the orchestrator database schema.
+
+All enums derive from (str, Enum) so they serialize as strings in SQLAlchemy
+and Pydantic. Values match the database schema specification exactly.
+"""
+
+from enum import Enum
+
+
+class OSFamily(str, Enum):
+    linux = "linux"
+    windows = "windows"
+
+
+class HypervisorType(str, Enum):
+    proxmox = "proxmox"
+    vsphere = "vsphere"
+
+
+class ServerInfraType(str, Enum):
+    proxmox_vm = "proxmox_vm"
+    vsphere_vm = "vsphere_vm"
+
+
+class BaselineType(str, Enum):
+    proxmox = "proxmox"
+    vsphere = "vsphere"
+
+
+class DBType(str, Enum):
+    mssql = "mssql"
+    postgresql = "postgresql"
+
+
+class DiskType(str, Enum):
+    ssd = "ssd"
+    hdd = "hdd"
+
+
+class TemplateType(str, Enum):
+    server_normal = "server-normal"
+    server_file_heavy = "server-file-heavy"
+    db_load = "db-load"
+
+
+class FunctionalTestPhase(str, Enum):
+    base = "base"
+    initial = "initial"
+
+
+class TestRunState(str, Enum):
+    created = "created"
+    validating = "validating"
+    setting_up = "setting_up"
+    calibrating = "calibrating"
+    generating_sequences = "generating_sequences"
+    executing = "executing"
+    comparing = "comparing"
+    completed = "completed"
+    paused = "paused"
+    cancelled = "cancelled"
+    failed = "failed"
+
+
+class RunMode(str, Enum):
+    complete = "complete"
+    step_by_step = "step_by_step"
+
+
+class ExecutionStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class AgentType(str, Enum):
+    edr = "edr"
+    av = "av"
+    dlp = "dlp"
+    monitoring = "monitoring"
+    backup = "backup"
+    other = "other"
+
+
+class RuleSeverity(str, Enum):
+    critical = "critical"
+    warning = "warning"
+    info = "info"
+
+
+class Verdict(str, Enum):
+    pending = "pending"
+    passed = "passed"
+    failed = "failed"
+    warning = "warning"

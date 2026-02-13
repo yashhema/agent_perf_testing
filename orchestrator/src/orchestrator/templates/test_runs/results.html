@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Test Run #{{ run_id }} - Results{% endblock %}
+{% block page_header %}<strong>Test Run #{{ run_id }}</strong> — Results{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="/test-runs/{{ run_id }}/dashboard" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+  </a>
+  <a href="/test-runs/{{ run_id }}/calibration" class="btn btn-sm btn-outline-info ms-2">
+    <i class="bi bi-crosshair me-1"></i>Calibration Results
+  </a>
+</div>
+
+<!-- Verdict Banner -->
+<div id="verdict-banner" style="display:none;"></div>
+
+<!-- Summary -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Summary</h6></div>
+  <div class="card-body" id="summary-section">Loading...</div>
+</div>
+
+<!-- Comparison Results -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Comparison Results (Base vs Initial)</h6></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th><th>Target</th><th>Load Profile</th><th>Type</th><th>Verdict</th><th>Summary</th><th></th>
+        </tr></thead>
+        <tbody id="comparison-body">
+          <tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Phase Execution Details -->
+<div class="card shadow-sm">
+  <div class="card-header"><h6 class="mb-0">Phase Execution Details</h6></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead><tr>
+          <th>ID</th><th>Target</th><th>Snap</th><th>LP</th><th>Cycle</th>
+          <th>Threads</th><th>Status</th><th>Stats File</th><th>JTL File</th><th>Error</th>
+        </tr></thead>
+        <tbody id="phase-details-body">
+          <tr><td colspan="10" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detail-modal-title">Comparison Detail</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detail-modal-body"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RUN_ID = {{ run_id }};
+
+function verdictBadge(v) {
+  if (!v) return '<span class="badge bg-secondary">pending</span>';
+  const cls = v === 'passed' ? 'success' : v === 'failed' ? 'danger' : v === 'warning' ? 'warning' : 'secondary';
+  return `<span class="badge bg-${cls}">${v}</span>`;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const [run, comparisons, phaseResults] = await Promise.all([
+      API.get('/api/test-runs/' + RUN_ID),
+      API.get('/api/test-runs/' + RUN_ID + '/comparison-results'),
+      API.get('/api/test-runs/' + RUN_ID + '/phase-results'),
+    ]);
+
+    // Verdict banner
+    if (run.overall_verdict) {
+      const banner = document.getElementById('verdict-banner');
+      const cls = run.overall_verdict === 'passed' ? 'success' :
+                  run.overall_verdict === 'failed' ? 'danger' :
+                  run.overall_verdict === 'warning' ? 'warning' : 'secondary';
+      banner.style.display = '';
+      banner.innerHTML = `<div class="alert alert-${cls} mb-4 d-flex align-items-center">
+        <i class="bi bi-${run.overall_verdict === 'passed' ? 'check-circle' : run.overall_verdict === 'failed' ? 'x-circle' : 'exclamation-triangle'}-fill me-2 fs-4"></i>
+        <div>
+          <strong>Overall Verdict: ${run.overall_verdict.toUpperCase()}</strong>
+          ${comparisons.filter(c => c.violation_count > 0).length > 0
+            ? ' &mdash; ' + comparisons.reduce((s, c) => s + (c.violation_count || 0), 0) + ' rule violation(s) detected'
+            : ''}
+        </div>
+      </div>`;
+    }
+
+    // Summary
+    const totalExec = phaseResults.length;
+    const completed = phaseResults.filter(r => r.status === 'completed').length;
+    const failed = phaseResults.filter(r => r.status === 'failed').length;
+    document.getElementById('summary-section').innerHTML = `
+      <div class="row g-3">
+        <div class="col-md-3"><strong>Scenario:</strong> #${run.scenario_id}</div>
+        <div class="col-md-3"><strong>State:</strong> ${stateBadge(run.state)}</div>
+        <div class="col-md-3"><strong>Created:</strong> ${fmtDate(run.created_at)}</div>
+        <div class="col-md-3"><strong>Completed:</strong> ${fmtDate(run.completed_at)}</div>
+      </div>
+      <div class="row g-3 mt-1">
+        <div class="col-md-3"><strong>Total Executions:</strong> ${totalExec}</div>
+        <div class="col-md-3"><strong>Completed:</strong> <span class="text-success">${completed}</span></div>
+        <div class="col-md-3"><strong>Failed:</strong> <span class="text-danger">${failed}</span></div>
+        <div class="col-md-3"><strong>Comparisons:</strong> ${comparisons.length}</div>
+      </div>
+    `;
+
+    // Comparisons
+    const cBody = document.getElementById('comparison-body');
+    if (comparisons.length === 0) {
+      cBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No comparison results</td></tr>';
+    } else {
+      cBody.innerHTML = comparisons.map(c => `<tr>
+        <td>${c.id}</td>
+        <td>${c.target_id ? 'Server #' + c.target_id : '<em>Aggregated</em>'}</td>
+        <td>LP #${c.load_profile_id}</td>
+        <td><span class="badge bg-secondary">${c.comparison_type}</span></td>
+        <td>${verdictBadge(c.verdict)}${c.violation_count > 0 ? ' <small class="text-danger">' + c.violation_count + ' violation(s)</small>' : ''}</td>
+        <td class="small">${escHtml(c.summary_text || '-')}</td>
+        <td>
+          ${c.result_data ? `<button class="btn btn-sm btn-outline-primary" onclick="showDetail(${c.id})"><i class="bi bi-eye"></i> Detail</button>` : '-'}
+        </td>
+      </tr>`).join('');
+    }
+
+    // Phase details
+    const pBody = document.getElementById('phase-details-body');
+    if (phaseResults.length === 0) {
+      pBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">No results</td></tr>';
+    } else {
+      pBody.innerHTML = phaseResults.map(r => `<tr>
+        <td>${r.id}</td>
+        <td>Server #${r.target_id}</td>
+        <td>${r.snapshot_num}</td>
+        <td>LP #${r.load_profile_id}</td>
+        <td>${r.cycle_number}</td>
+        <td>${r.thread_count}</td>
+        <td>${execBadge(r.status)}</td>
+        <td class="small">${escHtml(r.stats_file_path || '-')}</td>
+        <td class="small">${escHtml(r.jmeter_jtl_path || '-')}</td>
+        <td class="small text-danger">${escHtml(r.error_message || '')}</td>
+      </tr>`).join('');
+    }
+
+    // Store comparisons for detail view
+    window._comparisons = comparisons;
+  } catch (e) { showToast(e.message, 'danger'); }
+});
+
+function showDetail(compId) {
+  const c = window._comparisons.find(x => x.id === compId);
+  if (!c || !c.result_data) return;
+  document.getElementById('detail-modal-title').textContent =
+    'Comparison #' + c.id + ' — ' + c.comparison_type + (c.target_id ? ' (Server #' + c.target_id + ')' : ' (Aggregated)');
+
+  const data = c.result_data;
+  let html = '';
+
+  // Verdict summary
+  if (data.verdict) {
+    const cls = data.verdict === 'passed' ? 'success' : data.verdict === 'failed' ? 'danger' : 'warning';
+    html += `<div class="alert alert-${cls} mb-3"><strong>Verdict: ${data.verdict.toUpperCase()}</strong>`;
+    if (data.verdict_summary) html += ` &mdash; ${escHtml(data.verdict_summary)}`;
+    html += '</div>';
+  }
+
+  if (c.summary_text) {
+    html += '<div class="alert alert-info mb-3">' + escHtml(c.summary_text) + '</div>';
+  }
+
+  // Layer 1: System Impact
+  if (data.system_deltas) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-pc-display me-1"></i>System Impact</h6>';
+    html += '<table class="table table-sm"><thead><tr><th>Metric</th><th>Base (avg)</th><th>Initial (avg)</th><th>Delta</th><th>Delta %</th></tr></thead><tbody>';
+    for (const [key, val] of Object.entries(data.system_deltas)) {
+      html += `<tr>
+        <td>${escHtml(key)}</td>
+        <td>${typeof val.base_avg === 'number' ? val.base_avg.toFixed(2) : '-'}</td>
+        <td>${typeof val.initial_avg === 'number' ? val.initial_avg.toFixed(2) : '-'}</td>
+        <td>${val.delta_abs ? val.delta_abs.avg.toFixed(2) : '-'}</td>
+        <td>${val.delta_pct ? val.delta_pct.avg.toFixed(1) + '%' : '-'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  // Layer 2: Agent Footprint
+  if (data.agent_overhead) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-shield me-1"></i>Agent Footprint</h6>';
+    html += '<table class="table table-sm"><thead><tr><th>Metric</th><th>Avg</th><th>Max</th><th>p95</th><th>p99</th></tr></thead><tbody>';
+    for (const [key, val] of Object.entries(data.agent_overhead)) {
+      html += `<tr>
+        <td>${escHtml(key)}</td>
+        <td>${val.avg.toFixed(2)}</td>
+        <td>${val.max.toFixed(2)}</td>
+        <td>${val.p95.toFixed(2)}</td>
+        <td>${val.p99.toFixed(2)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  // Normalized Ratios
+  if (data.normalized_ratios) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-percent me-1"></i>Normalized Ratios</h6>';
+    html += '<table class="table table-sm"><thead><tr><th>Metric</th><th>Type</th><th>Avg Ratio</th><th>p95 Ratio</th><th>p99 Ratio</th><th>Base Value (avg)</th></tr></thead><tbody>';
+    for (const [key, val] of Object.entries(data.normalized_ratios)) {
+      const fmtR = (v) => v != null ? (val.normalization_type === 'ratio' ? (v * 100).toFixed(2) + '%' : v.toFixed(2)) : '-';
+      const baseAvg = val.base_values && val.base_values.avg != null ? val.base_values.avg.toFixed(2) : '-';
+      html += `<tr>
+        <td>${escHtml(key)}</td>
+        <td><span class="badge bg-${val.normalization_type === 'ratio' ? 'primary' : 'secondary'}">${val.normalization_type}</span></td>
+        <td>${fmtR(val.ratios.avg)}</td>
+        <td>${fmtR(val.ratios.p95)}</td>
+        <td>${fmtR(val.ratios.p99)}</td>
+        <td>${baseAvg}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  // Layer 3: Application Impact (JTL)
+  if (data.jtl_comparison) {
+    const jtl = data.jtl_comparison;
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-globe me-1"></i>Application Impact</h6>';
+    html += '<table class="table table-sm"><thead><tr><th>Metric</th><th>Base</th><th>Initial</th><th>Delta</th><th>Delta %</th></tr></thead><tbody>';
+    if (jtl.base && jtl.initial) {
+      html += `<tr><td>Avg Response (ms)</td><td>${jtl.base.avg_response_ms}</td><td>${jtl.initial.avg_response_ms}</td><td>${jtl.avg_response_delta_abs}</td><td>${jtl.avg_response_delta_pct}%</td></tr>`;
+      html += `<tr><td>p99 Response (ms)</td><td>${jtl.base.p99_response_ms}</td><td>${jtl.initial.p99_response_ms}</td><td>${jtl.p99_response_delta_abs}</td><td>${jtl.p99_response_delta_pct}%</td></tr>`;
+      html += `<tr><td>Throughput (req/s)</td><td>${jtl.base.throughput_per_sec}</td><td>${jtl.initial.throughput_per_sec}</td><td>${jtl.throughput_delta_abs}</td><td>${jtl.throughput_delta_pct}%</td></tr>`;
+      html += `<tr><td>Error Rate (%)</td><td>${jtl.base.error_rate_percent}</td><td>${jtl.initial.error_rate_percent}</td><td>${jtl.error_rate_delta_abs}</td><td>${jtl.error_rate_delta_pct}%</td></tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  // Rule Evaluations
+  if (data.rule_evaluations && data.rule_evaluations.length > 0) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-list-check me-1"></i>Rule Evaluations</h6>';
+    html += '<table class="table table-sm"><thead><tr><th></th><th>Rule</th><th>Category</th><th>Actual</th><th>Threshold</th><th>Severity</th></tr></thead><tbody>';
+    data.rule_evaluations.forEach(e => {
+      const icon = e.passed
+        ? '<i class="bi bi-check-circle-fill text-success"></i>'
+        : '<i class="bi bi-x-circle-fill text-danger"></i>';
+      const sevClass = e.severity === 'critical' ? 'danger' : e.severity === 'warning' ? 'warning' : 'info';
+      html += `<tr class="${!e.passed ? 'table-' + (e.severity === 'critical' ? 'danger' : 'warning') : ''}">
+        <td>${icon}</td>
+        <td>${escHtml(e.rule_name)}</td>
+        <td class="small">${escHtml(e.category)}</td>
+        <td>${e.actual_value}${escHtml(e.unit)}</td>
+        <td>${e.threshold}${escHtml(e.unit)}</td>
+        <td><span class="badge bg-${sevClass}">${e.severity}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+  }
+
+  // Fallback: raw JSON for anything else
+  if (!data.system_deltas && !data.agent_overhead && !data.jtl_comparison && !data.rule_evaluations) {
+    html += '<pre class="bg-light p-3 rounded">' + escHtml(JSON.stringify(data, null, 2)) + '</pre>';
+  }
+
+  document.getElementById('detail-modal-body').innerHTML = html;
+  new bootstrap.Modal(document.getElementById('detail-modal')).show();
+}
+</script>
+{% endblock %}

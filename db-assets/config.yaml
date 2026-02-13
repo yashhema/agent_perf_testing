@@ -1,0 +1,53 @@
+# Database Schema Generator Configuration
+# Database Name: agent_performance_measurement (fixed)
+
+# Database settings
+database:
+  name: agent_performance_measurement
+  # For SQL Server with Windows Auth:
+  # connection_string: "Server=localhost;Database=agent_performance_measurement;Trusted_Connection=True;"
+
+schema:
+  table_counts:
+    ecommerce: 60
+    banking: 60
+    healthcare: 60
+    shared: 20
+    total: 200
+
+seed_data:
+  # Reduce for testing, increase for production load testing
+  records_per_table: 1000   # Set to 100-1000 for quick tests, 10000 for full load
+  batch_size: 1000
+  confidential_data_source: "../ConfidentialData"
+
+query_generation:
+  param_rows_per_query: 1000  # Set to match records_per_table or lower
+
+# Output directories per database type
+databases:
+  - type: postgresql
+    output_dir: output/postgresql
+  - type: mssql
+    output_dir: output/mssql
+  - type: oracle
+    output_dir: output/oracle
+  - type: db2
+    output_dir: output/db2
+
+# Test users (PERMANENT - created once, never dropped)
+# These users run all JMeter tests
+test_users:
+  - username: test_user_1
+    password: Test@123
+    role: readonly
+  - username: test_user_2
+    password: Test@456
+    role: readwrite
+  - username: test_admin
+    password: Admin@789
+    role: admin
+
+# Temp users are generated in params/temp_users.csv
+# Pattern: load_user_001, load_user_002, etc.
+# These are created/dropped during load testing

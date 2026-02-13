@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+{% block title %}Create Test Run - Orchestrator{% endblock %}
+{% block page_header %}<strong>Create Test Run</strong>{% endblock %}
+
+{% block content %}
+<!-- Wizard nav -->
+<ul class="nav wizard-nav mb-4">
+  <li class="nav-item"><a class="nav-link active" href="#" data-step="1">1. Scenario</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="2">2. Load Profiles</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="3">3. Settings</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="4">4. Targets</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="5">5. Review</a></li>
+</ul>
+
+<!-- Step 1: Scenario -->
+<div class="wizard-step active" id="step-1">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Select Scenario</h6>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Lab</label>
+          <select class="form-select" id="sel-lab">
+            <option value="">Loading labs...</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Scenario</label>
+          <select class="form-select" id="sel-scenario" disabled>
+            <option value="">Select a lab first</option>
+          </select>
+        </div>
+      </div>
+      <div id="scenario-details" class="mt-3 d-none">
+        <div class="row g-2">
+          <div class="col-auto"><span class="badge bg-secondary" id="sd-template"></span></div>
+          <div class="col-auto"><span class="badge bg-secondary" id="sd-phases"></span></div>
+          <div class="col-auto"><span class="badge bg-secondary" id="sd-dbtest"></span></div>
+        </div>
+        <p class="text-muted small mt-2 mb-0" id="sd-description"></p>
+      </div>
+    </div>
+    <div class="card-footer text-end">
+      <button class="btn btn-primary" onclick="goStep(2)" id="btn-next-1" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 2: Load Profiles -->
+<div class="wizard-step" id="step-2">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Select Load Profiles</h6>
+      <div id="load-profile-list">Loading...</div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(1)">Back</button>
+      <button class="btn btn-primary" onclick="goStep(3)" id="btn-next-2" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3: Settings -->
+<div class="wizard-step" id="step-3">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Run Settings</h6>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Cycles per Profile</label>
+          <input type="number" class="form-control" id="inp-cycles" value="1" min="1">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Run Mode</label>
+          <select class="form-select" id="sel-mode">
+            <option value="complete">Complete</option>
+            <option value="step_by_step">Step-by-Step</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(2)">Back</button>
+      <button class="btn btn-primary" onclick="goStep(4)">Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 4: Targets -->
+<div class="wizard-step" id="step-4">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Configure Targets</h6>
+      <div class="table-responsive">
+        <table class="table table-sm" id="targets-table">
+          <thead><tr>
+            <th>Target Server</th>
+            <th>Load Generator</th>
+            <th>Partner</th>
+            <th>Base Snapshot</th>
+            <th>Initial Snapshot</th>
+            <th>Monitor Patterns</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="targets-body"></tbody>
+        </table>
+      </div>
+      <button class="btn btn-sm btn-outline-primary" onclick="addTargetRow()">
+        <i class="bi bi-plus me-1"></i>Add Target
+      </button>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(3)">Back</button>
+      <button class="btn btn-primary" onclick="goStep(5)">Review</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 5: Review & Submit -->
+<div class="wizard-step" id="step-5">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Review Configuration</h6>
+      <div id="review-summary"></div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(4)">Back</button>
+      <button class="btn btn-success" onclick="submitTestRun()" id="btn-submit">
+        <i class="bi bi-rocket me-1"></i>Create Test Run
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _labs = [], _scenarios = [], _servers = [], _baselines = [], _loadProfiles = [];
+let _selectedScenario = null;
+let _selectedProfiles = [];
+let _targetRows = [];
+
+// Navigation
+function goStep(n) {
+  document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + n).classList.add('active');
+  document.querySelectorAll('.wizard-nav .nav-link').forEach(l => {
+    const s = parseInt(l.dataset.step);
+    l.classList.remove('active', 'completed');
+    if (s === n) l.classList.add('active');
+    else if (s < n) l.classList.add('completed');
+  });
+  if (n === 5) buildReview();
+}
+
+// Init: load reference data
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    [_labs, _loadProfiles, _servers, _baselines] = await Promise.all([
+      API.get('/api/admin/labs'),
+      API.get('/api/admin/load-profiles'),
+      API.get('/api/admin/servers'),
+      API.get('/api/admin/baselines'),
+    ]);
+    const labSel = document.getElementById('sel-lab');
+    labSel.innerHTML = '<option value="">-- Select Lab --</option>' +
+      _labs.map(l => `<option value="${l.id}">${escHtml(l.name)} (ID: ${l.id})</option>`).join('');
+    renderLoadProfiles();
+  } catch (e) { showToast('Failed to load data: ' + e.message, 'danger'); }
+});
+
+// Lab change -> load scenarios
+document.getElementById('sel-lab').addEventListener('change', async (e) => {
+  const labId = e.target.value;
+  const scenSel = document.getElementById('sel-scenario');
+  if (!labId) {
+    scenSel.innerHTML = '<option value="">Select a lab first</option>';
+    scenSel.disabled = true;
+    return;
+  }
+  try {
+    _scenarios = await API.get('/api/admin/scenarios?lab_id=' + labId);
+    scenSel.innerHTML = '<option value="">-- Select Scenario --</option>' +
+      _scenarios.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('');
+    scenSel.disabled = false;
+  } catch (e2) { showToast(e2.message, 'danger'); }
+});
+
+// Scenario change
+document.getElementById('sel-scenario').addEventListener('change', (e) => {
+  const id = parseInt(e.target.value);
+  _selectedScenario = _scenarios.find(s => s.id === id) || null;
+  const det = document.getElementById('scenario-details');
+  if (_selectedScenario) {
+    det.classList.remove('d-none');
+    document.getElementById('sd-template').textContent = _selectedScenario.template_type;
+    const phases = [];
+    if (_selectedScenario.has_base_phase) phases.push('Base');
+    if (_selectedScenario.has_initial_phase) phases.push('Initial');
+    document.getElementById('sd-phases').textContent = 'Phases: ' + phases.join(', ');
+    document.getElementById('sd-dbtest').textContent = _selectedScenario.has_dbtest ? 'DB Test: Yes' : 'DB Test: No';
+    document.getElementById('sd-description').textContent = _selectedScenario.description || '';
+    document.getElementById('btn-next-1').disabled = false;
+  } else {
+    det.classList.add('d-none');
+    document.getElementById('btn-next-1').disabled = true;
+  }
+});
+
+// Load profiles
+function renderLoadProfiles() {
+  const container = document.getElementById('load-profile-list');
+  container.innerHTML = _loadProfiles.map(lp => `
+    <div class="form-check mb-2">
+      <input class="form-check-input lp-check" type="checkbox" value="${lp.id}" id="lp-${lp.id}" onchange="updateProfileSelection()">
+      <label class="form-check-label" for="lp-${lp.id}">
+        <strong>${escHtml(lp.name)}</strong> &mdash;
+        CPU: ${lp.target_cpu_range_min}%-${lp.target_cpu_range_max}%,
+        Duration: ${lp.duration_sec}s, Ramp-up: ${lp.ramp_up_sec}s
+      </label>
+    </div>
+  `).join('');
+}
+
+function updateProfileSelection() {
+  _selectedProfiles = Array.from(document.querySelectorAll('.lp-check:checked')).map(cb => parseInt(cb.value));
+  document.getElementById('btn-next-2').disabled = _selectedProfiles.length === 0;
+}
+
+// Target rows
+function addTargetRow() {
+  const tbody = document.getElementById('targets-body');
+  const idx = _targetRows.length;
+  _targetRows.push({});
+  const serverOpts = _servers.map(s => `<option value="${s.id}">${escHtml(s.hostname)} (${s.ip_address})</option>`).join('');
+  const snapOpts = _baselines.map(b => `<option value="${b.id}">${escHtml(b.name)}</option>`).join('');
+  tbody.insertAdjacentHTML('beforeend', `<tr id="target-row-${idx}">
+    <td><select class="form-select form-select-sm" id="t-target-${idx}"><option value="">--</option>${serverOpts}</select></td>
+    <td><select class="form-select form-select-sm" id="t-loadgen-${idx}"><option value="">--</option>${serverOpts}</select></td>
+    <td><select class="form-select form-select-sm" id="t-partner-${idx}"><option value="">None</option>${serverOpts}</select></td>
+    <td><select class="form-select form-select-sm" id="t-base-snap-${idx}"><option value="">--</option>${snapOpts}</select></td>
+    <td><select class="form-select form-select-sm" id="t-init-snap-${idx}"><option value="">--</option>${snapOpts}</select></td>
+    <td><input type="text" class="form-control form-control-sm" id="t-patterns-${idx}" placeholder='["proc1","proc2"]'></td>
+    <td><button class="btn btn-sm btn-outline-danger" onclick="removeTargetRow(${idx})"><i class="bi bi-x"></i></button></td>
+  </tr>`);
+}
+
+function removeTargetRow(idx) {
+  const row = document.getElementById('target-row-' + idx);
+  if (row) row.remove();
+  _targetRows[idx] = null;
+}
+
+function collectTargets() {
+  const targets = [];
+  _targetRows.forEach((_, idx) => {
+    const row = document.getElementById('target-row-' + idx);
+    if (!row) return;
+    const targetId = document.getElementById('t-target-' + idx).value;
+    const loadgenId = document.getElementById('t-loadgen-' + idx).value;
+    const baseSnap = document.getElementById('t-base-snap-' + idx).value;
+    const initSnap = document.getElementById('t-init-snap-' + idx).value;
+    if (!targetId || !loadgenId || !baseSnap || !initSnap) return;
+    const t = {
+      target_id: parseInt(targetId),
+      loadgenerator_id: parseInt(loadgenId),
+      base_snapshot_id: parseInt(baseSnap),
+      initial_snapshot_id: parseInt(initSnap),
+    };
+    const partnerId = document.getElementById('t-partner-' + idx).value;
+    if (partnerId) t.partner_id = parseInt(partnerId);
+    const patterns = document.getElementById('t-patterns-' + idx).value.trim();
+    if (patterns) {
+      try { t.service_monitor_patterns = JSON.parse(patterns); } catch {}
+    }
+    targets.push(t);
+  });
+  return targets;
+}
+
+// Review
+function buildReview() {
+  const targets = collectTargets();
+  const labName = _labs.find(l => l.id === parseInt(document.getElementById('sel-lab').value))?.name || '-';
+  const html = `
+    <table class="table table-sm">
+      <tr><th>Lab</th><td>${escHtml(labName)}</td></tr>
+      <tr><th>Scenario</th><td>${escHtml(_selectedScenario?.name || '-')} (${_selectedScenario?.template_type})</td></tr>
+      <tr><th>Load Profiles</th><td>${_selectedProfiles.map(id => {
+        const lp = _loadProfiles.find(l => l.id === id);
+        return lp ? escHtml(lp.name) : id;
+      }).join(', ')}</td></tr>
+      <tr><th>Cycles per Profile</th><td>${document.getElementById('inp-cycles').value}</td></tr>
+      <tr><th>Run Mode</th><td>${document.getElementById('sel-mode').value}</td></tr>
+      <tr><th>Targets</th><td>${targets.length} server(s)</td></tr>
+    </table>
+    ${targets.length === 0 ? '<div class="alert alert-warning">No targets configured. Add at least one target.</div>' : ''}
+  `;
+  document.getElementById('review-summary').innerHTML = html;
+}
+
+// Submit
+async function submitTestRun() {
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  try {
+    const labId = parseInt(document.getElementById('sel-lab').value);
+    // Create test run
+    const run = await API.post('/api/test-runs', {
+      scenario_id: _selectedScenario.id,
+      lab_id: labId,
+      cycles_per_profile: parseInt(document.getElementById('inp-cycles').value),
+      run_mode: document.getElementById('sel-mode').value,
+      load_profile_ids: _selectedProfiles,
+    });
+    showToast('Test run #' + run.id + ' created');
+
+    // Add targets
+    const targets = collectTargets();
+    for (const t of targets) {
+      await API.post('/api/test-runs/' + run.id + '/targets', t);
+    }
+    if (targets.length > 0) showToast(targets.length + ' target(s) added');
+
+    // Redirect to dashboard
+    window.location.href = '/test-runs/' + run.id + '/dashboard';
+  } catch (e) {
+    showToast('Error: ' + e.message, 'danger');
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

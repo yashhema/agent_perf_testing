@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}Package Groups - Orchestrator{% endblock %}
+{% block page_header %}<strong>Package Groups</strong>{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <!-- Left: Package Groups list -->
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">Package Groups</h6>
+        <button class="btn btn-sm btn-primary" id="btn-create-group">
+          <i class="bi bi-plus me-1"></i>New Group
+        </button>
+      </div>
+      <div class="list-group list-group-flush" id="group-list">
+        <div class="text-center text-muted py-4">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Selected group members -->
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">Members of: <span id="selected-group-name" class="text-primary">None selected</span></h6>
+        <button class="btn btn-sm btn-primary d-none" id="btn-create-member">
+          <i class="bi bi-plus me-1"></i>Add Member
+        </button>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm mb-0">
+            <thead><tr>
+              <th>ID</th><th>OS Regex</th><th>Path</th><th>Install Path</th><th></th>
+            </tr></thead>
+            <tbody id="member-table-body">
+              <tr><td colspan="5" class="text-center text-muted py-4">Select a group</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Group create/edit modal -->
+<div class="modal fade" id="group-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="group-modal-title">Create Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="group-name" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="group-desc" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="group-modal-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Member create/edit modal -->
+<div class="modal fade" id="member-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="member-modal-title">Add Member</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">OS Match Regex <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="m-os_match_regex" required>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Package Path <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="m-path" required>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Root Install Path <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="m-root_install_path" required>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Extraction Command</label>
+            <input type="text" class="form-control" id="m-extraction_command">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Install Command</label>
+            <input type="text" class="form-control" id="m-install_command">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Run Command</label>
+            <input type="text" class="form-control" id="m-run_command">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Output Path</label>
+            <input type="text" class="form-control" id="m-output_path">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Uninstall Command</label>
+            <input type="text" class="form-control" id="m-uninstall_command">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Status Command</label>
+            <input type="text" class="form-control" id="m-status_command">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="member-modal-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _groups = [];
+let _selectedGroupId = null;
+let _editGroupId = null;
+let _editMemberId = null;
+const groupModal = new bootstrap.Modal(document.getElementById('group-modal'));
+const memberModal = new bootstrap.Modal(document.getElementById('member-modal'));
+
+async function loadGroups() {
+  try {
+    _groups = await API.get('/api/admin/package-groups');
+    renderGroups();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function renderGroups() {
+  const list = document.getElementById('group-list');
+  if (_groups.length === 0) {
+    list.innerHTML = '<div class="text-center text-muted py-4">No package groups</div>';
+    return;
+  }
+  list.innerHTML = _groups.map(g => {
+    const active = g.id === _selectedGroupId ? ' active' : '';
+    return `<a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center${active}" onclick="selectGroup(${g.id})">
+      <div><strong>${escHtml(g.name)}</strong><br><small class="text-muted">${escHtml(g.description || '')}</small></div>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-primary" onclick="event.stopPropagation(); editGroup(${g.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteGroup(${g.id})" title="Delete"><i class="bi bi-trash"></i></button>
+      </div>
+    </a>`;
+  }).join('');
+}
+
+function selectGroup(id) {
+  _selectedGroupId = id;
+  const g = _groups.find(x => x.id === id);
+  document.getElementById('selected-group-name').textContent = g ? g.name : '';
+  document.getElementById('btn-create-member').classList.remove('d-none');
+  renderGroups();
+  loadMembers();
+}
+
+async function loadMembers() {
+  if (!_selectedGroupId) return;
+  try {
+    const members = await API.get('/api/admin/package-groups/' + _selectedGroupId + '/members');
+    const tbody = document.getElementById('member-table-body');
+    if (members.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No members</td></tr>';
+    } else {
+      tbody.innerHTML = members.map(m => `<tr>
+        <td>${m.id}</td>
+        <td><code>${escHtml(m.os_match_regex)}</code></td>
+        <td class="small">${escHtml(m.path)}</td>
+        <td class="small">${escHtml(m.root_install_path)}</td>
+        <td class="text-nowrap">
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="editMember(${m.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteMember(${m.id})" title="Delete"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`).join('');
+    }
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// Group CRUD
+document.getElementById('btn-create-group').addEventListener('click', () => {
+  _editGroupId = null;
+  document.getElementById('group-modal-title').textContent = 'Create Group';
+  document.getElementById('group-name').value = '';
+  document.getElementById('group-desc').value = '';
+  groupModal.show();
+});
+
+function editGroup(id) {
+  _editGroupId = id;
+  const g = _groups.find(x => x.id === id);
+  document.getElementById('group-modal-title').textContent = 'Edit Group';
+  document.getElementById('group-name').value = g.name;
+  document.getElementById('group-desc').value = g.description || '';
+  groupModal.show();
+}
+
+document.getElementById('group-modal-save').addEventListener('click', async () => {
+  const data = {
+    name: document.getElementById('group-name').value.trim(),
+    description: document.getElementById('group-desc').value.trim() || null,
+  };
+  try {
+    if (_editGroupId) {
+      await API.put('/api/admin/package-groups/' + _editGroupId, data);
+      showToast('Group updated');
+    } else {
+      await API.post('/api/admin/package-groups', data);
+      showToast('Group created');
+    }
+    groupModal.hide();
+    loadGroups();
+  } catch (e) { showToast(e.message, 'danger'); }
+});
+
+async function deleteGroup(id) {
+  if (!confirm('Delete this package group?')) return;
+  try {
+    await API.del('/api/admin/package-groups/' + id);
+    showToast('Group deleted');
+    if (_selectedGroupId === id) { _selectedGroupId = null; }
+    loadGroups();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// Member CRUD
+const memberFields = ['os_match_regex','path','root_install_path','extraction_command',
+  'install_command','run_command','output_path','uninstall_command','status_command'];
+
+document.getElementById('btn-create-member').addEventListener('click', () => {
+  _editMemberId = null;
+  document.getElementById('member-modal-title').textContent = 'Add Member';
+  memberFields.forEach(f => { document.getElementById('m-' + f).value = ''; });
+  memberModal.show();
+});
+
+async function editMember(id) {
+  _editMemberId = id;
+  try {
+    const m = await API.get('/api/admin/package-group-members/' + id);
+    document.getElementById('member-modal-title').textContent = 'Edit Member';
+    memberFields.forEach(f => { document.getElementById('m-' + f).value = m[f] || ''; });
+    memberModal.show();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+document.getElementById('member-modal-save').addEventListener('click', async () => {
+  const data = {};
+  memberFields.forEach(f => {
+    const v = document.getElementById('m-' + f).value.trim();
+    data[f] = v || null;
+  });
+  data.package_group_id = _selectedGroupId;
+  try {
+    if (_editMemberId) {
+      await API.put('/api/admin/package-group-members/' + _editMemberId, data);
+      showToast('Member updated');
+    } else {
+      await API.post('/api/admin/package-groups/' + _selectedGroupId + '/members', data);
+      showToast('Member added');
+    }
+    memberModal.hide();
+    loadMembers();
+  } catch (e) { showToast(e.message, 'danger'); }
+});
+
+async function deleteMember(id) {
+  if (!confirm('Delete this member?')) return;
+  try {
+    await API.del('/api/admin/package-group-members/' + id);
+    showToast('Member deleted');
+    loadMembers();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', loadGroups);
+</script>
+{% endblock %}

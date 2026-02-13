@@ -1,0 +1,19 @@
+-- ============================================================
+-- Constraints for MSSQL
+-- ============================================================
+--
+-- NOTE: Foreign Key and Unique constraints are INTENTIONALLY OMITTED
+-- for this performance testing database.
+--
+-- Reasons:
+-- 1. FK constraints complicate seed data generation order
+-- 2. UNIQUE constraints prevent random data generation
+-- 3. Neither is needed for query performance testing
+--
+-- The following constraints ARE in place:
+-- - PRIMARY KEY constraints (for row identification)
+-- - INDEXES (for query performance - see 02_create_indexes.sql)
+--
+-- ============================================================
+
+-- No constraints to add. This file is intentionally minimal.

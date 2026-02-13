@@ -1,0 +1,627 @@
+"""Pydantic request/response schemas for all API endpoints.
+
+Each entity has:
+  - {Entity}Create: fields for creation (no id, no created_at)
+  - {Entity}Update: all fields optional for partial update
+  - {Entity}Response: full entity representation returned to client
+"""
+
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from orchestrator.models.enums import (
+    AgentType,
+    BaselineType,
+    DBType,
+    DiskType,
+    ExecutionStatus,
+    FunctionalTestPhase,
+    HypervisorType,
+    OSFamily,
+    RuleSeverity,
+    RunMode,
+    ServerInfraType,
+    TemplateType,
+    TestRunState,
+    Verdict,
+)
+
+
+# ---- Lab ----
+
+class LabCreate(BaseModel):
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    jmeter_package_grpid: int
+    loadgen_snapshot_id: int
+    hypervisor_type: HypervisorType
+    hypervisor_manager_url: str = Field(max_length=512)
+    hypervisor_manager_port: int
+
+
+class LabUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    jmeter_package_grpid: Optional[int] = None
+    loadgen_snapshot_id: Optional[int] = None
+    hypervisor_type: Optional[HypervisorType] = None
+    hypervisor_manager_url: Optional[str] = Field(default=None, max_length=512)
+    hypervisor_manager_port: Optional[int] = None
+
+
+class LabResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str]
+    jmeter_package_grpid: int
+    loadgen_snapshot_id: int
+    hypervisor_type: HypervisorType
+    hypervisor_manager_url: str
+    hypervisor_manager_port: int
+    created_at: datetime
+
+
+# ---- HardwareProfile ----
+
+class HardwareProfileCreate(BaseModel):
+    name: str = Field(max_length=255)
+    cpu_count: int
+    cpu_model: Optional[str] = Field(default=None, max_length=255)
+    memory_gb: float
+    disk_type: DiskType
+    disk_size_gb: float
+    nic_speed_mbps: Optional[int] = None
+    vendor: Optional[str] = Field(default=None, max_length=255)
+
+
+class HardwareProfileUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    cpu_count: Optional[int] = None
+    cpu_model: Optional[str] = Field(default=None, max_length=255)
+    memory_gb: Optional[float] = None
+    disk_type: Optional[DiskType] = None
+    disk_size_gb: Optional[float] = None
+    nic_speed_mbps: Optional[int] = None
+    vendor: Optional[str] = Field(default=None, max_length=255)
+
+
+class HardwareProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    cpu_count: int
+    cpu_model: Optional[str]
+    memory_gb: float
+    disk_type: DiskType
+    disk_size_gb: float
+    nic_speed_mbps: Optional[int]
+    vendor: Optional[str] = None
+
+
+# ---- Server ----
+
+class ServerCreate(BaseModel):
+    hostname: str = Field(max_length=255)
+    ip_address: str = Field(max_length=45)
+    os_family: OSFamily
+    lab_id: int
+    hardware_profile_id: int
+    server_infra_type: ServerInfraType
+    server_infra_ref: Dict[str, Any]
+    baseline_id: Optional[int] = None
+    db_type: Optional[DBType] = None
+    db_port: Optional[int] = None
+    db_name: Optional[str] = Field(default=None, max_length=255)
+    db_user: Optional[str] = Field(default=None, max_length=255)
+    db_password: Optional[str] = Field(default=None, max_length=255)
+
+
+class ServerUpdate(BaseModel):
+    hostname: Optional[str] = Field(default=None, max_length=255)
+    ip_address: Optional[str] = Field(default=None, max_length=45)
+    os_family: Optional[OSFamily] = None
+    lab_id: Optional[int] = None
+    hardware_profile_id: Optional[int] = None
+    server_infra_type: Optional[ServerInfraType] = None
+    server_infra_ref: Optional[Dict[str, Any]] = None
+    baseline_id: Optional[int] = None
+    db_type: Optional[DBType] = None
+    db_port: Optional[int] = None
+    db_name: Optional[str] = Field(default=None, max_length=255)
+    db_user: Optional[str] = Field(default=None, max_length=255)
+    db_password: Optional[str] = Field(default=None, max_length=255)
+
+
+class ServerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    hostname: str
+    ip_address: str
+    os_family: OSFamily
+    lab_id: int
+    hardware_profile_id: int
+    server_infra_type: ServerInfraType
+    server_infra_ref: Dict[str, Any]
+    baseline_id: Optional[int]
+    db_type: Optional[DBType]
+    db_port: Optional[int]
+    db_name: Optional[str]
+    db_user: Optional[str]
+    db_password: Optional[str]
+    created_at: datetime
+
+
+# ---- Baseline ----
+
+class BaselineCreate(BaseModel):
+    name: str = Field(max_length=255)
+    os_family: OSFamily
+    os_vendor_family: str = Field(max_length=100)
+    os_major_ver: str = Field(max_length=20)
+    os_minor_ver: Optional[str] = Field(default=None, max_length=20)
+    os_kernel_ver: Optional[str] = Field(default=None, max_length=100)
+    db_type: Optional[DBType] = None
+    baseline_type: BaselineType
+    provider_ref: Dict[str, Any]
+
+
+class BaselineUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    os_family: Optional[OSFamily] = None
+    os_vendor_family: Optional[str] = Field(default=None, max_length=100)
+    os_major_ver: Optional[str] = Field(default=None, max_length=20)
+    os_minor_ver: Optional[str] = Field(default=None, max_length=20)
+    os_kernel_ver: Optional[str] = Field(default=None, max_length=100)
+    db_type: Optional[DBType] = None
+    baseline_type: Optional[BaselineType] = None
+    provider_ref: Optional[Dict[str, Any]] = None
+
+
+class BaselineResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    os_family: OSFamily
+    os_vendor_family: str
+    os_major_ver: str
+    os_minor_ver: Optional[str]
+    os_kernel_ver: Optional[str]
+    db_type: Optional[DBType]
+    baseline_type: BaselineType
+    provider_ref: Dict[str, Any]
+    created_at: datetime
+
+
+# ---- PackageGroup ----
+
+class PackageGroupCreate(BaseModel):
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+
+
+class PackageGroupUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+
+
+class PackageGroupResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str]
+    created_at: datetime
+
+
+# ---- PackageGroupMember ----
+
+class PackageGroupMemberCreate(BaseModel):
+    package_group_id: int
+    os_match_regex: str = Field(max_length=255)
+    path: str = Field(max_length=1024)
+    root_install_path: str = Field(max_length=1024)
+    extraction_command: Optional[str] = Field(default=None, max_length=1024)
+    install_command: Optional[str] = Field(default=None, max_length=1024)
+    run_command: Optional[str] = Field(default=None, max_length=1024)
+    output_path: Optional[str] = Field(default=None, max_length=1024)
+    uninstall_command: Optional[str] = Field(default=None, max_length=1024)
+    status_command: Optional[str] = Field(default=None, max_length=1024)
+
+
+class PackageGroupMemberUpdate(BaseModel):
+    os_match_regex: Optional[str] = Field(default=None, max_length=255)
+    path: Optional[str] = Field(default=None, max_length=1024)
+    root_install_path: Optional[str] = Field(default=None, max_length=1024)
+    extraction_command: Optional[str] = Field(default=None, max_length=1024)
+    install_command: Optional[str] = Field(default=None, max_length=1024)
+    run_command: Optional[str] = Field(default=None, max_length=1024)
+    output_path: Optional[str] = Field(default=None, max_length=1024)
+    uninstall_command: Optional[str] = Field(default=None, max_length=1024)
+    status_command: Optional[str] = Field(default=None, max_length=1024)
+
+
+class PackageGroupMemberResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    package_group_id: int
+    os_match_regex: str
+    path: str
+    root_install_path: str
+    extraction_command: Optional[str]
+    install_command: Optional[str]
+    run_command: Optional[str]
+    output_path: Optional[str]
+    uninstall_command: Optional[str]
+    status_command: Optional[str]
+
+
+# ---- Scenario ----
+
+class ScenarioCreate(BaseModel):
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    lab_id: int
+    template_type: TemplateType
+    has_base_phase: bool = True
+    has_initial_phase: bool = True
+    has_dbtest: bool = False
+    load_generator_package_grp_id: int
+    initial_package_grp_id: Optional[int] = None
+    other_package_grp_ids: Optional[List[int]] = None
+    functional_package_grp_id: Optional[int] = None
+    functional_test_phase: Optional[FunctionalTestPhase] = None
+
+
+class ScenarioUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    lab_id: Optional[int] = None
+    template_type: Optional[TemplateType] = None
+    has_base_phase: Optional[bool] = None
+    has_initial_phase: Optional[bool] = None
+    has_dbtest: Optional[bool] = None
+    load_generator_package_grp_id: Optional[int] = None
+    initial_package_grp_id: Optional[int] = None
+    other_package_grp_ids: Optional[List[int]] = None
+    functional_package_grp_id: Optional[int] = None
+    functional_test_phase: Optional[FunctionalTestPhase] = None
+
+
+class ScenarioResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str]
+    lab_id: int
+    template_type: TemplateType
+    has_base_phase: bool
+    has_initial_phase: bool
+    has_dbtest: bool
+    load_generator_package_grp_id: int
+    initial_package_grp_id: Optional[int]
+    other_package_grp_ids: Optional[List[int]]
+    functional_package_grp_id: Optional[int]
+    functional_test_phase: Optional[FunctionalTestPhase]
+    created_at: datetime
+
+
+# ---- LoadProfile ----
+
+class LoadProfileCreate(BaseModel):
+    name: str = Field(max_length=100)
+    target_cpu_range_min: float
+    target_cpu_range_max: float
+    duration_sec: int = Field(gt=0)
+    ramp_up_sec: int = Field(ge=0)
+
+
+class LoadProfileUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    target_cpu_range_min: Optional[float] = None
+    target_cpu_range_max: Optional[float] = None
+    duration_sec: Optional[int] = Field(default=None, gt=0)
+    ramp_up_sec: Optional[int] = Field(default=None, ge=0)
+
+
+class LoadProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    target_cpu_range_min: float
+    target_cpu_range_max: float
+    duration_sec: int
+    ramp_up_sec: int
+
+
+# ---- DBSchemaConfig ----
+
+class DBSchemaConfigCreate(BaseModel):
+    db_type: DBType
+    schema_path: str = Field(max_length=1024)
+    seed_data_path: str = Field(max_length=1024)
+    param_csv_path: Optional[str] = Field(default=None, max_length=1024)
+
+
+class DBSchemaConfigUpdate(BaseModel):
+    schema_path: Optional[str] = Field(default=None, max_length=1024)
+    seed_data_path: Optional[str] = Field(default=None, max_length=1024)
+    param_csv_path: Optional[str] = Field(default=None, max_length=1024)
+
+
+class DBSchemaConfigResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    db_type: DBType
+    schema_path: str
+    seed_data_path: str
+    param_csv_path: Optional[str]
+
+
+# ---- User (admin management) ----
+
+class UserCreate(BaseModel):
+    username: str = Field(max_length=100)
+    password: str = Field(min_length=8)
+    email: Optional[str] = Field(default=None, max_length=255)
+    role: str = Field(default="user", pattern=r"^(admin|user)$")
+
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = Field(default=None, max_length=255)
+    role: Optional[str] = Field(default=None, pattern=r"^(admin|user)$")
+    is_active: Optional[bool] = None
+    password: Optional[str] = Field(default=None, min_length=8)
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    username: str
+    email: Optional[str]
+    role: str
+    is_active: bool
+    created_at: datetime
+
+
+# ---- Agent ----
+
+class AgentCreate(BaseModel):
+    name: str = Field(max_length=255)
+    vendor: Optional[str] = Field(default=None, max_length=255)
+    agent_type: AgentType = AgentType.edr
+    version: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = None
+    package_group_id: Optional[int] = None
+    process_patterns: Optional[List[str]] = None
+    service_patterns: Optional[List[str]] = None
+    discovery_key: Optional[str] = Field(default=None, max_length=100)
+
+
+class AgentUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    vendor: Optional[str] = Field(default=None, max_length=255)
+    agent_type: Optional[AgentType] = None
+    version: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = None
+    package_group_id: Optional[int] = None
+    process_patterns: Optional[List[str]] = None
+    service_patterns: Optional[List[str]] = None
+    discovery_key: Optional[str] = Field(default=None, max_length=100)
+    is_active: Optional[bool] = None
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    vendor: Optional[str]
+    agent_type: AgentType
+    version: Optional[str]
+    description: Optional[str]
+    package_group_id: Optional[int]
+    process_patterns: Optional[List[str]]
+    service_patterns: Optional[List[str]]
+    discovery_key: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+
+# ---- AnalysisRule ----
+
+class AnalysisRuleCreate(BaseModel):
+    rule_template_key: str = Field(max_length=100)
+    threshold_value: float
+    threshold_upper: Optional[float] = None
+    severity: RuleSeverity = RuleSeverity.warning
+    is_active: bool = True
+
+
+class AnalysisRuleUpdate(BaseModel):
+    threshold_value: Optional[float] = None
+    threshold_upper: Optional[float] = None
+    severity: Optional[RuleSeverity] = None
+    is_active: Optional[bool] = None
+
+
+class AnalysisRuleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    agent_id: int
+    rule_template_key: str
+    threshold_value: float
+    threshold_upper: Optional[float]
+    severity: RuleSeverity
+    is_active: bool
+    created_at: datetime
+
+
+# ---- RuleTemplate & Preset ----
+
+class RuleTemplateResponse(BaseModel):
+    key: str
+    name: str
+    category: str
+    description: str
+    data_source: str
+    metric: str
+    statistic: str
+    comparison_mode: str
+    operator: str
+    unit: str
+    default_threshold: float
+
+
+class PresetRuleResponse(BaseModel):
+    template_key: str
+    threshold: float
+    severity: str
+
+
+class RulePresetResponse(BaseModel):
+    key: str
+    name: str
+    description: str
+    rules: List[PresetRuleResponse]
+
+
+class ApplyPresetRequest(BaseModel):
+    preset_key: str = Field(pattern=r"^(standard|strict|lenient)$")
+
+
+# ---- TestRun ----
+
+class TestRunCreate(BaseModel):
+    scenario_id: int
+    lab_id: int
+    cycles_per_profile: int = Field(default=1, ge=1)
+    run_mode: RunMode = RunMode.complete
+    load_profile_ids: List[int] = Field(min_length=1)
+
+
+class TestRunTargetCreate(BaseModel):
+    target_id: int
+    loadgenerator_id: int
+    partner_id: Optional[int] = None
+    base_snapshot_id: int
+    initial_snapshot_id: int
+    db_ready_base_snapshot_id: Optional[int] = None
+    db_ready_initial_snapshot_id: Optional[int] = None
+    service_monitor_patterns: Optional[List[str]] = None
+
+
+class TestRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    scenario_id: int
+    lab_id: int
+    cycles_per_profile: int
+    run_mode: RunMode
+    state: TestRunState
+    current_snapshot_num: Optional[int]
+    current_load_profile_id: Optional[int]
+    current_cycle_number: Optional[int]
+    error_message: Optional[str]
+    overall_verdict: Optional[Verdict] = None
+    created_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+
+
+class TestRunTargetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    test_run_id: int
+    target_id: int
+    loadgenerator_id: int
+    partner_id: Optional[int]
+    base_snapshot_id: int
+    initial_snapshot_id: int
+    db_ready_base_snapshot_id: Optional[int]
+    db_ready_initial_snapshot_id: Optional[int]
+    service_monitor_patterns: Optional[List[str]]
+    os_kind: Optional[str] = None
+    base_os_major_ver: Optional[str] = None
+    base_os_minor_ver: Optional[str] = None
+    base_agent_versions: Optional[List[Dict[str, Any]]] = None
+    initial_os_major_ver: Optional[str] = None
+    initial_os_minor_ver: Optional[str] = None
+    initial_agent_versions: Optional[List[Dict[str, Any]]] = None
+
+
+class CalibrationResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    test_run_id: int
+    server_id: int
+    os_type: OSFamily
+    load_profile_id: int
+    thread_count: int
+    created_at: datetime
+
+
+class PhaseExecutionResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    test_run_id: int
+    target_id: int
+    snapshot_num: int
+    load_profile_id: int
+    cycle_number: int
+    baseline_id: int
+    thread_count: int
+    status: ExecutionStatus
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    stats_file_path: Optional[str]
+    jmeter_jtl_path: Optional[str]
+    error_message: Optional[str]
+
+
+class ComparisonResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    test_run_id: int
+    target_id: Optional[int]
+    load_profile_id: int
+    comparison_type: str
+    result_file_path: Optional[str]
+    result_data: Optional[Dict[str, Any]]
+    summary_text: Optional[str]
+    verdict: Optional[Verdict] = None
+    violation_count: int = 0
+    created_at: datetime
+
+
+# ---- Trending ----
+
+class TrendDataPoint(BaseModel):
+    test_run_id: int
+    agent_version: Optional[str] = None
+    os_kind: Optional[str] = None
+    os_major_ver: Optional[str] = None
+    os_minor_ver: Optional[str] = None
+    hardware_profile_name: Optional[str] = None
+    load_profile_name: Optional[str] = None
+    value: Optional[float] = None
+    is_ratio: bool = False
+    base_value: Optional[float] = None
+    run_date: datetime
+    verdict: Optional[Verdict] = None
+
+
+class TrendResponse(BaseModel):
+    agent_name: str
+    metric: str
+    statistic: str
+    data_points: List[TrendDataPoint]
+    filters_applied: Dict[str, Any]
+
+
+class TrendFiltersResponse(BaseModel):
+    os_kinds: List[str]
+    os_major_vers: List[str]
+    hardware_profiles: List[Dict[str, Any]]
+    load_profiles: List[Dict[str, Any]]

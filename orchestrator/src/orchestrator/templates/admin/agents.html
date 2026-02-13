@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}Agents - Orchestrator{% endblock %}
+{% block page_header %}<strong>Agents</strong> — Security Agent Management{% endblock %}
+
+{% block content %}
+<!-- Agent List -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0">Agents</h6>
+    <button class="btn btn-sm btn-primary" onclick="showCreateAgent()"><i class="bi bi-plus me-1"></i>New Agent</button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th><th>Name</th><th>Vendor</th><th>Type</th><th>Version</th>
+          <th>Discovery Key</th><th>Active</th><th>Rules</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="agents-body">
+          <tr><td colspan="9" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Rules Panel (shown when agent selected) -->
+<div class="card shadow-sm mb-4" id="rules-panel" style="display:none;">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0" id="rules-panel-title">Rules for Agent</h6>
+    <div>
+      <div class="btn-group me-2">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+          <i class="bi bi-magic me-1"></i>Apply Preset
+        </button>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" href="#" onclick="applyPreset('standard')">Standard (Recommended)</a></li>
+          <li><a class="dropdown-item" href="#" onclick="applyPreset('strict')">Strict</a></li>
+          <li><a class="dropdown-item" href="#" onclick="applyPreset('lenient')">Lenient</a></li>
+        </ul>
+      </div>
+      <button class="btn btn-sm btn-primary" onclick="showAddRule()"><i class="bi bi-plus me-1"></i>Add Rule</button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead><tr>
+          <th>Active</th><th>Rule Name</th><th>Category</th><th>Threshold</th>
+          <th>Severity</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="rules-body">
+          <tr><td colspan="6" class="text-center text-muted py-3">No rules</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Agent Modal -->
+<div class="modal fade" id="agent-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="agent-modal-title">Create Agent</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="agent-edit-id">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Name *</label>
+            <input type="text" class="form-control" id="agent-name" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Vendor</label>
+            <input type="text" class="form-control" id="agent-vendor">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Type</label>
+            <select class="form-select" id="agent-type">
+              <option value="edr">EDR</option>
+              <option value="av">AV</option>
+              <option value="dlp">DLP</option>
+              <option value="monitoring">Monitoring</option>
+              <option value="backup">Backup</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Version</label>
+            <input type="text" class="form-control" id="agent-version">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Package Group ID</label>
+            <input type="number" class="form-control" id="agent-pkg-grp">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" id="agent-description" rows="2"></textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Process Patterns (JSON array)</label>
+            <input type="text" class="form-control" id="agent-process-patterns" placeholder='["falcon*","cs*"]'>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Service Patterns (JSON array)</label>
+            <input type="text" class="form-control" id="agent-service-patterns" placeholder='["CSFalcon*"]'>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Discovery Key</label>
+            <input type="text" class="form-control" id="agent-discovery-key" placeholder="crowdstrike">
+            <small class="text-muted">Maps to discovery/{os_kind}/{key}.sh|.ps1</small>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveAgent()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Rule Modal -->
+<div class="modal fade" id="rule-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Rule</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Rule Template</label>
+          <select class="form-select" id="rule-template-key" onchange="onTemplateChange()">
+            <option value="">-- Select Template --</option>
+          </select>
+          <small class="text-muted" id="rule-template-desc"></small>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Threshold</label>
+            <input type="number" step="any" class="form-control" id="rule-threshold">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Severity</label>
+            <select class="form-select" id="rule-severity">
+              <option value="critical">Critical</option>
+              <option value="warning">Warning</option>
+              <option value="info">Info</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveRule()">Add Rule</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedAgentId = null;
+let ruleTemplates = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAgents();
+  await loadTemplates();
+});
+
+async function loadTemplates() {
+  try {
+    ruleTemplates = await API.get('/api/admin/rule-templates');
+    const sel = document.getElementById('rule-template-key');
+    const categories = {};
+    ruleTemplates.forEach(t => {
+      if (!categories[t.category]) categories[t.category] = [];
+      categories[t.category].push(t);
+    });
+    for (const [cat, templates] of Object.entries(categories)) {
+      const group = document.createElement('optgroup');
+      group.label = cat.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      templates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.key;
+        opt.textContent = t.name + ' (' + t.unit + ')';
+        group.appendChild(opt);
+      });
+      sel.appendChild(group);
+    }
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function onTemplateChange() {
+  const key = document.getElementById('rule-template-key').value;
+  const t = ruleTemplates.find(x => x.key === key);
+  document.getElementById('rule-template-desc').textContent = t ? t.description : '';
+  if (t) document.getElementById('rule-threshold').value = t.default_threshold;
+}
+
+async function loadAgents() {
+  try {
+    const agents = await API.get('/api/admin/agents');
+    const tbody = document.getElementById('agents-body');
+    if (agents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No agents configured</td></tr>';
+      return;
+    }
+    tbody.innerHTML = agents.map(a => `<tr class="${selectedAgentId === a.id ? 'table-active' : ''}">
+      <td>${a.id}</td>
+      <td><a href="#" onclick="selectAgent(${a.id}); return false;">${escHtml(a.name)}</a></td>
+      <td>${escHtml(a.vendor || '-')}</td>
+      <td><span class="badge bg-info">${a.agent_type}</span></td>
+      <td>${escHtml(a.version || '-')}</td>
+      <td><code class="small">${escHtml(a.discovery_key || '-')}</code></td>
+      <td>${a.is_active ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="selectAgent(${a.id})"><i class="bi bi-list-check"></i></button></td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEditAgent(${a.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteAgent(${a.id})" title="Delete"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`).join('');
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function showCreateAgent() {
+  document.getElementById('agent-modal-title').textContent = 'Create Agent';
+  document.getElementById('agent-edit-id').value = '';
+  document.getElementById('agent-name').value = '';
+  document.getElementById('agent-vendor').value = '';
+  document.getElementById('agent-type').value = 'edr';
+  document.getElementById('agent-version').value = '';
+  document.getElementById('agent-pkg-grp').value = '';
+  document.getElementById('agent-description').value = '';
+  document.getElementById('agent-process-patterns').value = '';
+  document.getElementById('agent-service-patterns').value = '';
+  document.getElementById('agent-discovery-key').value = '';
+  new bootstrap.Modal(document.getElementById('agent-modal')).show();
+}
+
+async function showEditAgent(id) {
+  try {
+    const a = await API.get('/api/admin/agents/' + id);
+    document.getElementById('agent-modal-title').textContent = 'Edit Agent';
+    document.getElementById('agent-edit-id').value = a.id;
+    document.getElementById('agent-name').value = a.name;
+    document.getElementById('agent-vendor').value = a.vendor || '';
+    document.getElementById('agent-type').value = a.agent_type;
+    document.getElementById('agent-version').value = a.version || '';
+    document.getElementById('agent-pkg-grp').value = a.package_group_id || '';
+    document.getElementById('agent-description').value = a.description || '';
+    document.getElementById('agent-process-patterns').value = a.process_patterns ? JSON.stringify(a.process_patterns) : '';
+    document.getElementById('agent-service-patterns').value = a.service_patterns ? JSON.stringify(a.service_patterns) : '';
+    document.getElementById('agent-discovery-key').value = a.discovery_key || '';
+    new bootstrap.Modal(document.getElementById('agent-modal')).show();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function saveAgent() {
+  const editId = document.getElementById('agent-edit-id').value;
+  const data = {
+    name: document.getElementById('agent-name').value,
+    vendor: document.getElementById('agent-vendor').value || null,
+    agent_type: document.getElementById('agent-type').value,
+    version: document.getElementById('agent-version').value || null,
+    description: document.getElementById('agent-description').value || null,
+    package_group_id: document.getElementById('agent-pkg-grp').value ? parseInt(document.getElementById('agent-pkg-grp').value) : null,
+    discovery_key: document.getElementById('agent-discovery-key').value || null,
+  };
+  try {
+    const pp = document.getElementById('agent-process-patterns').value;
+    data.process_patterns = pp ? JSON.parse(pp) : null;
+  } catch { data.process_patterns = null; }
+  try {
+    const sp = document.getElementById('agent-service-patterns').value;
+    data.service_patterns = sp ? JSON.parse(sp) : null;
+  } catch { data.service_patterns = null; }
+
+  try {
+    if (editId) {
+      await API.put('/api/admin/agents/' + editId, data);
+      showToast('Agent updated');
+    } else {
+      await API.post('/api/admin/agents', data);
+      showToast('Agent created');
+    }
+    bootstrap.Modal.getInstance(document.getElementById('agent-modal')).hide();
+    await loadAgents();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function deleteAgent(id) {
+  if (!confirm('Delete this agent and all its rules?')) return;
+  try {
+    await API.delete('/api/admin/agents/' + id);
+    showToast('Agent deleted');
+    if (selectedAgentId === id) {
+      selectedAgentId = null;
+      document.getElementById('rules-panel').style.display = 'none';
+    }
+    await loadAgents();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function selectAgent(id) {
+  selectedAgentId = id;
+  document.getElementById('rules-panel').style.display = '';
+  await loadAgents();
+  await loadRules();
+}
+
+async function loadRules() {
+  if (!selectedAgentId) return;
+  try {
+    const agent = await API.get('/api/admin/agents/' + selectedAgentId);
+    document.getElementById('rules-panel-title').textContent = 'Rules for ' + agent.name;
+    const rules = await API.get('/api/admin/agents/' + selectedAgentId + '/rules');
+    const tbody = document.getElementById('rules-body');
+    if (rules.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No rules. Apply a preset or add rules manually.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rules.map(r => {
+      const t = ruleTemplates.find(x => x.key === r.rule_template_key);
+      const name = t ? t.name : r.rule_template_key;
+      const cat = t ? t.category.replace(/_/g, ' ') : '-';
+      const unit = t ? t.unit : '';
+      const sevClass = r.severity === 'critical' ? 'danger' : r.severity === 'warning' ? 'warning' : 'info';
+      return `<tr>
+        <td>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" ${r.is_active ? 'checked' : ''}
+              onchange="toggleRule(${r.id}, this.checked)">
+          </div>
+        </td>
+        <td>${escHtml(name)}</td>
+        <td class="small text-muted">${escHtml(cat)}</td>
+        <td>${r.threshold_value} ${escHtml(unit)}</td>
+        <td><span class="badge bg-${sevClass}">${r.severity}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteRule(${r.id})" title="Delete"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function applyPreset(key) {
+  if (!selectedAgentId) return;
+  if (!confirm('This will replace all existing rules. Continue?')) return;
+  try {
+    await API.post('/api/admin/agents/' + selectedAgentId + '/apply-preset', { preset_key: key });
+    showToast('Preset applied');
+    await loadRules();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function showAddRule() {
+  if (!selectedAgentId) return;
+  document.getElementById('rule-template-key').value = '';
+  document.getElementById('rule-threshold').value = '';
+  document.getElementById('rule-severity').value = 'warning';
+  document.getElementById('rule-template-desc').textContent = '';
+  new bootstrap.Modal(document.getElementById('rule-modal')).show();
+}
+
+async function saveRule() {
+  const key = document.getElementById('rule-template-key').value;
+  if (!key) { showToast('Select a template', 'warning'); return; }
+  try {
+    await API.post('/api/admin/agents/' + selectedAgentId + '/rules', {
+      rule_template_key: key,
+      threshold_value: parseFloat(document.getElementById('rule-threshold').value),
+      severity: document.getElementById('rule-severity').value,
+    });
+    showToast('Rule added');
+    bootstrap.Modal.getInstance(document.getElementById('rule-modal')).hide();
+    await loadRules();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function toggleRule(ruleId, active) {
+  try {
+    await API.put('/api/admin/agent-rules/' + ruleId, { is_active: active });
+  } catch (e) { showToast(e.message, 'danger'); await loadRules(); }
+}
+
+async function deleteRule(ruleId) {
+  try {
+    await API.delete('/api/admin/agent-rules/' + ruleId);
+    showToast('Rule deleted');
+    await loadRules();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+</script>
+{% endblock %}

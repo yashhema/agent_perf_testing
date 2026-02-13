@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Trending - Orchestrator{% endblock %}
+{% block page_header %}<strong>Trending</strong> — Cross-Version Agent Performance{% endblock %}
+
+{% block content %}
+<!-- Filter Bar -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0"><i class="bi bi-funnel me-1"></i>Filters</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Agent</label>
+        <select class="form-select" id="filter-agent" onchange="onAgentChange()">
+          <option value="">-- Select Agent --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Metric</label>
+        <select class="form-select" id="filter-metric">
+          <optgroup label="Agent (Raw)">
+            <option value="agent_cpu_percent">Agent CPU %</option>
+            <option value="agent_memory_rss_mb">Agent Memory RSS (MB)</option>
+            <option value="agent_memory_vms_mb">Agent Memory VMS (MB)</option>
+            <option value="agent_thread_count">Agent Thread Count</option>
+            <option value="agent_handle_count">Agent Handle Count</option>
+            <option value="agent_io_read_rate_mbps">Agent I/O Read (MB/s)</option>
+            <option value="agent_io_write_rate_mbps">Agent I/O Write (MB/s)</option>
+            <option value="process_count">Process Count</option>
+          </optgroup>
+          <optgroup label="Normalized Ratios">
+            <option value="agent_cpu_percent_ratio">Agent CPU Ratio</option>
+            <option value="agent_io_read_rate_mbps_ratio">Agent I/O Read Ratio</option>
+            <option value="agent_io_write_rate_mbps_ratio">Agent I/O Write Ratio</option>
+          </optgroup>
+          <optgroup label="System Deltas">
+            <option value="cpu_percent">System CPU %</option>
+            <option value="memory_used_mb">System Memory Used (MB)</option>
+            <option value="disk_read_rate_mbps">Disk Read Rate (MB/s)</option>
+            <option value="disk_write_rate_mbps">Disk Write Rate (MB/s)</option>
+            <option value="net_sent_rate_mbps">Net Sent Rate (MB/s)</option>
+            <option value="net_recv_rate_mbps">Net Recv Rate (MB/s)</option>
+            <option value="disk_io_percent">Disk I/O %</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Statistic</label>
+        <select class="form-select" id="filter-statistic">
+          <option value="avg">Average</option>
+          <option value="p50">p50 (Median)</option>
+          <option value="p90">p90</option>
+          <option value="p95">p95</option>
+          <option value="p99">p99</option>
+          <option value="max">Max</option>
+          <option value="min">Min</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">OS Kind</label>
+        <select class="form-select" id="filter-os-kind">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">OS Major Ver</label>
+        <select class="form-select" id="filter-os-major">
+          <option value="">All</option>
+        </select>
+      </div>
+    </div>
+    <div class="row g-3 mt-1">
+      <div class="col-md-3">
+        <label class="form-label">Hardware Profile</label>
+        <select class="form-select" id="filter-hw">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Load Profile</label>
+        <select class="form-select" id="filter-lp">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Max Results</label>
+        <input type="number" class="form-control" id="filter-limit" value="50" min="1" max="500">
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <button class="btn btn-primary" onclick="loadTrend()"><i class="bi bi-graph-up me-1"></i>Load Trend</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Results Table -->
+<div class="card shadow-sm" id="results-card" style="display:none;">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0" id="results-title">Trend Data</h6>
+    <span class="badge bg-secondary" id="results-count">0 points</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead><tr>
+          <th>Run ID</th><th>Date</th><th>Agent Version</th><th>OS</th>
+          <th>Hardware Profile</th><th>Load Profile</th><th>Value</th>
+          <th>Base Value</th><th>Verdict</th>
+        </tr></thead>
+        <tbody id="trend-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Empty state -->
+<div class="text-center text-muted py-5" id="empty-state">
+  <i class="bi bi-graph-up display-4 d-block mb-3"></i>
+  <p>Select an agent and click "Load Trend" to see cross-version performance data.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', loadAgents);
+
+async function loadAgents() {
+  try {
+    const agents = await API.get('/api/admin/agents');
+    const sel = document.getElementById('filter-agent');
+    agents.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.name + (a.version ? ' v' + a.version : '');
+      sel.appendChild(opt);
+    });
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function onAgentChange() {
+  const agentId = document.getElementById('filter-agent').value;
+  if (!agentId) return;
+  try {
+    const filters = await API.get('/api/trending/agents/' + agentId + '/filters');
+
+    const osKind = document.getElementById('filter-os-kind');
+    osKind.innerHTML = '<option value="">All</option>';
+    filters.os_kinds.forEach(k => { osKind.innerHTML += `<option value="${escHtml(k)}">${escHtml(k)}</option>`; });
+
+    const osMajor = document.getElementById('filter-os-major');
+    osMajor.innerHTML = '<option value="">All</option>';
+    filters.os_major_vers.forEach(v => { osMajor.innerHTML += `<option value="${escHtml(v)}">${escHtml(v)}</option>`; });
+
+    const hw = document.getElementById('filter-hw');
+    hw.innerHTML = '<option value="">All</option>';
+    filters.hardware_profiles.forEach(h => { hw.innerHTML += `<option value="${h.id}">${escHtml(h.name)}</option>`; });
+
+    const lp = document.getElementById('filter-lp');
+    lp.innerHTML = '<option value="">All</option>';
+    filters.load_profiles.forEach(l => { lp.innerHTML += `<option value="${l.id}">${escHtml(l.name)}</option>`; });
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function loadTrend() {
+  const agentId = document.getElementById('filter-agent').value;
+  if (!agentId) { showToast('Select an agent', 'warning'); return; }
+
+  const metric = document.getElementById('filter-metric').value;
+  const statistic = document.getElementById('filter-statistic').value;
+  const osKind = document.getElementById('filter-os-kind').value;
+  const osMajor = document.getElementById('filter-os-major').value;
+  const hwId = document.getElementById('filter-hw').value;
+  const lpId = document.getElementById('filter-lp').value;
+  const limit = document.getElementById('filter-limit').value;
+
+  let url = `/api/trending/agents/${agentId}/trend?metric=${metric}&statistic=${statistic}&limit=${limit}`;
+  if (osKind) url += `&os_kind=${osKind}`;
+  if (osMajor) url += `&os_major_ver=${osMajor}`;
+  if (hwId) url += `&hardware_profile_id=${hwId}`;
+  if (lpId) url += `&load_profile_id=${lpId}`;
+
+  try {
+    const resp = await API.get(url);
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('results-card').style.display = '';
+    document.getElementById('results-title').textContent =
+      `${resp.agent_name} — ${resp.metric} (${resp.statistic})`;
+    document.getElementById('results-count').textContent = resp.data_points.length + ' points';
+
+    const tbody = document.getElementById('trend-body');
+    if (resp.data_points.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No data points found for these filters</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = resp.data_points.map(p => {
+      const vCls = p.verdict === 'passed' ? 'success' : p.verdict === 'failed' ? 'danger' : p.verdict === 'warning' ? 'warning' : 'secondary';
+      const osLabel = p.os_kind ? p.os_kind + ' ' + (p.os_major_ver || '') + (p.os_minor_ver ? '.' + p.os_minor_ver : '') : '-';
+      const valStr = p.value != null ? (p.is_ratio ? (p.value * 100).toFixed(2) + '%' : p.value.toFixed(3)) : '-';
+      const baseStr = p.base_value != null ? p.base_value.toFixed(2) : '-';
+      return `<tr>
+        <td><a href="/test-runs/${p.test_run_id}/results">#${p.test_run_id}</a></td>
+        <td class="small">${fmtDate(p.run_date)}</td>
+        <td>${escHtml(p.agent_version || '-')}</td>
+        <td>${escHtml(osLabel)}</td>
+        <td>${escHtml(p.hardware_profile_name || '-')}</td>
+        <td>${escHtml(p.load_profile_name || '-')}</td>
+        <td class="fw-bold">${valStr}</td>
+        <td>${baseStr}</td>
+        <td>${p.verdict ? '<span class="badge bg-' + vCls + '">' + p.verdict + '</span>' : '-'}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+</script>
+{% endblock %}
