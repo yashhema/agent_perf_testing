@@ -124,18 +124,17 @@ class PreFlightValidator:
                         port=lab.hypervisor_manager_port,
                         credential=hyp_cred,
                     )
+                    server = session.get(ServerORM, target_config.target_id)
                     for snap_id, snap_label in [
                         (target_config.base_snapshot_id, "base"),
                         (target_config.initial_snapshot_id, "initial"),
                     ]:
                         baseline = session.get(BaselineORM, snap_id)
-                        if baseline:
-                            snap_name = baseline.provider_ref.get("snapshot_name", "")
-                            if snap_name and not provider.snapshot_exists(baseline.provider_ref, snap_name):
-                                errors.append(ValidationError(
-                                    check="snapshot_exists",
-                                    message=f"Snapshot '{baseline.name}' not found on hypervisor ({snap_label})",
-                                ))
+                        if baseline and not provider.snapshot_exists(server.server_infra_ref, baseline.provider_ref):
+                            errors.append(ValidationError(
+                                check="snapshot_exists",
+                                message=f"Snapshot '{baseline.name}' not found on hypervisor ({snap_label})",
+                            ))
                 except Exception as e:
                     errors.append(ValidationError(
                         check="hypervisor_connection",

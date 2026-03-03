@@ -1,7 +1,18 @@
 """Rule templates and presets for the analysis engine.
 
-Defines 23 rule templates across 4 categories and 3 presets
+Defines 25 rule templates across 5 categories and 3 presets
 (standard/strict/lenient) with configured thresholds.
+
+Categories:
+  - system_overhead (10): Fixed-threshold system-wide rules (informational)
+  - agent_process (7): Absolute threshold rules for agent process metrics
+  - app_performance (5): JTL-based application performance rules
+  - stability (1): Cross-cycle variance check
+  - statistical (7): System-wide Cliff's delta rules (informational, not in presets)
+  - statistical_process (2): Per-process Cliff's delta rules (verdict-determining)
+
+Verdict is driven by per-process statistical rules + agent process rules + JTL rules.
+System-wide statistical and fixed-threshold system rules are retained for display.
 """
 
 from dataclasses import dataclass, field
@@ -354,6 +365,189 @@ RULE_TEMPLATES: Dict[str, RuleTemplate] = {
         unit="%",
         default_threshold=15.0,
     ),
+
+    # ---- Statistical Tests: System-wide (7) ----
+    # Kept for informational display. Not used in presets for verdict.
+    "stat_cpu_impact": RuleTemplate(
+        key="stat_cpu_impact",
+        name="CPU Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for CPU. Informational only; "
+                    "per-process rules drive the verdict.",
+        data_source="statistical",
+        metric="cpu_percent",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.20,
+    ),
+    "stat_memory_pct_impact": RuleTemplate(
+        key="stat_memory_pct_impact",
+        name="Memory % Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for memory %. Informational only.",
+        data_source="statistical",
+        metric="memory_percent",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.25,
+    ),
+    "stat_memory_mb_impact": RuleTemplate(
+        key="stat_memory_mb_impact",
+        name="Memory MB Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for memory MB. Informational only.",
+        data_source="statistical",
+        metric="memory_used_mb",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.25,
+    ),
+    "stat_disk_write_impact": RuleTemplate(
+        key="stat_disk_write_impact",
+        name="Disk Write Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for disk write rate. Informational only.",
+        data_source="statistical",
+        metric="disk_write_rate_mbps",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.30,
+    ),
+    "stat_disk_read_impact": RuleTemplate(
+        key="stat_disk_read_impact",
+        name="Disk Read Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for disk read rate. Informational only.",
+        data_source="statistical",
+        metric="disk_read_rate_mbps",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.30,
+    ),
+    "stat_net_send_impact": RuleTemplate(
+        key="stat_net_send_impact",
+        name="Network Send Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for network send rate. Informational only.",
+        data_source="statistical",
+        metric="network_sent_rate_mbps",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.30,
+    ),
+    "stat_net_recv_impact": RuleTemplate(
+        key="stat_net_recv_impact",
+        name="Network Recv Impact (statistical, system-wide)",
+        category="statistical",
+        description="System-wide Cliff's delta for network recv rate. Informational only.",
+        data_source="statistical",
+        metric="network_recv_rate_mbps",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.30,
+    ),
+
+    # ---- Statistical Tests: Per-Process (2) ----
+    # These drive the verdict. Each rule evaluates ALL monitored processes
+    # and takes the worst-case result. Requires service_monitor_patterns
+    # to be configured on the emulator with patterns matching the emulator
+    # process and any agent/service processes.
+    "stat_process_cpu_impact": RuleTemplate(
+        key="stat_process_cpu_impact",
+        name="Per-Process CPU Impact (statistical)",
+        category="statistical_process",
+        description="Cliff's delta for per-process CPU utilization. Evaluates each "
+                    "monitored process individually and fails if ANY process shows "
+                    "both a significant (p < 0.05) and meaningful effect size. "
+                    "Requires service_monitor_patterns to be configured.",
+        data_source="statistical_process",
+        metric="cpu_percent",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.20,
+    ),
+    "stat_process_mem_impact": RuleTemplate(
+        key="stat_process_mem_impact",
+        name="Per-Process Memory Impact (statistical)",
+        category="statistical_process",
+        description="Cliff's delta for per-process RSS memory. Evaluates each "
+                    "monitored process individually and fails if ANY process shows "
+                    "both a significant and meaningful effect size.",
+        data_source="statistical_process",
+        metric="memory_rss_mb",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.25,
+    ),
+
+    # ---- Statistical Tests: JTL Application Performance (3) ----
+    # Two-gate (significance + effect size) on raw JTL data.
+    # Throughput uses negative delta (agent reducing throughput is bad).
+    # Response time uses positive delta (agent increasing latency is bad).
+    "stat_jtl_throughput_impact": RuleTemplate(
+        key="stat_jtl_throughput_impact",
+        name="Throughput Impact (statistical)",
+        category="statistical_jtl",
+        description="Cliff's delta on per-second throughput timeseries. "
+                    "A negative delta means initial has lower throughput than base "
+                    "(agent reducing throughput). Uses two-gate: significant + "
+                    "meaningful effect size.",
+        data_source="jtl_statistical",
+        metric="jtl:throughput_per_sec",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="gt",  # delta must be > threshold (threshold is negative)
+        unit="",
+        default_threshold=-0.20,
+    ),
+    "stat_jtl_response_time_impact": RuleTemplate(
+        key="stat_jtl_response_time_impact",
+        name="Response Time Impact (statistical)",
+        category="statistical_jtl",
+        description="Cliff's delta on raw response time distribution. "
+                    "A positive delta means initial has higher response times "
+                    "(agent adding latency). Uses two-gate: significant + "
+                    "meaningful effect size.",
+        data_source="jtl_statistical",
+        metric="jtl:response_time_ms",
+        statistic="cliff_delta",
+        comparison_mode="two_gate",
+        operator="lt",
+        unit="",
+        default_threshold=0.20,
+    ),
+    "stat_jtl_error_rate_impact": RuleTemplate(
+        key="stat_jtl_error_rate_impact",
+        name="Error Rate Impact (statistical)",
+        category="statistical_jtl",
+        description="Simple absolute delta on error rate percentage points. "
+                    "Agent must not increase error rate beyond threshold.",
+        data_source="jtl",
+        metric="error_rate_percent",
+        statistic="avg",
+        comparison_mode="delta_abs",
+        operator="lt",
+        unit="pp",
+        default_threshold=1.0,
+    ),
 }
 
 
@@ -366,22 +560,25 @@ RULE_PRESETS: Dict[str, RulePreset] = {
         key="standard",
         name="Standard",
         description="Balanced thresholds suitable for most environments. "
-                    "Flags significant agent overhead while allowing reasonable resource usage.",
+                    "Per-process statistical rules (Cliff's delta + Mann-Whitney) drive the verdict; "
+                    "system-wide and agent process rules are retained for informational display.",
         rules=[
-            PresetRule("sys_cpu_delta_avg", 5.0, "critical"),
-            PresetRule("sys_cpu_delta_p95", 8.0, "warning"),
-            PresetRule("sys_mem_delta_avg", 5.0, "critical"),
-            PresetRule("sys_mem_mb_delta_avg", 1024.0, "warning"),
-            PresetRule("sys_disk_write_delta_pct", 25.0, "warning"),
-            PresetRule("sys_net_send_delta_pct", 20.0, "warning"),
+            # --- Per-process statistical rules (verdict-determining) ---
+            PresetRule("stat_process_cpu_impact", 0.20, "critical"),
+            PresetRule("stat_process_mem_impact", 0.25, "critical"),
+            # --- Agent process rules (absolute, no base needed) ---
             PresetRule("agent_cpu_avg", 10.0, "critical"),
             PresetRule("agent_cpu_p95", 15.0, "warning"),
             PresetRule("agent_mem_rss_avg", 512.0, "warning"),
             PresetRule("agent_mem_rss_max", 1024.0, "critical"),
+            # --- JTL rules (application performance — simple delta) ---
             PresetRule("jtl_resp_avg_delta_pct", 10.0, "critical"),
             PresetRule("jtl_resp_p99_delta_pct", 25.0, "warning"),
             PresetRule("jtl_throughput_delta_pct", -5.0, "critical"),
             PresetRule("jtl_error_rate_delta_abs", 0.5, "critical"),
+            # --- JTL statistical rules (two-gate, verdict-determining) ---
+            PresetRule("stat_jtl_throughput_impact", -0.20, "critical"),
+            PresetRule("stat_jtl_response_time_impact", 0.20, "critical"),
         ],
     ),
     "strict": RulePreset(
@@ -390,20 +587,22 @@ RULE_PRESETS: Dict[str, RulePreset] = {
         description="Tight thresholds for production-critical servers where "
                     "any performance degradation is unacceptable.",
         rules=[
-            PresetRule("sys_cpu_delta_avg", 3.0, "critical"),
-            PresetRule("sys_cpu_delta_p95", 5.0, "critical"),
-            PresetRule("sys_mem_delta_avg", 3.0, "critical"),
-            PresetRule("sys_mem_mb_delta_avg", 512.0, "critical"),
-            PresetRule("sys_disk_write_delta_pct", 15.0, "warning"),
-            PresetRule("sys_net_send_delta_pct", 10.0, "warning"),
+            # --- Per-process statistical rules (tighter thresholds) ---
+            PresetRule("stat_process_cpu_impact", 0.147, "critical"),
+            PresetRule("stat_process_mem_impact", 0.147, "critical"),
+            # --- Agent process rules ---
             PresetRule("agent_cpu_avg", 5.0, "critical"),
             PresetRule("agent_cpu_p95", 10.0, "critical"),
             PresetRule("agent_mem_rss_avg", 256.0, "critical"),
             PresetRule("agent_mem_rss_max", 512.0, "critical"),
+            # --- JTL rules (simple delta) ---
             PresetRule("jtl_resp_avg_delta_pct", 5.0, "critical"),
             PresetRule("jtl_resp_p99_delta_pct", 15.0, "critical"),
             PresetRule("jtl_throughput_delta_pct", -3.0, "critical"),
             PresetRule("jtl_error_rate_delta_abs", 0.1, "critical"),
+            # --- JTL statistical rules (tighter thresholds) ---
+            PresetRule("stat_jtl_throughput_impact", -0.147, "critical"),
+            PresetRule("stat_jtl_response_time_impact", 0.147, "critical"),
         ],
     ),
     "lenient": RulePreset(
@@ -412,20 +611,22 @@ RULE_PRESETS: Dict[str, RulePreset] = {
         description="Relaxed thresholds for non-critical environments or agents "
                     "known to have higher overhead. Catches only severe impact.",
         rules=[
-            PresetRule("sys_cpu_delta_avg", 8.0, "critical"),
-            PresetRule("sys_cpu_delta_p95", 12.0, "warning"),
-            PresetRule("sys_mem_delta_avg", 8.0, "critical"),
-            PresetRule("sys_mem_mb_delta_avg", 2048.0, "warning"),
-            PresetRule("sys_disk_write_delta_pct", 40.0, "warning"),
-            PresetRule("sys_net_send_delta_pct", 30.0, "warning"),
+            # --- Per-process statistical rules (relaxed thresholds) ---
+            PresetRule("stat_process_cpu_impact", 0.33, "critical"),
+            PresetRule("stat_process_mem_impact", 0.33, "critical"),
+            # --- Agent process rules ---
             PresetRule("agent_cpu_avg", 15.0, "critical"),
             PresetRule("agent_cpu_p95", 25.0, "warning"),
             PresetRule("agent_mem_rss_avg", 1024.0, "warning"),
             PresetRule("agent_mem_rss_max", 2048.0, "warning"),
+            # --- JTL rules (simple delta) ---
             PresetRule("jtl_resp_avg_delta_pct", 15.0, "critical"),
             PresetRule("jtl_resp_p99_delta_pct", 40.0, "warning"),
             PresetRule("jtl_throughput_delta_pct", -8.0, "critical"),
             PresetRule("jtl_error_rate_delta_abs", 1.0, "critical"),
+            # --- JTL statistical rules (relaxed thresholds) ---
+            PresetRule("stat_jtl_throughput_impact", -0.33, "critical"),
+            PresetRule("stat_jtl_response_time_impact", 0.33, "critical"),
         ],
     ),
 }

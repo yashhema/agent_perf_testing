@@ -32,6 +32,11 @@ class VSphereCredential:
     verify_ssl: bool = False
 
 
+@dataclass
+class VultrCredential:
+    api_key: str
+
+
 class CredentialsStore:
     """Loads and provides access to the credentials JSON file."""
 
@@ -87,12 +92,21 @@ class CredentialsStore:
             verify_ssl=entry.get("verify_ssl", False),
         )
 
+    def get_vultr_credential(self) -> Optional[VultrCredential]:
+        """Get Vultr cloud credentials."""
+        entry = self._data.get("vultr")
+        if not entry:
+            return None
+        return VultrCredential(api_key=entry["api_key"])
+
     def get_hypervisor_credential(self, hypervisor_type: str):
-        """Get hypervisor credential by type string ('proxmox' or 'vsphere')."""
+        """Get hypervisor credential by type string ('proxmox', 'vsphere', or 'vultr')."""
         if hypervisor_type == "proxmox":
             return self.get_proxmox_credential()
         elif hypervisor_type == "vsphere":
             return self.get_vsphere_credential()
+        elif hypervisor_type == "vultr":
+            return self.get_vultr_credential()
         return None
 
     @property

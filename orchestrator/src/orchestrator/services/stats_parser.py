@@ -151,15 +151,29 @@ class StatsParser:
     ) -> Optional[AgentStatsSummary]:
         """Compute agent process stats summary from samples.
 
-        Filters samples that have agent_stats, computes I/O rates
-        from consecutive byte deltas.
-        Returns AgentStatsSummary or None if no agent data found.
-        """
-        agent_samples = [s for s in samples if s.get("agent_stats")]
-        if not agent_samples:
-            return None
+        Supports two formats:
+          1. agent_stats dict (full agent monitoring with I/O, threads, handles)
+          2. process_stats list (lightweight per-process monitoring from emulator)
 
-        # Direct metrics
+        For process_stats, aggregates all matching processes per sample
+        (sum CPU, sum RSS) to produce agent-level totals.
+        """
+        # Try agent_stats format first (comprehensive agent monitoring)
+        agent_samples = [s for s in samples if s.get("agent_stats")]
+        if agent_samples:
+            return self._summarize_agent_stats(agent_samples)
+
+        # Fall back to process_stats format (emulator per-process monitoring)
+        proc_samples = [s for s in samples if s.get("process_stats")]
+        if proc_samples:
+            return self._summarize_process_stats(proc_samples)
+
+        return None
+
+    def _summarize_agent_stats(
+        self, agent_samples: List[Dict[str, Any]]
+    ) -> AgentStatsSummary:
+        """Summarize from agent_stats dict format (full agent monitoring)."""
         cpu_vals = [s["agent_stats"]["agent_cpu_percent"] for s in agent_samples]
         rss_vals = [s["agent_stats"]["agent_memory_rss_mb"] for s in agent_samples]
         vms_vals = [s["agent_stats"]["agent_memory_vms_mb"] for s in agent_samples]
@@ -167,7 +181,6 @@ class StatsParser:
         handle_vals = [float(s["agent_stats"].get("agent_handle_count", 0) or 0) for s in agent_samples]
         proc_vals = [float(s["agent_stats"]["process_count"]) for s in agent_samples]
 
-        # Compute I/O rates from consecutive byte deltas
         io_read_rates = []
         io_write_rates = []
         for i in range(1, len(agent_samples)):
@@ -184,7 +197,6 @@ class StatsParser:
                 curr["agent_stats"]["agent_io_write_bytes"]
                 - prev["agent_stats"]["agent_io_write_bytes"]
             )
-            # Convert bytes/sec to MB/sec
             io_read_rates.append(max(0, read_delta / dt / (1024 * 1024)))
             io_write_rates.append(max(0, write_delta / dt / (1024 * 1024)))
 
@@ -203,6 +215,80 @@ class StatsParser:
             agent_io_write_rate_mbps=self._summarize(io_write_rates),
             process_count=self._summarize(proc_vals),
         )
+
+    def _summarize_process_stats(
+        self, proc_samples: List[Dict[str, Any]]
+    ) -> AgentStatsSummary:
+        """Summarize from process_stats list format (emulator per-process monitoring).
+
+        Aggregates all processes per sample: sum CPU, sum RSS, count processes.
+        VMS/threads/handles/IO not available in this format — reported as zero.
+        """
+        cpu_vals = []
+        rss_vals = []
+        proc_count_vals = []
+
+        for sample in proc_samples:
+            procs = sample["process_stats"]
+            if not procs:
+                continue
+            total_cpu = sum(p.get("cpu_percent", 0.0) for p in procs)
+            total_rss = sum(p.get("memory_rss_mb", 0.0) for p in procs)
+            cpu_vals.append(total_cpu)
+            rss_vals.append(total_rss)
+            proc_count_vals.append(float(len(procs)))
+
+        if not cpu_vals:
+            return None
+
+        zero = self._summarize([0.0])
+        return AgentStatsSummary(
+            agent_cpu_percent=self._summarize(cpu_vals),
+            agent_memory_rss_mb=self._summarize(rss_vals),
+            agent_memory_vms_mb=zero,
+            agent_thread_count=zero,
+            agent_handle_count=zero,
+            agent_io_read_rate_mbps=zero,
+            agent_io_write_rate_mbps=zero,
+            process_count=self._summarize(proc_count_vals),
+        )
+
+    def extract_per_process_timeseries(
+        self, samples: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, List[float]]]:
+        """Extract per-process time series from raw samples.
+
+        Groups process_stats entries by process name and collects
+        per-sample metric arrays. Multiple PIDs with the same name
+        are summed per sample (e.g., multiple sshd processes).
+
+        Returns:
+            {"process_name": {"cpu_percent": [v1, v2, ...], "memory_rss_mb": [v1, v2, ...]}}
+        """
+        result: Dict[str, Dict[str, List[float]]] = {}
+
+        for sample in samples:
+            procs = sample.get("process_stats", [])
+            if not procs:
+                continue
+
+            # Sum by process name within this sample
+            per_name: Dict[str, Dict[str, float]] = {}
+            for p in procs:
+                name = p.get("name", "unknown")
+                if name not in per_name:
+                    per_name[name] = {"cpu_percent": 0.0, "memory_rss_mb": 0.0}
+                per_name[name]["cpu_percent"] += p.get("cpu_percent", 0.0)
+                per_name[name]["memory_rss_mb"] += p.get("memory_rss_mb", 0.0)
+
+            # Append to time series
+            for name, metrics in per_name.items():
+                if name not in result:
+                    result[name] = {"cpu_percent": [], "memory_rss_mb": []}
+                result[name]["cpu_percent"].append(metrics["cpu_percent"])
+                result[name]["memory_rss_mb"].append(metrics["memory_rss_mb"])
+
+        return result
 
     def compute_per_cycle_stats(
         self,

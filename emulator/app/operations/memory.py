@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+from ._pool import get_process_pool
+
 
 @dataclass(frozen=True)
 class MEMOperationParams:
@@ -80,7 +82,7 @@ class MEMOperation:
 
         loop = asyncio.get_event_loop()
         actual_duration_ms, access_count = await loop.run_in_executor(
-            None,
+            get_process_pool(),
             MEMOperation._allocate_and_access,
             duration_sec,
             params.size_mb,

@@ -42,6 +42,21 @@
 <!-- Error display -->
 <div class="alert alert-danger d-none mb-3" id="run-error"></div>
 
+<!-- Calibration progress (shown during calibrating state) -->
+<div class="d-none mb-4" id="cal-progress-panel">
+  <div class="card shadow-sm border-primary">
+    <div class="card-header bg-primary bg-opacity-10 d-flex align-items-center justify-content-between">
+      <h6 class="mb-0"><i class="bi bi-crosshair me-2"></i>Calibration Progress</h6>
+      <a id="cal-detail-link" href="#" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-box-arrow-up-right me-1"></i>Full Details
+      </a>
+    </div>
+    <div class="card-body py-2" id="cal-progress-body">
+      <div class="text-center text-muted py-2">Loading...</div>
+    </div>
+  </div>
+</div>
+
 <!-- Tabs -->
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-status">Status Grid</a></li>
@@ -84,10 +99,10 @@
         <table class="table table-sm table-hover mb-0">
           <thead><tr>
             <th>ID</th><th>Target</th><th>Snap</th><th>Load Profile</th>
-            <th>Cycle</th><th>Threads</th><th>Status</th><th>Started</th><th>Completed</th><th>Error</th>
+            <th>Cycle</th><th>Type</th><th>Threads</th><th>Status</th><th>Started</th><th>Completed</th><th>Error</th>
           </tr></thead>
           <tbody id="phase-results-body">
-            <tr><td colspan="10" class="text-center text-muted py-3">Loading...</td></tr>
+            <tr><td colspan="11" class="text-center text-muted py-3">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -102,16 +117,19 @@ const RUN_ID = {{ run_id }};
 let _run = null;
 let _targets = [];
 let _phaseResults = [];
+let _calibrations = [];
 let _refreshTimer = null;
 
 async function loadAll() {
   try {
-    [_run, _targets, _phaseResults] = await Promise.all([
+    [_run, _targets, _phaseResults, _calibrations] = await Promise.all([
       API.get('/api/test-runs/' + RUN_ID),
       API.get('/api/test-runs/' + RUN_ID + '/targets'),
       API.get('/api/test-runs/' + RUN_ID + '/phase-results'),
+      API.get('/api/test-runs/' + RUN_ID + '/calibration-results'),
     ]);
     renderHeader();
+    renderCalibrationProgress();
     renderTargets();
     renderPhaseResults();
     renderStatusGrid();
@@ -120,9 +138,12 @@ async function loadAll() {
 
 function renderHeader() {
   document.getElementById('run-state').innerHTML = stateBadge(_run.state);
-  const sub = _run.current_snapshot_num
-    ? `Snapshot ${_run.current_snapshot_num}, LP ${_run.current_load_profile_id || '-'}, Cycle ${_run.current_cycle_number || '-'}`
-    : 'N/A';
+  let sub = 'N/A';
+  if (_run.state === 'calibrating' && _run.current_load_profile_id) {
+    sub = `Calibrating LP #${_run.current_load_profile_id}`;
+  } else if (_run.current_snapshot_num) {
+    sub = `Snapshot ${_run.current_snapshot_num}, LP ${_run.current_load_profile_id || '-'}, Cycle ${_run.current_cycle_number || '-'}`;
+  }
   document.getElementById('run-substate').textContent = sub;
   document.getElementById('run-mode').textContent = _run.run_mode;
 
@@ -152,6 +173,8 @@ function renderHeader() {
   }
   if (_run.state === 'completed') {
     actions += `<a href="/test-runs/${RUN_ID}/results" class="btn btn-sm btn-info me-1"><i class="bi bi-bar-chart me-1"></i>Results</a>`;
+  }
+  if (['completed','failed'].includes(_run.state)) {
     actions += `<a href="/test-runs/${RUN_ID}/calibration" class="btn btn-sm btn-outline-info"><i class="bi bi-crosshair me-1"></i>Calibration</a>`;
   }
   document.getElementById('run-actions').innerHTML = actions;
@@ -162,6 +185,61 @@ function renderHeader() {
   } else {
     if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
   }
+}
+
+function renderCalibrationProgress() {
+  const panel = document.getElementById('cal-progress-panel');
+  const body = document.getElementById('cal-progress-body');
+  document.getElementById('cal-detail-link').href = '/test-runs/' + RUN_ID + '/calibration';
+
+  // Show panel during calibrating state, or if we have calibrations and state is failed
+  const showCal = _run.state === 'calibrating' || (_calibrations.length > 0 && _run.state === 'failed');
+  if (!showCal || _calibrations.length === 0) {
+    panel.classList.add('d-none');
+    return;
+  }
+  panel.classList.remove('d-none');
+
+  let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0 align-middle">';
+  html += '<thead><tr>';
+  html += '<th>Server</th><th>Load Profile</th><th>Status</th><th>Phase</th>';
+  html += '<th>Threads</th><th>CPU</th><th>Message</th>';
+  html += '</tr></thead><tbody>';
+
+  _calibrations.forEach(cal => {
+    const statusHtml = cal.status === 'completed'
+      ? '<span class="badge bg-success">Done</span>'
+      : cal.status === 'failed'
+        ? '<span class="badge bg-danger">Failed</span>'
+        : '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span>Running</span>';
+
+    const phaseHtml = !cal.phase ? '-'
+      : cal.phase === 'binary_search'
+        ? '<span class="badge bg-info text-dark">Search #' + (cal.current_iteration || '?') + '</span>'
+        : '<span class="badge bg-warning text-dark">Stability ' + (cal.stability_check_num || '?') + '/' + (cal.stability_checks_total || '?') + '</span>';
+
+    const threads = cal.status === 'completed' ? cal.thread_count : (cal.current_thread_count || '-');
+    const cpu = cal.last_observed_cpu != null ? cal.last_observed_cpu.toFixed(1) + '%' : '-';
+    const target = (cal.target_cpu_min != null && cal.target_cpu_max != null)
+      ? ' <small class="text-muted">(' + cal.target_cpu_min + '-' + cal.target_cpu_max + '%)</small>' : '';
+
+    const msg = cal.error_message
+      ? '<span class="text-danger small">' + escHtml(cal.error_message) + '</span>'
+      : '<span class="small">' + escHtml(cal.message || '') + '</span>';
+
+    html += `<tr>
+      <td>Server #${cal.server_id}</td>
+      <td>LP #${cal.load_profile_id}</td>
+      <td>${statusHtml}</td>
+      <td>${phaseHtml}</td>
+      <td class="fw-bold">${threads}</td>
+      <td>${cpu}${target}</td>
+      <td>${msg}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  body.innerHTML = html;
 }
 
 function renderTargets() {
@@ -184,10 +262,17 @@ function renderTargets() {
   </tr>`).join('');
 }
 
+function phaseTypeBadge(t) {
+  if (!t) return '<span class="badge bg-secondary">load</span>';
+  const cls = t === 'load' ? 'primary' : t === 'stress' ? 'danger' : t === 'network_degradation' ? 'warning text-dark' : 'secondary';
+  const label = t === 'network_degradation' ? 'net-deg' : t;
+  return `<span class="badge bg-${cls}">${label}</span>`;
+}
+
 function renderPhaseResults() {
   const tbody = document.getElementById('phase-results-body');
   if (_phaseResults.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">No results yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">No results yet</td></tr>';
     return;
   }
   tbody.innerHTML = _phaseResults.map(r => `<tr>
@@ -196,6 +281,7 @@ function renderPhaseResults() {
     <td>${r.snapshot_num}</td>
     <td>LP #${r.load_profile_id}</td>
     <td>${r.cycle_number}</td>
+    <td>${phaseTypeBadge(r.test_phase_type)}</td>
     <td>${r.thread_count}</td>
     <td>${execBadge(r.status)}</td>
     <td class="small">${fmtDate(r.started_at)}</td>
@@ -223,29 +309,54 @@ function renderStatusGrid() {
   });
   combos.sort((a, b) => a.snap - b.snap || a.lp - b.lp || a.cycle - b.cycle);
 
-  // Build lookup
+  // Collect all phase types present
+  const phaseTypes = [...new Set(_phaseResults.map(r => r.test_phase_type || 'load'))];
+  phaseTypes.sort((a, b) => {
+    const order = { load: 0, network_degradation: 1, stress: 2 };
+    return (order[a] || 9) - (order[b] || 9);
+  });
+  const ptLabel = { load: 'L', stress: 'S', network_degradation: 'N' };
+  const ptColor = { load: '#0d6efd', stress: '#dc3545', network_degradation: '#ffc107' };
+
+  // Build lookup with test_phase_type in key
   const lookup = {};
   _phaseResults.forEach(r => {
-    lookup[`${r.target_id}-${r.snapshot_num}-${r.load_profile_id}-${r.cycle_number}`] = r;
+    const pt = r.test_phase_type || 'load';
+    lookup[`${r.target_id}-${r.snapshot_num}-${r.load_profile_id}-${r.cycle_number}-${pt}`] = r;
   });
 
   let html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Target</th>';
   combos.forEach(c => {
-    html += `<th class="text-center small" style="min-width:40px">S${c.snap}<br>LP${c.lp}<br>C${c.cycle}</th>`;
+    html += `<th class="text-center small" style="min-width:${phaseTypes.length * 28 + 10}px">S${c.snap}<br>LP${c.lp}<br>C${c.cycle}</th>`;
   });
   html += '</tr></thead><tbody>';
+
+  // Phase type legend row
+  html += '<tr><td class="small text-muted">Phase types</td>';
+  combos.forEach(() => {
+    html += '<td class="text-center">';
+    phaseTypes.forEach(pt => {
+      html += `<span class="badge me-1" style="background:${ptColor[pt]};font-size:.6rem" title="${pt}">${ptLabel[pt]}</span>`;
+    });
+    html += '</td>';
+  });
+  html += '</tr>';
 
   _targets.forEach(t => {
     html += `<tr><td class="small">Server #${t.target_id}</td>`;
     combos.forEach(c => {
-      const r = lookup[`${t.target_id}-${c.snap}-${c.lp}-${c.cycle}`];
-      if (r) {
-        const cls = 'exec-' + r.status;
-        const title = `${r.status}${r.error_message ? ': ' + r.error_message : ''}`;
-        html += `<td class="text-center"><div class="status-grid-cell ${cls}" title="${escHtml(title)}">${r.status[0].toUpperCase()}</div></td>`;
-      } else {
-        html += '<td class="text-center"><div class="status-grid-cell bg-light text-muted">-</div></td>';
-      }
+      html += '<td class="text-center">';
+      phaseTypes.forEach(pt => {
+        const r = lookup[`${t.target_id}-${c.snap}-${c.lp}-${c.cycle}-${pt}`];
+        if (r) {
+          const cls = 'exec-' + r.status;
+          const title = `${pt}: ${r.status}${r.error_message ? ' - ' + r.error_message : ''}`;
+          html += `<span class="status-grid-cell ${cls} d-inline-block me-1" style="width:22px;height:22px;line-height:22px;font-size:.65rem;border-radius:3px" title="${escHtml(title)}">${r.status[0].toUpperCase()}</span>`;
+        } else {
+          html += '<span class="d-inline-block me-1" style="width:22px;height:22px;line-height:22px;font-size:.65rem;border-radius:3px;background:#f0f0f0;color:#ccc;text-align:center">-</span>';
+        }
+      });
+      html += '</td>';
     });
     html += '</tr>';
   });

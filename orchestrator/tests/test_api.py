@@ -1,8 +1,8 @@
 """Tests for API endpoints using FastAPI TestClient.
 
 Uses SQLite in-memory database for fast, isolated API tests.
-Bypasses the app lifespan (which connects to PostgreSQL) and
-overrides the get_session dependency to use the test database.
+Bypasses the app lifespan and overrides the get_session dependency
+to use the test database.
 """
 
 import pytest
@@ -35,7 +35,6 @@ def test_app():
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    # conftest.py patches PG types at import time
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine)
 

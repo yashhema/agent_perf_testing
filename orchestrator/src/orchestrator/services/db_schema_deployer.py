@@ -172,12 +172,17 @@ class DBSchemaDeployer:
             source_baseline = session.get(BaselineORM, source_snapshot_id)
 
             # Restore source snapshot
-            snap_name = source_baseline.provider_ref.get("snapshot_name", "")
-            self._hypervisor.restore_snapshot(server.server_infra_ref, snap_name)
+            new_ip = self._hypervisor.restore_snapshot(server.server_infra_ref, source_baseline.provider_ref)
             self._hypervisor.wait_for_vm_ready(
                 server.server_infra_ref,
                 timeout_sec=self._config.infrastructure.snapshot_restore_timeout_sec,
             )
+
+            # Update IP in DB if it changed (Vultr restores may reassign IPs)
+            if new_ip and new_ip != server.ip_address:
+                logger.info("Server %s IP changed: %s -> %s", server.hostname, server.ip_address, new_ip)
+                server.ip_address = new_ip
+                session.commit()
 
             # Connect to server
             cred = self._credentials.get_server_credential(server.id, server.os_family.value)
@@ -207,6 +212,7 @@ class DBSchemaDeployer:
             )
 
             # Create BaselineORM record for the new snapshot
+            # new_snap_ref is already a proper snapshot_ref dict from the provider
             new_baseline = BaselineORM(
                 name=snapshot_label,
                 os_family=source_baseline.os_family,
@@ -216,9 +222,7 @@ class DBSchemaDeployer:
                 os_kernel_ver=source_baseline.os_kernel_ver,
                 db_type=DBType(db_type) if db_type else None,
                 baseline_type=source_baseline.baseline_type,
-                provider_ref={"snapshot_name": snapshot_label, **new_snap_ref}
-                    if isinstance(new_snap_ref, dict)
-                    else {"snapshot_name": snapshot_label},
+                provider_ref=new_snap_ref,
             )
             session.add(new_baseline)
             session.flush()  # Get the ID

@@ -61,10 +61,13 @@ class EmulatorClient:
             "output_folders": output_folders,
             "partner": partner,
         }
-        if stats is not None:
-            body["stats"] = stats
+        # service_monitor_patterns must be inside stats for the emulator's
+        # ConfigRequest Pydantic model to pick them up (StatsConfigRequest).
+        stats_body = dict(stats) if stats else {}
         if service_monitor_patterns is not None:
-            body["service_monitor_patterns"] = service_monitor_patterns
+            stats_body["service_monitor_patterns"] = service_monitor_patterns
+        if stats_body:
+            body["stats"] = stats_body
         resp = self._client.post("/api/v1/config", json=body)
         resp.raise_for_status()
         return resp.json()

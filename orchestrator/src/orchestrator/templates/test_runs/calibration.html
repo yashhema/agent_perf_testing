@@ -12,48 +12,110 @@
   </a>
 </div>
 
-<div class="card shadow-sm">
-  <div class="card-header">
-    <h6 class="mb-0">Calibration Matrix: Servers x Load Profiles &rarr; Thread Count</h6>
+<!-- Summary matrix card -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h6 class="mb-0">Calibration Matrix: Servers x Load Profiles</h6>
+    <span id="cal-last-updated" class="text-muted small"></span>
   </div>
-  <div class="card-body" id="calibration-container">
+  <div class="card-body" id="calibration-matrix">
     <div class="text-center text-muted py-4">Loading calibration data...</div>
   </div>
 </div>
+
+<!-- Detailed progress cards -->
+<div id="calibration-details"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const RUN_ID = {{ run_id }};
+let _calRefreshTimer = null;
+let _testRunState = null;
 
-document.addEventListener('DOMContentLoaded', async () => {
+function calStatusBadge(status) {
+  const map = {
+    'in_progress': '<span class="badge bg-primary"><i class="bi bi-arrow-repeat me-1"></i>In Progress</span>',
+    'completed':   '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completed</span>',
+    'failed':      '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>',
+  };
+  return map[status] || '<span class="badge bg-secondary">' + escHtml(status) + '</span>';
+}
+
+function phaseBadge(phase) {
+  if (!phase) return '<span class="text-muted">-</span>';
+  const map = {
+    'binary_search':    '<span class="badge bg-info text-dark"><i class="bi bi-search me-1"></i>Binary Search</span>',
+    'stability_check':  '<span class="badge bg-warning text-dark"><i class="bi bi-shield-check me-1"></i>Stability Check</span>',
+  };
+  return map[phase] || '<span class="badge bg-secondary">' + escHtml(phase) + '</span>';
+}
+
+function cpuProgressBar(observed, min, max) {
+  if (observed == null || min == null || max == null) return '-';
+  const pct = Math.min(Math.max(observed, 0), 100);
+  let barColor = 'bg-success';
+  if (observed < min) barColor = 'bg-info';
+  else if (observed > max) barColor = 'bg-danger';
+
+  return `<div class="position-relative" style="height:24px">
+    <div class="progress" style="height:24px">
+      <div class="progress-bar ${barColor}" style="width:${pct}%"></div>
+    </div>
+    <div class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center">
+      <small class="fw-bold">${observed.toFixed(1)}%</small>
+    </div>
+    <div class="position-absolute top-0 h-100" style="left:${min}%;border-left:2px dashed rgba(0,0,0,0.5);"></div>
+    <div class="position-absolute top-0 h-100" style="left:${max}%;border-left:2px dashed rgba(0,0,0,0.5);"></div>
+  </div>
+  <div class="d-flex justify-content-between mt-1">
+    <small class="text-muted">Target: ${min}%</small>
+    <small class="text-muted">${max}%</small>
+  </div>`;
+}
+
+function stabilityProgress(checkNum, checksTotal, pctInRange) {
+  if (checkNum == null || checksTotal == null) return '-';
+  const pct = checksTotal > 0 ? (checkNum / checksTotal * 100) : 0;
+  const rangePct = pctInRange != null ? pctInRange.toFixed(0) : '?';
+  return `<div class="d-flex align-items-center gap-2">
+    <div class="progress flex-grow-1" style="height:18px">
+      <div class="progress-bar bg-warning text-dark" style="width:${pct}%">
+        ${checkNum}/${checksTotal}
+      </div>
+    </div>
+    <small class="text-nowrap">${rangePct}% in-range</small>
+  </div>`;
+}
+
+async function loadCalibration() {
   try {
-    const [calibrations, targets] = await Promise.all([
+    const [calibrations, targets, run] = await Promise.all([
       API.get('/api/test-runs/' + RUN_ID + '/calibration-results'),
       API.get('/api/test-runs/' + RUN_ID + '/targets'),
+      API.get('/api/test-runs/' + RUN_ID),
     ]);
 
-    const container = document.getElementById('calibration-container');
+    _testRunState = run.state;
+    document.getElementById('cal-last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+    const matrixContainer = document.getElementById('calibration-matrix');
+    const detailsContainer = document.getElementById('calibration-details');
+
     if (calibrations.length === 0) {
-      container.innerHTML = '<div class="text-center text-muted py-4">No calibration results yet</div>';
+      matrixContainer.innerHTML = '<div class="text-center text-muted py-4">No calibration results yet</div>';
+      detailsContainer.innerHTML = '';
+      setupAutoRefresh();
       return;
     }
 
-    // Collect unique servers and load profiles
+    // -- Summary matrix --
     const serverIds = [...new Set(calibrations.map(c => c.server_id))].sort((a,b) => a-b);
     const lpIds = [...new Set(calibrations.map(c => c.load_profile_id))].sort((a,b) => a-b);
-
-    // Build lookup
     const lookup = {};
     calibrations.forEach(c => { lookup[c.server_id + '-' + c.load_profile_id] = c; });
 
-    // Compute stats for anomaly detection
-    const allThreads = calibrations.map(c => c.thread_count);
-    const mean = allThreads.reduce((a,b) => a+b, 0) / allThreads.length;
-    const stddev = Math.sqrt(allThreads.map(t => (t-mean)**2).reduce((a,b) => a+b, 0) / allThreads.length);
-
-    // Render matrix table
-    let html = '<div class="table-responsive"><table class="table table-bordered table-sm text-center">';
+    let html = '<div class="table-responsive"><table class="table table-bordered table-sm text-center align-middle">';
     html += '<thead><tr><th>Server</th>';
     lpIds.forEach(lp => { html += '<th>LP #' + lp + '</th>'; });
     html += '</tr></thead><tbody>';
@@ -63,44 +125,107 @@ document.addEventListener('DOMContentLoaded', async () => {
       lpIds.forEach(lp => {
         const cal = lookup[sid + '-' + lp];
         if (cal) {
-          const tc = cal.thread_count;
-          // Highlight anomalies (> 2 stddev from mean)
-          let cls = '';
-          if (stddev > 0 && Math.abs(tc - mean) > 2 * stddev) {
-            cls = tc > mean ? ' class="table-warning"' : ' class="table-info"';
+          let cellCls = '';
+          let content = '';
+          if (cal.status === 'completed') {
+            cellCls = 'table-success';
+            content = '<strong>' + cal.thread_count + '</strong> threads';
+          } else if (cal.status === 'failed') {
+            cellCls = 'table-danger';
+            content = '<i class="bi bi-x-circle text-danger"></i> Failed';
+          } else {
+            cellCls = 'table-primary';
+            content = '<div class="spinner-border spinner-border-sm text-primary" role="status"></div>';
+            if (cal.current_thread_count) content += ' <small>' + cal.current_thread_count + 't</small>';
           }
-          html += '<td' + cls + '><strong>' + tc + '</strong></td>';
+          html += '<td class="' + cellCls + '">' + content + '</td>';
         } else {
           html += '<td class="text-muted">-</td>';
         }
       });
       html += '</tr>';
     });
-
     html += '</tbody></table></div>';
-    html += '<div class="small text-muted mt-2">';
-    html += '<span class="badge bg-warning text-dark me-2">Highlighted</span> = Thread count &gt; 2 standard deviations from mean (' + mean.toFixed(1) + ' &plusmn; ' + stddev.toFixed(1) + ')';
-    html += '</div>';
+    matrixContainer.innerHTML = html;
 
-    // Also show a flat table with all details
-    html += '<h6 class="mt-4 mb-2">All Calibration Records</h6>';
-    html += '<table class="table table-sm table-hover"><thead><tr>';
-    html += '<th>ID</th><th>Server</th><th>OS</th><th>Load Profile</th><th>Thread Count</th><th>Calibrated At</th>';
-    html += '</tr></thead><tbody>';
-    calibrations.forEach(c => {
-      html += `<tr>
-        <td>${c.id}</td>
-        <td>Server #${c.server_id}</td>
-        <td>${c.os_type}</td>
-        <td>LP #${c.load_profile_id}</td>
-        <td><strong>${c.thread_count}</strong></td>
-        <td>${fmtDate(c.created_at)}</td>
-      </tr>`;
+    // -- Detailed progress cards --
+    let detailsHtml = '<h5 class="mb-3">Calibration Details</h5>';
+
+    calibrations.forEach(cal => {
+      const borderCls = cal.status === 'completed' ? 'border-success'
+                      : cal.status === 'failed' ? 'border-danger'
+                      : 'border-primary';
+
+      detailsHtml += `<div class="card shadow-sm mb-3 ${borderCls}" style="border-left-width: 4px;">
+        <div class="card-header d-flex align-items-center justify-content-between py-2">
+          <span>
+            <strong>Server #${cal.server_id}</strong>
+            <span class="text-muted mx-1">/</span>
+            <strong>LP #${cal.load_profile_id}</strong>
+            <span class="text-muted ms-2">(${escHtml(cal.os_type)})</span>
+          </span>
+          <span>${calStatusBadge(cal.status)}</span>
+        </div>
+        <div class="card-body py-2">
+          <div class="row g-3">
+            <!-- Phase & iteration -->
+            <div class="col-md-3">
+              <div class="small text-muted mb-1">Phase</div>
+              ${phaseBadge(cal.phase)}
+              ${cal.current_iteration != null ? '<div class="small mt-1">Iteration <strong>' + cal.current_iteration + '</strong></div>' : ''}
+              ${cal.stability_attempt != null ? '<div class="small">Attempt <strong>' + cal.stability_attempt + '</strong></div>' : ''}
+            </div>
+
+            <!-- Thread count -->
+            <div class="col-md-2">
+              <div class="small text-muted mb-1">Thread Count</div>
+              <div class="fs-4 fw-bold">${cal.status === 'completed' ? cal.thread_count : (cal.current_thread_count || '-')}</div>
+              ${cal.status === 'completed' ? '<div class="small text-success">Final</div>' : '<div class="small text-muted">Candidate</div>'}
+            </div>
+
+            <!-- CPU observed vs target -->
+            <div class="col-md-4">
+              <div class="small text-muted mb-1">CPU Observed vs Target</div>
+              ${cpuProgressBar(cal.last_observed_cpu, cal.target_cpu_min, cal.target_cpu_max)}
+            </div>
+
+            <!-- Stability progress -->
+            <div class="col-md-3">
+              <div class="small text-muted mb-1">Stability Checks</div>
+              ${stabilityProgress(cal.stability_check_num, cal.stability_checks_total, cal.stability_pct_in_range)}
+            </div>
+          </div>
+
+          <!-- Message row -->
+          ${cal.message ? '<div class="mt-2 small"><i class="bi bi-info-circle me-1"></i>' + escHtml(cal.message) + '</div>' : ''}
+
+          <!-- Error row -->
+          ${cal.error_message ? '<div class="alert alert-danger py-1 px-2 mt-2 mb-0 small"><i class="bi bi-exclamation-triangle me-1"></i>' + escHtml(cal.error_message) + '</div>' : ''}
+
+          <!-- Timestamps -->
+          <div class="mt-2 d-flex gap-3 small text-muted">
+            <span>Created: ${fmtDate(cal.created_at)}</span>
+            ${cal.updated_at ? '<span>Updated: ' + fmtDate(cal.updated_at) + '</span>' : ''}
+          </div>
+        </div>
+      </div>`;
     });
-    html += '</tbody></table>';
 
-    container.innerHTML = html;
+    detailsContainer.innerHTML = detailsHtml;
+    setupAutoRefresh();
   } catch (e) { showToast(e.message, 'danger'); }
-});
+}
+
+function setupAutoRefresh() {
+  // Auto-refresh while test run is in calibrating state or any cal is in_progress
+  const activeStates = ['calibrating', 'validating', 'setting_up'];
+  if (activeStates.includes(_testRunState)) {
+    if (!_calRefreshTimer) _calRefreshTimer = setInterval(loadCalibration, 5000);
+  } else {
+    if (_calRefreshTimer) { clearInterval(_calRefreshTimer); _calRefreshTimer = null; }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadCalibration);
 </script>
 {% endblock %}

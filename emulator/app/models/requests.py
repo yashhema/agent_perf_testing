@@ -85,6 +85,21 @@ class FileOperationRequest(BaseModel):
     )
 
 
+class SuspiciousOperationRequest(BaseModel):
+    """Request model for suspicious system-level activity.
+
+    Performs OS-level activities that security agents (EDR/AV) would flag.
+    Used as end-test to observe agent response to suspicious behavior.
+    """
+
+    activity_type: str = Field(
+        ..., description="Type of suspicious activity (e.g., 'crontab_write', 'registry_write')"
+    )
+    duration_ms: int = Field(
+        default=500, gt=0, description="How long to keep artifact alive before cleanup (ms)"
+    )
+
+
 class CompositeOperationRequest(BaseModel):
     """Request model for composite operation (multiple operations)."""
 

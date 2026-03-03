@@ -1,6 +1,8 @@
 """SQLAlchemy ORM models for all 15 orchestrator entities.
 
 Matches ORCHESTRATOR_DATABASE_SCHEMA.md exactly.
+Uses dialect-agnostic types (JSON instead of JSONB) to support both
+PostgreSQL and SQL Server backends.
 """
 
 from datetime import datetime
@@ -13,11 +15,11 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import relationship
 
 from orchestrator.models.database import Base
@@ -34,6 +36,7 @@ from orchestrator.models.enums import (
     RunMode,
     ServerInfraType,
     TemplateType,
+    TestPhaseType,
     TestRunState,
     Verdict,
 )
@@ -49,6 +52,7 @@ class LabORM(Base):
     name = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     jmeter_package_grpid = Column(Integer, ForeignKey("package_groups.id"), nullable=False)
+    emulator_package_grp_id = Column(Integer, ForeignKey("package_groups.id"), nullable=True)
     loadgen_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=False)
     hypervisor_type = Column(Enum(HypervisorType), nullable=False)
     hypervisor_manager_url = Column(String(512), nullable=False)
@@ -60,6 +64,7 @@ class LabORM(Base):
     scenarios = relationship("ScenarioORM", back_populates="lab")
     test_runs = relationship("TestRunORM", back_populates="lab")
     jmeter_package_group = relationship("PackageGroupORM", foreign_keys=[jmeter_package_grpid])
+    emulator_package_group = relationship("PackageGroupORM", foreign_keys=[emulator_package_grp_id])
     loadgen_snapshot = relationship("BaselineORM", foreign_keys=[loadgen_snapshot_id])
 
 
@@ -96,7 +101,7 @@ class ServerORM(Base):
     lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False)
     hardware_profile_id = Column(Integer, ForeignKey("hardware_profiles.id"), nullable=False)
     server_infra_type = Column(Enum(ServerInfraType), nullable=False)
-    server_infra_ref = Column(JSONB, nullable=False)
+    server_infra_ref = Column(JSON, nullable=False)
     baseline_id = Column(Integer, ForeignKey("baselines.id"), nullable=True)
     db_type = Column(Enum(DBType), nullable=True)
     db_port = Column(Integer, nullable=True)
@@ -126,7 +131,7 @@ class BaselineORM(Base):
     os_kernel_ver = Column(String(100), nullable=True)
     db_type = Column(Enum(DBType), nullable=True)
     baseline_type = Column(Enum(BaselineType), nullable=False)
-    provider_ref = Column(JSONB, nullable=False)
+    provider_ref = Column(JSON, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -162,6 +167,7 @@ class PackageGroupMemberORM(Base):
     output_path = Column(String(1024), nullable=True)
     uninstall_command = Column(String(1024), nullable=True)
     status_command = Column(String(1024), nullable=True)
+    prereq_script = Column(String(1024), nullable=True)
 
     # Relationships
     package_group = relationship("PackageGroupORM", back_populates="members")
@@ -183,9 +189,15 @@ class ScenarioORM(Base):
     has_dbtest = Column(Boolean, nullable=False, default=False)
     load_generator_package_grp_id = Column(Integer, ForeignKey("package_groups.id"), nullable=False)
     initial_package_grp_id = Column(Integer, ForeignKey("package_groups.id"), nullable=True)
-    other_package_grp_ids = Column(ARRAY(Integer), nullable=True)
+    other_package_grp_ids = Column(JSON, nullable=True)  # List[int] stored as JSON array
     functional_package_grp_id = Column(Integer, ForeignKey("package_groups.id"), nullable=True)
     functional_test_phase = Column(Enum(FunctionalTestPhase), nullable=True)
+    stress_test_enabled = Column(Boolean, nullable=False, default=False)
+    stress_test_duration_sec = Column(Integer, nullable=True, default=120)
+    stress_test_thread_multiplier = Column(Float, nullable=True, default=4.0)
+    network_degradation_enabled = Column(Boolean, nullable=False, default=False)
+    network_degradation_pct = Column(Float, nullable=True, default=10.0)
+    network_degradation_duration_sec = Column(Integer, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
@@ -260,7 +272,7 @@ class TestRunTargetORM(Base):
     initial_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=False)
     db_ready_base_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=True)
     db_ready_initial_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=True)
-    service_monitor_patterns = Column(JSONB, nullable=True)
+    service_monitor_patterns = Column(JSON, nullable=True)
 
     # Discovered OS kind (shared — derived from the machine's distro family)
     os_kind = Column(String(100), nullable=True)
@@ -268,12 +280,12 @@ class TestRunTargetORM(Base):
     # Base snapshot environment (discovered after base snapshot restore)
     base_os_major_ver = Column(String(20), nullable=True)
     base_os_minor_ver = Column(String(20), nullable=True)
-    base_agent_versions = Column(JSONB, nullable=True)
+    base_agent_versions = Column(JSON, nullable=True)
 
     # Initial snapshot environment (discovered after initial snapshot restore)
     initial_os_major_ver = Column(String(20), nullable=True)
     initial_os_minor_ver = Column(String(20), nullable=True)
-    initial_agent_versions = Column(JSONB, nullable=True)
+    initial_agent_versions = Column(JSON, nullable=True)
 
     # Relationships
     test_run = relationship("TestRunORM", back_populates="targets")
@@ -318,8 +330,29 @@ class CalibrationResultORM(Base):
     server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
     os_type = Column(Enum(OSFamily), nullable=False)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
-    thread_count = Column(Integer, nullable=False)
+
+    # Final result
+    thread_count = Column(Integer, nullable=False, default=0)
+    status = Column(String(20), nullable=False, default="in_progress")  # in_progress | completed | failed
+
+    # Live progress fields (updated during calibration)
+    phase = Column(String(30), nullable=True)  # binary_search | stability_check
+    current_iteration = Column(Integer, nullable=True)
+    current_thread_count = Column(Integer, nullable=True)
+    last_observed_cpu = Column(Float, nullable=True)
+    target_cpu_min = Column(Float, nullable=True)
+    target_cpu_max = Column(Float, nullable=True)
+    stability_check_num = Column(Integer, nullable=True)
+    stability_checks_total = Column(Integer, nullable=True)
+    stability_pct_in_range = Column(Float, nullable=True)
+    stability_attempt = Column(Integer, nullable=True)  # which decrement attempt
+    message = Column(String(500), nullable=True)  # human-readable progress message
+
+    # Error details (for failed calibrations)
+    error_message = Column(Text, nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
     # Relationships
     test_run = relationship("TestRunORM", back_populates="calibration_results")
@@ -335,7 +368,7 @@ class PhaseExecutionResultORM(Base):
     __table_args__ = (
         UniqueConstraint(
             "test_run_id", "target_id", "snapshot_num",
-            "load_profile_id", "cycle_number",
+            "load_profile_id", "cycle_number", "test_phase_type",
             name="uq_phase_execution",
         ),
     )
@@ -346,9 +379,11 @@ class PhaseExecutionResultORM(Base):
     snapshot_num = Column(Integer, nullable=False)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
     cycle_number = Column(Integer, nullable=False)
+    test_phase_type = Column(Enum(TestPhaseType), nullable=False, default=TestPhaseType.load)
     baseline_id = Column(Integer, ForeignKey("baselines.id"), nullable=False)
     thread_count = Column(Integer, nullable=False)
     status = Column(Enum(ExecutionStatus), nullable=False, default=ExecutionStatus.pending)
+    network_degradation_pct = Column(Float, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     stats_file_path = Column(String(1024), nullable=True)
@@ -374,7 +409,7 @@ class ComparisonResultORM(Base):
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
     comparison_type = Column(String(50), nullable=False)
     result_file_path = Column(String(1024), nullable=True)
-    result_data = Column(JSONB, nullable=True)
+    result_data = Column(JSON, nullable=True)
     summary_text = Column(Text, nullable=True)
     verdict = Column(Enum(Verdict), nullable=True)
     violation_count = Column(Integer, default=0)
@@ -427,8 +462,8 @@ class AgentORM(Base):
     version = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
     package_group_id = Column(Integer, ForeignKey("package_groups.id"), nullable=True)
-    process_patterns = Column(JSONB, nullable=True)
-    service_patterns = Column(JSONB, nullable=True)
+    process_patterns = Column(JSON, nullable=True)
+    service_patterns = Column(JSON, nullable=True)
     discovery_key = Column(String(100), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

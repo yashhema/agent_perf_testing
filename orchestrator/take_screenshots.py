@@ -27,17 +27,9 @@ from orchestrator.models.orm import (
 from orchestrator.models.enums import *
 from orchestrator.services.auth import hash_password
 
-# ---- THEN patch PostgreSQL types for SQLite ----
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
-from sqlalchemy import JSON, Text, create_engine, event
+# ---- ORM now uses dialect-agnostic types (JSON) — no patching needed ----
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-
-for table in Base.metadata.tables.values():
-    for col in table.columns:
-        if isinstance(col.type, JSONB):
-            col.type = JSON()
-        elif isinstance(col.type, ARRAY):
-            col.type = Text()
 
 # ---- Setup SQLite database with sample data ----
 import uuid as _uuid

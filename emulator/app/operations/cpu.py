@@ -1,10 +1,19 @@
-"""CPU load generation operation."""
+"""CPU load generation operation.
+
+Uses process_time()-based CPU burn so that CPU utilization scales
+linearly with the number of concurrent requests.  Each worker burns
+a fixed amount of *actual CPU time* (duration × intensity).  When
+multiple workers share cores, each takes longer wall-time but the
+aggregate CPU consumption rises proportionally — exactly what the
+calibration binary search needs.
+"""
 
 import asyncio
 import math
 import time
 from dataclasses import dataclass
-from typing import Optional
+
+from ._pool import get_process_pool
 
 
 @dataclass(frozen=True)
@@ -32,35 +41,32 @@ class CPUOperation:
     @staticmethod
     def _burn_cpu(duration_sec: float, intensity: float) -> int:
         """
-        Burn CPU cycles for specified duration.
+        Burn CPU cycles consuming *actual CPU time* equal to
+        ``duration_sec * intensity``.
 
-        Uses busy-wait with optional sleep to control intensity.
-        Returns the actual duration in milliseconds.
+        Uses ``time.process_time()`` (measures real CPU consumption of
+        this process) instead of wall-clock time.  This means:
+
+        * With few concurrent workers each gets a full core → finishes
+          fast, total system CPU is low.
+        * With many concurrent workers they share cores via OS
+          scheduling → each takes longer wall-time, but aggregate
+          system CPU rises proportionally.
+
+        Returns the wall-clock duration in milliseconds.
         """
-        start_time = time.perf_counter()
-        end_time = start_time + duration_sec
-        work_ratio = max(0.0, min(1.0, intensity))
-        cycle_ms = 10  # 10ms cycles
+        start_wall = time.perf_counter()
+        target_cpu_sec = duration_sec * max(0.0, min(1.0, intensity))
+        start_cpu = time.process_time()
 
-        while time.perf_counter() < end_time:
-            cycle_start = time.perf_counter()
-            work_duration = (cycle_ms / 1000) * work_ratio
+        while (time.process_time() - start_cpu) < target_cpu_sec:
+            # Mix of floating-point and integer operations
+            _ = math.sqrt(12345.6789) * math.pi
+            _ = math.sin(12345.6789) * math.cos(12345.6789)
+            _ = 12345 ** 2 % 67890
 
-            # Busy work - CPU-intensive calculations
-            work_end = cycle_start + work_duration
-            while time.perf_counter() < work_end:
-                # Mix of floating-point and integer operations
-                _ = math.sqrt(12345.6789) * math.pi
-                _ = math.sin(12345.6789) * math.cos(12345.6789)
-                _ = 12345 ** 2 % 67890
-
-            # Sleep for remaining cycle time
-            sleep_duration = (cycle_ms / 1000) * (1 - work_ratio)
-            if sleep_duration > 0.001:  # Only sleep if > 1ms
-                time.sleep(sleep_duration)
-
-        actual_duration = time.perf_counter() - start_time
-        return int(actual_duration * 1000)
+        actual_wall = time.perf_counter() - start_wall
+        return int(actual_wall * 1000)
 
     @staticmethod
     async def execute(params: CPUOperationParams) -> CPUOperationResult:
@@ -71,10 +77,11 @@ class CPUOperation:
         """
         duration_sec = params.duration_ms / 1000
 
-        # Run CPU burn in thread pool to not block async
+        # Run CPU burn in process pool so multiple requests can saturate all cores.
+        # ThreadPoolExecutor is GIL-limited to 1 core; ProcessPoolExecutor is not.
         loop = asyncio.get_event_loop()
         actual_duration_ms = await loop.run_in_executor(
-            None,
+            get_process_pool(),
             CPUOperation._burn_cpu,
             duration_sec,
             params.intensity,

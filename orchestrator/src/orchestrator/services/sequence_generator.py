@@ -128,8 +128,9 @@ class SequenceGenerationService:
                     local_path, seq_count, server.hostname, lp.name,
                 )
 
-                # Deploy CSV to load generator
-                remote_path = f"/opt/jmeter/ops_sequence_{lp.name}.csv"
+                # Deploy CSV to load generator (per-target directory)
+                run_dir = f"/opt/jmeter/runs/run_{test_run.id}/target_{server.id}"
+                remote_path = f"{run_dir}/ops_sequence_{lp.name}.csv"
                 self._deploy_csv(loadgen, local_path, remote_path)
 
     def _create_generator(

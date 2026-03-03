@@ -24,6 +24,7 @@ from orchestrator.models.enums import (
     RunMode,
     ServerInfraType,
     TemplateType,
+    TestPhaseType,
     TestRunState,
     Verdict,
 )
@@ -35,6 +36,7 @@ class LabCreate(BaseModel):
     name: str = Field(max_length=255)
     description: Optional[str] = None
     jmeter_package_grpid: int
+    emulator_package_grp_id: Optional[int] = None
     loadgen_snapshot_id: int
     hypervisor_type: HypervisorType
     hypervisor_manager_url: str = Field(max_length=512)
@@ -45,6 +47,7 @@ class LabUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     jmeter_package_grpid: Optional[int] = None
+    emulator_package_grp_id: Optional[int] = None
     loadgen_snapshot_id: Optional[int] = None
     hypervisor_type: Optional[HypervisorType] = None
     hypervisor_manager_url: Optional[str] = Field(default=None, max_length=512)
@@ -57,6 +60,7 @@ class LabResponse(BaseModel):
     name: str
     description: Optional[str]
     jmeter_package_grpid: int
+    emulator_package_grp_id: Optional[int]
     loadgen_snapshot_id: int
     hypervisor_type: HypervisorType
     hypervisor_manager_url: str
@@ -154,6 +158,14 @@ class ServerResponse(BaseModel):
     created_at: datetime
 
 
+# ---- Server Snapshot ----
+
+class CreateSnapshotRequest(BaseModel):
+    """Request to create a snapshot from a running server."""
+    baseline_name: str = Field(max_length=255, description="Name for the new baseline record")
+    description: Optional[str] = Field(default=None, description="Snapshot description")
+
+
 # ---- Baseline ----
 
 class BaselineCreate(BaseModel):
@@ -228,6 +240,7 @@ class PackageGroupMemberCreate(BaseModel):
     output_path: Optional[str] = Field(default=None, max_length=1024)
     uninstall_command: Optional[str] = Field(default=None, max_length=1024)
     status_command: Optional[str] = Field(default=None, max_length=1024)
+    prereq_script: Optional[str] = Field(default=None, max_length=1024, description="Path to prerequisite script relative to prerequisites/ dir (e.g. ubuntu/java_jre.sh)")
 
 
 class PackageGroupMemberUpdate(BaseModel):
@@ -240,6 +253,7 @@ class PackageGroupMemberUpdate(BaseModel):
     output_path: Optional[str] = Field(default=None, max_length=1024)
     uninstall_command: Optional[str] = Field(default=None, max_length=1024)
     status_command: Optional[str] = Field(default=None, max_length=1024)
+    prereq_script: Optional[str] = Field(default=None, max_length=1024)
 
 
 class PackageGroupMemberResponse(BaseModel):
@@ -255,6 +269,7 @@ class PackageGroupMemberResponse(BaseModel):
     output_path: Optional[str]
     uninstall_command: Optional[str]
     status_command: Optional[str]
+    prereq_script: Optional[str]
 
 
 # ---- Scenario ----
@@ -272,6 +287,12 @@ class ScenarioCreate(BaseModel):
     other_package_grp_ids: Optional[List[int]] = None
     functional_package_grp_id: Optional[int] = None
     functional_test_phase: Optional[FunctionalTestPhase] = None
+    stress_test_enabled: bool = False
+    stress_test_duration_sec: Optional[int] = 120
+    stress_test_thread_multiplier: Optional[float] = 4.0
+    network_degradation_enabled: bool = False
+    network_degradation_pct: Optional[float] = 10.0
+    network_degradation_duration_sec: Optional[int] = None
 
 
 class ScenarioUpdate(BaseModel):
@@ -287,6 +308,12 @@ class ScenarioUpdate(BaseModel):
     other_package_grp_ids: Optional[List[int]] = None
     functional_package_grp_id: Optional[int] = None
     functional_test_phase: Optional[FunctionalTestPhase] = None
+    stress_test_enabled: Optional[bool] = None
+    stress_test_duration_sec: Optional[int] = None
+    stress_test_thread_multiplier: Optional[float] = None
+    network_degradation_enabled: Optional[bool] = None
+    network_degradation_pct: Optional[float] = None
+    network_degradation_duration_sec: Optional[int] = None
 
 
 class ScenarioResponse(BaseModel):
@@ -304,6 +331,12 @@ class ScenarioResponse(BaseModel):
     other_package_grp_ids: Optional[List[int]]
     functional_package_grp_id: Optional[int]
     functional_test_phase: Optional[FunctionalTestPhase]
+    stress_test_enabled: bool
+    stress_test_duration_sec: Optional[int]
+    stress_test_thread_multiplier: Optional[float]
+    network_degradation_enabled: bool
+    network_degradation_pct: Optional[float]
+    network_degradation_duration_sec: Optional[int]
     created_at: datetime
 
 
@@ -559,7 +592,21 @@ class CalibrationResultResponse(BaseModel):
     os_type: OSFamily
     load_profile_id: int
     thread_count: int
+    status: str
+    phase: Optional[str] = None
+    current_iteration: Optional[int] = None
+    current_thread_count: Optional[int] = None
+    last_observed_cpu: Optional[float] = None
+    target_cpu_min: Optional[float] = None
+    target_cpu_max: Optional[float] = None
+    stability_check_num: Optional[int] = None
+    stability_checks_total: Optional[int] = None
+    stability_pct_in_range: Optional[float] = None
+    stability_attempt: Optional[int] = None
+    message: Optional[str] = None
+    error_message: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class PhaseExecutionResultResponse(BaseModel):
@@ -570,9 +617,11 @@ class PhaseExecutionResultResponse(BaseModel):
     snapshot_num: int
     load_profile_id: int
     cycle_number: int
+    test_phase_type: TestPhaseType
     baseline_id: int
     thread_count: int
     status: ExecutionStatus
+    network_degradation_pct: Optional[float]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
     stats_file_path: Optional[str]

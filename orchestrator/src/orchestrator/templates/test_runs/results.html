@@ -46,10 +46,10 @@
       <table class="table table-sm table-hover mb-0">
         <thead><tr>
           <th>ID</th><th>Target</th><th>Snap</th><th>LP</th><th>Cycle</th>
-          <th>Threads</th><th>Status</th><th>Stats File</th><th>JTL File</th><th>Error</th>
+          <th>Type</th><th>Threads</th><th>Status</th><th>Stats File</th><th>JTL File</th><th>Error</th>
         </tr></thead>
         <tbody id="phase-details-body">
-          <tr><td colspan="10" class="text-center text-muted py-3">Loading...</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-3">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -146,26 +146,70 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Phase details
     const pBody = document.getElementById('phase-details-body');
     if (phaseResults.length === 0) {
-      pBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">No results</td></tr>';
+      pBody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">No results</td></tr>';
     } else {
-      pBody.innerHTML = phaseResults.map(r => `<tr>
+      pBody.innerHTML = phaseResults.map(r => {
+        const pt = r.test_phase_type || 'load';
+        const ptCls = pt === 'load' ? 'primary' : pt === 'stress' ? 'danger' : pt === 'network_degradation' ? 'warning text-dark' : 'secondary';
+        const ptLabel = pt === 'network_degradation' ? 'net-deg' : pt;
+        return `<tr>
         <td>${r.id}</td>
         <td>Server #${r.target_id}</td>
         <td>${r.snapshot_num}</td>
         <td>LP #${r.load_profile_id}</td>
         <td>${r.cycle_number}</td>
+        <td><span class="badge bg-${ptCls}">${ptLabel}</span></td>
         <td>${r.thread_count}</td>
         <td>${execBadge(r.status)}</td>
         <td class="small">${escHtml(r.stats_file_path || '-')}</td>
         <td class="small">${escHtml(r.jmeter_jtl_path || '-')}</td>
         <td class="small text-danger">${escHtml(r.error_message || '')}</td>
-      </tr>`).join('');
+      </tr>`;
+      }).join('');
     }
 
     // Store comparisons for detail view
     window._comparisons = comparisons;
   } catch (e) { showToast(e.message, 'danger'); }
 });
+
+function effectBadge(interp) {
+  if (!interp) return '<span class="badge bg-secondary">?</span>';
+  const cls = interp === 'negligible' ? 'success'
+    : interp === 'small' ? 'info'
+    : interp === 'medium' ? 'warning text-dark'
+    : interp === 'large' ? 'danger' : 'secondary';
+  return `<span class="badge bg-${cls}">${interp}</span>`;
+}
+
+function renderStatTestTable(tests) {
+  let h = '<div class="table-responsive"><table class="table table-sm table-hover">';
+  h += '<thead><tr><th>Metric</th><th>Cliff\'s Delta</th><th>Effect</th><th>M-W p-value</th><th>Significant?</th><th>Bootstrap CI (95%)</th><th>Samples</th></tr></thead><tbody>';
+  for (const [metric, st] of Object.entries(tests)) {
+    const sig = st.mann_whitney_significant;
+    const sigIcon = sig ? '<i class="bi bi-exclamation-triangle-fill text-warning"></i> Yes'
+      : '<i class="bi bi-check-circle text-success"></i> No';
+    const ci = st.bootstrap_ci_95
+      ? '[' + st.bootstrap_ci_95[0].toFixed(2) + ', ' + st.bootstrap_ci_95[1].toFixed(2) + ']'
+      : '-';
+    const delta = st.cliff_delta != null ? st.cliff_delta.toFixed(4) : '-';
+    const pVal = st.mann_whitney_p != null
+      ? (st.mann_whitney_p < 0.0001 ? st.mann_whitney_p.toExponential(2) : st.mann_whitney_p.toFixed(4))
+      : '-';
+    const rowCls = (sig && st.cliff_delta_interpretation !== 'negligible') ? 'table-warning' : '';
+    h += `<tr class="${rowCls}">
+      <td class="small">${escHtml(metric)}</td>
+      <td>${delta}</td>
+      <td>${effectBadge(st.cliff_delta_interpretation)}</td>
+      <td>${pVal}</td>
+      <td>${sigIcon}</td>
+      <td class="small">${ci}</td>
+      <td class="small">${st.base_sample_count || '-'} / ${st.initial_sample_count || '-'}</td>
+    </tr>`;
+  }
+  h += '</tbody></table></div>';
+  return h;
+}
 
 function showDetail(compId) {
   const c = window._comparisons.find(x => x.id === compId);
@@ -253,6 +297,24 @@ function showDetail(compId) {
     html += '</tbody></table>';
   }
 
+  // Statistical Tests — System-wide
+  if (data.statistical_tests_system) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-graph-up me-1"></i>Statistical Tests (System-wide)</h6>';
+    html += renderStatTestTable(data.statistical_tests_system);
+  }
+
+  // Statistical Tests — Per-Process
+  if (data.statistical_tests_process) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-cpu me-1"></i>Statistical Tests (Per-Process)</h6>';
+    html += renderStatTestTable(data.statistical_tests_process);
+  }
+
+  // Statistical Tests — JTL
+  if (data.statistical_tests_jtl) {
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-speedometer2 me-1"></i>Statistical Tests (JTL / Application)</h6>';
+    html += renderStatTestTable(data.statistical_tests_jtl);
+  }
+
   // Rule Evaluations
   if (data.rule_evaluations && data.rule_evaluations.length > 0) {
     html += '<h6 class="mt-3 mb-2"><i class="bi bi-list-check me-1"></i>Rule Evaluations</h6>';
@@ -275,7 +337,10 @@ function showDetail(compId) {
   }
 
   // Fallback: raw JSON for anything else
-  if (!data.system_deltas && !data.agent_overhead && !data.jtl_comparison && !data.rule_evaluations) {
+  const hasAnySection = data.system_deltas || data.agent_overhead || data.jtl_comparison
+    || data.rule_evaluations || data.statistical_tests_system
+    || data.statistical_tests_process || data.statistical_tests_jtl;
+  if (!hasAnySection) {
     html += '<pre class="bg-light p-3 rounded">' + escHtml(JSON.stringify(data, null, 2)) + '</pre>';
   }
 

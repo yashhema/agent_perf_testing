@@ -41,7 +41,7 @@ class JMeterController:
         duration_sec: int,
         target_host: str,
         target_port: int,
-        ops_sequence_path: str,
+        ops_sequence_path: Optional[str] = None,
         extra_properties: Optional[Dict[str, str]] = None,
     ) -> int:
         """Start JMeter process via SSH.
@@ -50,7 +50,7 @@ class JMeterController:
           {jmeter_bin} -n -t {jmx_path} -l {jtl_path} -j {log_path}
             -Jthreads={thread_count} -Jrampup={ramp_up_sec}
             -Jduration={duration_sec} -Jhost={target_host}
-            -Jport={target_port} -Jops_sequence={ops_sequence_path}
+            -Jport={target_port} [-Jops_sequence={ops_sequence_path}]
             -Jloopcount=-1 [{extra_properties as -Jkey=value}]
 
         Returns: PID of the JMeter process
@@ -66,9 +66,10 @@ class JMeterController:
             f"-Jduration={duration_sec}",
             f"-Jhost={target_host}",
             f"-Jport={target_port}",
-            f"-Jops_sequence={ops_sequence_path}",
             "-Jloopcount=-1",
         ]
+        if ops_sequence_path:
+            cmd_parts.append(f"-Jops_sequence={ops_sequence_path}")
         if extra_properties:
             for key, value in extra_properties.items():
                 cmd_parts.append(f"-J{key}={value}")

@@ -18,6 +18,7 @@ from orchestrator.api.schemas import (
     AnalysisRuleCreate, AnalysisRuleResponse, AnalysisRuleUpdate,
     ApplyPresetRequest,
     BaselineCreate, BaselineResponse, BaselineUpdate,
+    CreateSnapshotRequest,
     DBSchemaConfigCreate, DBSchemaConfigResponse, DBSchemaConfigUpdate,
     HardwareProfileCreate, HardwareProfileResponse, HardwareProfileUpdate,
     LabCreate, LabResponse, LabUpdate,
@@ -192,6 +193,77 @@ def delete_server(server_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Server not found")
     session.delete(obj)
     session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Server Snapshot — create a hypervisor snapshot and store as a Baseline
+# ---------------------------------------------------------------------------
+
+@router.post("/servers/{server_id}/snapshots", response_model=BaselineResponse, status_code=status.HTTP_201_CREATED)
+def create_server_snapshot(server_id: int, data: CreateSnapshotRequest, session: Session = Depends(get_session)):
+    """Create a snapshot of a running server and store it as a BaselineORM record.
+
+    Uses the server's lab hypervisor provider to create the snapshot,
+    then stores the provider-returned snapshot_ref in baseline.provider_ref.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    server = session.get(ServerORM, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    lab = session.get(LabORM, server.lab_id)
+    if not lab:
+        raise HTTPException(status_code=404, detail=f"Lab {server.lab_id} not found")
+
+    # Build hypervisor provider from lab config
+    from orchestrator.app import credentials as cred_store
+    from orchestrator.infra.hypervisor import create_hypervisor_provider
+
+    try:
+        hyp_cred = cred_store.get_hypervisor_credential(lab.hypervisor_type.value)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot load hypervisor credentials: {e}")
+
+    provider = create_hypervisor_provider(
+        hypervisor_type=lab.hypervisor_type.value,
+        url=lab.hypervisor_manager_url,
+        port=lab.hypervisor_manager_port,
+        credential=hyp_cred,
+    )
+
+    # Create the snapshot via the provider
+    try:
+        snapshot_ref = provider.create_snapshot(
+            server.server_infra_ref,
+            data.baseline_name,
+            description=data.description or f"Snapshot of {server.hostname}",
+        )
+    except Exception as e:
+        logger.exception("Snapshot creation failed for server %s", server.hostname)
+        raise HTTPException(status_code=500, detail=f"Snapshot creation failed: {e}")
+
+    # Determine OS info from server's existing baseline or sensible defaults
+    source_baseline = session.get(BaselineORM, server.baseline_id) if server.baseline_id else None
+
+    baseline = BaselineORM(
+        name=data.baseline_name,
+        os_family=server.os_family,
+        os_vendor_family=source_baseline.os_vendor_family if source_baseline else ("ubuntu" if server.os_family.value == "linux" else "windows_server"),
+        os_major_ver=source_baseline.os_major_ver if source_baseline else "0",
+        os_minor_ver=source_baseline.os_minor_ver if source_baseline else None,
+        os_kernel_ver=source_baseline.os_kernel_ver if source_baseline else None,
+        baseline_type=lab.hypervisor_type,
+        provider_ref=snapshot_ref,
+    )
+    session.add(baseline)
+    session.commit()
+    session.refresh(baseline)
+
+    logger.info("Created baseline %d (%s) from server %s snapshot, provider_ref=%s",
+                baseline.id, baseline.name, server.hostname, snapshot_ref)
+    return baseline
 
 
 # ---------------------------------------------------------------------------

@@ -33,3 +33,14 @@ _temp_*.db-wal
 _wizard_*.db
 _wizard_*.db-shm
 _wizard_*.db-wal
+
+# Credentials (keep local only)
+orchestrator/config/credentials.json
+
+# Generated/temporary output
+orchestrator/artifacts/
+orchestrator/generated/
+orchestrator/logs/
+orchestrator/results/
+orchestrator/run*_stdout.log
+orchestrator/run*_stderr.log

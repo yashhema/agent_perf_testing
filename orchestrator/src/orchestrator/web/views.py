@@ -39,10 +39,10 @@ async def admin_dashboard(request: Request):
 # Each passes a config dict to the generic crud.html template
 
 _ENUM_OPTIONS = {
-    "hypervisor_type": ["proxmox", "vsphere"],
+    "hypervisor_type": ["proxmox", "vsphere", "vultr"],
     "os_family": ["linux", "windows"],
-    "server_infra_type": ["proxmox_vm", "vsphere_vm"],
-    "baseline_type": ["proxmox", "vsphere"],
+    "server_infra_type": ["proxmox_vm", "vsphere_vm", "vultr_instance"],
+    "baseline_type": ["proxmox", "vsphere", "vultr"],
     "db_type": ["mssql", "postgresql"],
     "disk_type": ["ssd", "hdd"],
     "template_type": ["server-normal", "server-file-heavy", "db-load"],

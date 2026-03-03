@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+from ._pool import get_process_pool
+
 
 @dataclass(frozen=True)
 class DISKOperationParams:
@@ -95,7 +97,7 @@ class DISKOperation:
 
         loop = asyncio.get_event_loop()
         actual_duration_ms, bytes_written, bytes_read = await loop.run_in_executor(
-            None,
+            get_process_pool(),
             DISKOperation._disk_io,
             duration_sec,
             params.mode,

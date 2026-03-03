@@ -1,11 +1,12 @@
 """Shared pytest fixtures for orchestrator tests.
 
 Uses SQLite in-memory database for fast, isolated tests.
-Patches PostgreSQL-specific types (JSONB, ARRAY) to SQLite-compatible equivalents.
+ORM models use dialect-agnostic types (JSON instead of JSONB) so no
+type patching is required.
 """
 
 import pytest
-from sqlalchemy import JSON, String, Text, create_engine, event
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from orchestrator.models.database import Base
@@ -39,26 +40,6 @@ from orchestrator.models.enums import (
     TemplateType,
     TestRunState,
 )
-
-
-def _patch_pg_types_for_sqlite():
-    """Replace PostgreSQL-specific column types with SQLite-compatible ones.
-
-    This patches JSONB -> JSON and ARRAY(Integer) -> Text in the ORM model
-    columns so that SQLite can create the tables.
-    """
-    from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-
-    for table in Base.metadata.tables.values():
-        for column in table.columns:
-            if isinstance(column.type, JSONB):
-                column.type = JSON()
-            elif isinstance(column.type, ARRAY):
-                column.type = Text()
-
-
-# Patch once at import time
-_patch_pg_types_for_sqlite()
 
 
 @pytest.fixture

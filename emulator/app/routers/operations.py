@@ -9,6 +9,7 @@ from ..models.requests import (
     DISKOperationRequest,
     NETOperationRequest,
     FileOperationRequest,
+    SuspiciousOperationRequest,
 )
 from ..models.responses import OperationResult, FileOperationResult
 from ..operations.cpu import CPUOperation, CPUOperationParams
@@ -16,6 +17,7 @@ from ..operations.memory import MEMOperation, MEMOperationParams
 from ..operations.disk import DISKOperation, DISKOperationParams
 from ..operations.network import NETOperation, NETOperationParams
 from ..operations.file import FileOperation, FileOperationParams
+from ..operations.suspicious import SuspiciousOperation, SuspiciousOperationParams
 
 
 router = APIRouter(prefix="/operations")
@@ -198,5 +200,35 @@ async def execute_file_operation(request: FileOperationRequest) -> FileOperation
         )
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suspicious", response_model=OperationResult)
+async def execute_suspicious_operation(request: SuspiciousOperationRequest) -> OperationResult:
+    """Execute a suspicious system-level activity.
+
+    Performs OS-level activities that EDR/AV agents would flag as suspicious.
+    Activities are benign but trigger security agent heuristics (registry writes,
+    crontab modifications, /tmp executables, process spawning, etc.).
+    """
+    try:
+        params = SuspiciousOperationParams(
+            activity_type=request.activity_type,
+            duration_ms=request.duration_ms,
+        )
+        result = await SuspiciousOperation.execute(params)
+
+        return OperationResult(
+            operation=result.operation,
+            status=result.status,
+            duration_ms=result.actual_duration_ms,
+            details={
+                "activity_type": result.activity_type,
+                "detail": result.detail,
+                "os_family": result.os_family,
+                "error_message": result.error_message,
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

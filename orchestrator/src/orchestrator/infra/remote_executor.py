@@ -147,6 +147,29 @@ class WinRMExecutor(RemoteExecutor):
         logger.info("WinRM session to %s closed", self._host)
 
 
+def wait_for_ssh(host: str, port: int = 22, timeout_sec: int = 120, poll_sec: int = 5) -> None:
+    """Wait until SSH port is accepting connections.
+
+    Useful after snapshot restores where the hypervisor API reports 'running'
+    before the OS has fully booted and SSHD is listening.
+    """
+    import socket
+    import time
+
+    elapsed = 0
+    while elapsed < timeout_sec:
+        try:
+            sock = socket.create_connection((host, port), timeout=5)
+            sock.close()
+            logger.info("SSH port %s:%d reachable (waited %ds)", host, port, elapsed)
+            return
+        except (ConnectionRefusedError, TimeoutError, OSError):
+            pass
+        time.sleep(poll_sec)
+        elapsed += poll_sec
+    raise TimeoutError(f"SSH on {host}:{port} not reachable after {timeout_sec}s")
+
+
 def create_executor(
     os_family: str,
     host: str,

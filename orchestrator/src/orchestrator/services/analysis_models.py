@@ -21,11 +21,13 @@ from orchestrator.services.stats_parser import (
 from orchestrator.services.jtl_parser import JtlResult
 
 # Re-export for consumers that import from analysis_models
+from orchestrator.services.statistical_tests import StatisticalTestResult
+
 __all__ = [
     "RawAgentStats", "SystemStatsSummary", "AgentStatsSummary", "CycleConsistency",
     "PhaseData", "MetricDeltaStats", "MetricDelta", "SystemDeltaSummary",
     "JtlDelta", "FullComparisonData", "RuleEvaluation", "ComparisonVerdict",
-    "TestRunVerdict",
+    "TestRunVerdict", "StatisticalTestResult",
 ]
 
 
@@ -137,6 +139,9 @@ class FullComparisonData:
     verdict: Optional[Verdict] = None
     verdict_summary: str = ""
     normalized_ratios: Optional[Any] = None
+    statistical_tests: List[StatisticalTestResult] = field(default_factory=list)
+    process_statistical_tests: List[StatisticalTestResult] = field(default_factory=list)
+    jtl_statistical_tests: List[StatisticalTestResult] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

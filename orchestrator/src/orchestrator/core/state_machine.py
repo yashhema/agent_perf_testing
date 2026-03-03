@@ -63,8 +63,17 @@ def transition(session: Session, test_run: TestRunORM, target_state: TestRunStat
     Raises:
         ValueError: if transition is invalid
     """
+    session.refresh(test_run)
     current = test_run.state
     allowed = TRANSITIONS.get(current, [])
+
+    # Idempotent: if already in target state, no-op
+    if current == target_state:
+        logger.info(
+            "TestRun %d: already in state %s, skipping transition",
+            test_run.id, current.value,
+        )
+        return
 
     if target_state not in allowed:
         raise ValueError(

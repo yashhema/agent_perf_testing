@@ -11,6 +11,7 @@ Supports pluggable discovery scripts under the discovery/ directory:
 All scripts must output JSON to stdout.
 """
 
+import base64
 import json
 import logging
 from dataclasses import dataclass, field
@@ -263,11 +264,14 @@ class DiscoveryService:
 
         script_content = script_path.read_text(encoding="utf-8")
 
-        # Execute the script content remotely
+        # Execute the script content remotely.
+        # Use base64 encoding for Linux to avoid shell quoting issues
+        # (scripts may contain single quotes in grep patterns, etc.).
         if os_family == OSFamily.windows:
             cmd = f"powershell -NoProfile -Command \"{script_content}\""
         else:
-            cmd = f"bash -c '{script_content}'"
+            encoded = base64.b64encode(script_content.encode("utf-8")).decode("ascii")
+            cmd = f"echo {encoded} | base64 -d | bash"
 
         cmd_result = executor.execute(cmd, timeout_sec=60)
         if not cmd_result.success:

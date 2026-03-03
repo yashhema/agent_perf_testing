@@ -15,16 +15,19 @@ class OSFamily(str, Enum):
 class HypervisorType(str, Enum):
     proxmox = "proxmox"
     vsphere = "vsphere"
+    vultr = "vultr"
 
 
 class ServerInfraType(str, Enum):
     proxmox_vm = "proxmox_vm"
     vsphere_vm = "vsphere_vm"
+    vultr_instance = "vultr_instance"
 
 
 class BaselineType(str, Enum):
     proxmox = "proxmox"
     vsphere = "vsphere"
+    vultr = "vultr"
 
 
 class DBType(str, Enum):
@@ -72,6 +75,12 @@ class ExecutionStatus(str, Enum):
     running = "running"
     completed = "completed"
     failed = "failed"
+
+
+class TestPhaseType(str, Enum):
+    load = "load"
+    stress = "stress"
+    network_degradation = "network_degradation"
 
 
 class AgentType(str, Enum):

@@ -6,13 +6,27 @@ Parses JTL CSV files produced by JMeter and extracts:
   - Throughput (requests/sec)
   - Response times (avg, p50, p90, p95, p99)
   - Per-label breakdown
+  - Raw data for statistical tests (per-second throughput timeseries,
+    response time distributions, per-label response times)
 """
 
 import csv
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
+
+
+@dataclass
+class JtlRawData:
+    """Raw data extracted from JTL for statistical comparison.
+
+    Contains per-second throughput timeseries, raw response times,
+    and per-label response times for Cliff's delta / Mann-Whitney tests.
+    """
+    throughput_per_sec_timeseries: List[float]  # request count per 1-second bucket
+    response_times_ms: List[float]  # all individual elapsed_ms values
+    per_label_response_times: Dict[str, List[float]]  # label -> list of elapsed_ms
 
 
 @dataclass
@@ -125,6 +139,90 @@ class JtlParser:
             p95_response_ms=round(self._percentile(sorted_elapsed, 95), 2),
             p99_response_ms=round(self._percentile(sorted_elapsed, 99), 2),
             per_label=per_label,
+        )
+
+    def parse_raw(self, jtl_path: str) -> JtlRawData:
+        """Parse JTL CSV and extract raw data for statistical comparison.
+
+        Returns JtlRawData with:
+          - Per-second throughput timeseries (request counts per 1s bucket)
+          - All individual response times
+          - Per-label response times
+        """
+        timestamps: List[int] = []
+        elapsed_times: List[float] = []
+        label_times: Dict[str, List[float]] = {}
+
+        with open(jtl_path, "r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ts = int(row["timeStamp"])
+                elapsed_ms = float(row["elapsed"])
+                label = row["label"]
+
+                timestamps.append(ts)
+                elapsed_times.append(elapsed_ms)
+
+                if label not in label_times:
+                    label_times[label] = []
+                label_times[label].append(elapsed_ms)
+
+        if not timestamps:
+            return JtlRawData(
+                throughput_per_sec_timeseries=[],
+                response_times_ms=[],
+                per_label_response_times={},
+            )
+
+        # Build per-second throughput timeseries
+        min_ts = min(timestamps)
+        max_ts = max(timestamps)
+        duration_sec = (max_ts - min_ts) // 1000 + 1
+
+        # Bucket requests into 1-second intervals
+        buckets = [0.0] * duration_sec
+        for ts in timestamps:
+            bucket_idx = (ts - min_ts) // 1000
+            if 0 <= bucket_idx < duration_sec:
+                buckets[bucket_idx] += 1.0
+
+        # Trim first and last buckets (may be partial seconds)
+        if len(buckets) > 2:
+            throughput_ts = buckets[1:-1]
+        else:
+            throughput_ts = buckets
+
+        return JtlRawData(
+            throughput_per_sec_timeseries=throughput_ts,
+            response_times_ms=elapsed_times,
+            per_label_response_times=label_times,
+        )
+
+    @staticmethod
+    def merge_raw_data(raw_list: List[JtlRawData]) -> JtlRawData:
+        """Merge raw data from multiple JTL files (across cycles).
+
+        Concatenates throughput timeseries, response times, and per-label data.
+        """
+        if len(raw_list) == 1:
+            return raw_list[0]
+
+        all_throughput: List[float] = []
+        all_response: List[float] = []
+        all_per_label: Dict[str, List[float]] = {}
+
+        for raw in raw_list:
+            all_throughput.extend(raw.throughput_per_sec_timeseries)
+            all_response.extend(raw.response_times_ms)
+            for label, times in raw.per_label_response_times.items():
+                if label not in all_per_label:
+                    all_per_label[label] = []
+                all_per_label[label].extend(times)
+
+        return JtlRawData(
+            throughput_per_sec_timeseries=all_throughput,
+            response_times_ms=all_response,
+            per_label_response_times=all_per_label,
         )
 
     @staticmethod

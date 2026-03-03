@@ -1,7 +1,18 @@
 """Hypervisor provider abstraction.
 
-HypervisorProvider interface with implementations for Proxmox and vSphere.
+HypervisorProvider interface with implementations for Proxmox, vSphere, and Vultr.
 Factory creates provider from LabORM.hypervisor_type.
+
+Data model:
+    ServerORM.server_infra_ref  — provider-specific VM identifier
+        Proxmox:  {"node": "pve1", "vmid": 105}
+        vSphere:  {"datacenter": "DC1", "vm_name": "target-rhel8"}
+        Vultr:    {"instance_id": "uuid", "region": "ewr"}
+
+    BaselineORM.provider_ref    — provider-specific snapshot identifier
+        Proxmox:  {"snapshot_name": "clean-base"}
+        vSphere:  {"snapshot_name": "clean-base"}
+        Vultr:    {"snapshot_id": "uuid", "snapshot_name": "clean-base"}
 """
 
 import abc
@@ -22,49 +33,61 @@ class VMStatus:
 
 
 class HypervisorProvider(abc.ABC):
-    """Abstract interface for hypervisor operations."""
+    """Abstract interface for hypervisor operations.
+
+    All snapshot methods take two separate dicts:
+        server_ref  — from ServerORM.server_infra_ref (identifies the VM)
+        snapshot_ref — from BaselineORM.provider_ref (identifies the snapshot)
+    """
 
     @abc.abstractmethod
-    def restore_snapshot(self, provider_ref: dict, snapshot_name: str) -> None:
+    def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
         """Restore a VM to a specific snapshot.
 
         Args:
-            provider_ref: Provider-specific VM reference (from BaselineORM.provider_ref
-                          or ServerORM.server_infra_ref)
-            snapshot_name: Name of snapshot to restore
+            server_ref: Provider-specific VM reference (ServerORM.server_infra_ref).
+            snapshot_ref: Provider-specific snapshot reference (BaselineORM.provider_ref).
+
+        Returns:
+            New IP address if it changed (Vultr), or None if unchanged (Proxmox/vSphere).
         """
 
     @abc.abstractmethod
-    def get_vm_status(self, provider_ref: dict) -> VMStatus:
+    def get_vm_status(self, server_ref: dict) -> VMStatus:
         """Get current status of a VM.
 
         Args:
-            provider_ref: Provider-specific VM reference
+            server_ref: Provider-specific VM reference (ServerORM.server_infra_ref).
         """
 
     @abc.abstractmethod
-    def create_snapshot(self, provider_ref: dict, snapshot_name: str, description: str = "") -> dict:
+    def create_snapshot(self, server_ref: dict, snapshot_name: str, description: str = "") -> dict:
         """Create a new snapshot of a VM.
 
         Args:
-            provider_ref: Provider-specific VM reference
-            snapshot_name: Name for new snapshot
-            description: Optional description
+            server_ref: Provider-specific VM reference (ServerORM.server_infra_ref).
+            snapshot_name: Logical name for the new snapshot.
+            description: Optional description.
 
         Returns:
-            Updated provider_ref including the new snapshot reference
+            snapshot_ref dict suitable for storing in BaselineORM.provider_ref.
         """
 
     @abc.abstractmethod
-    def snapshot_exists(self, provider_ref: dict, snapshot_name: str) -> bool:
-        """Check if a snapshot exists on the hypervisor."""
+    def snapshot_exists(self, server_ref: dict, snapshot_ref: dict) -> bool:
+        """Check if a snapshot exists on the hypervisor.
 
-    def wait_for_vm_ready(self, provider_ref: dict, timeout_sec: int = 300, poll_interval_sec: int = 10) -> bool:
+        Args:
+            server_ref: Provider-specific VM reference (ServerORM.server_infra_ref).
+            snapshot_ref: Provider-specific snapshot reference (BaselineORM.provider_ref).
+        """
+
+    def wait_for_vm_ready(self, server_ref: dict, timeout_sec: int = 300, poll_interval_sec: int = 10) -> bool:
         """Wait until VM is running. Returns True if ready, False on timeout."""
         elapsed = 0
         while elapsed < timeout_sec:
             try:
-                status = self.get_vm_status(provider_ref)
+                status = self.get_vm_status(server_ref)
                 if status.status == "running":
                     logger.info("VM %s is running (waited %ds)", status.name, elapsed)
                     return True
@@ -80,7 +103,8 @@ class ProxmoxProvider(HypervisorProvider):
     """Proxmox VE hypervisor provider.
 
     Uses proxmoxer library for API access.
-    provider_ref format: {"node": "pve1", "vmid": 105, "snapshot_name": "clean-rhel8"}
+    server_ref format:   {"node": "pve1", "vmid": 105}
+    snapshot_ref format: {"snapshot_name": "clean-rhel8"}
     """
 
     def __init__(self, url: str, port: int, api_key: str, verify_ssl: bool = False):
@@ -103,17 +127,19 @@ class ProxmoxProvider(HypervisorProvider):
             raise ValueError("Proxmox API key must start with 'PVEAPIToken='")
         logger.info("Proxmox connected to %s:%d", url, port)
 
-    def restore_snapshot(self, provider_ref: dict, snapshot_name: str) -> None:
-        node = provider_ref["node"]
-        vmid = provider_ref["vmid"]
+    def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
+        snapshot_name = snapshot_ref["snapshot_name"]
         logger.info("Restoring snapshot '%s' on %s/qemu/%d", snapshot_name, node, vmid)
         self._proxmox.nodes(node).qemu(vmid).snapshot(snapshot_name).rollback.post()
         # Start VM after restore
         self._proxmox.nodes(node).qemu(vmid).status.start.post()
+        return None  # Proxmox IPs are static, no change
 
-    def get_vm_status(self, provider_ref: dict) -> VMStatus:
-        node = provider_ref["node"]
-        vmid = provider_ref["vmid"]
+    def get_vm_status(self, server_ref: dict) -> VMStatus:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
         status_data = self._proxmox.nodes(node).qemu(vmid).status.current.get()
         return VMStatus(
             name=status_data.get("name", str(vmid)),
@@ -121,19 +147,20 @@ class ProxmoxProvider(HypervisorProvider):
             uptime_sec=status_data.get("uptime", 0),
         )
 
-    def create_snapshot(self, provider_ref: dict, snapshot_name: str, description: str = "") -> dict:
-        node = provider_ref["node"]
-        vmid = provider_ref["vmid"]
+    def create_snapshot(self, server_ref: dict, snapshot_name: str, description: str = "") -> dict:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
         logger.info("Creating snapshot '%s' on %s/qemu/%d", snapshot_name, node, vmid)
         self._proxmox.nodes(node).qemu(vmid).snapshot.post(
             snapname=snapshot_name,
             description=description,
         )
-        return {**provider_ref, "snapshot_name": snapshot_name}
+        return {"snapshot_name": snapshot_name}
 
-    def snapshot_exists(self, provider_ref: dict, snapshot_name: str) -> bool:
-        node = provider_ref["node"]
-        vmid = provider_ref["vmid"]
+    def snapshot_exists(self, server_ref: dict, snapshot_ref: dict) -> bool:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
+        snapshot_name = snapshot_ref.get("snapshot_name", "")
         snapshots = self._proxmox.nodes(node).qemu(vmid).snapshot.get()
         return any(s.get("name") == snapshot_name for s in snapshots)
 
@@ -142,8 +169,8 @@ class VSphereProvider(HypervisorProvider):
     """VMware vSphere hypervisor provider.
 
     Uses pyvmomi library for API access.
-    provider_ref format: {"datacenter": "DC1", "vm_path": "/folder/vm-name",
-                          "vm_name": "target-rhel8", "snapshot_name": "clean-rhel8"}
+    server_ref format:   {"datacenter": "DC1", "vm_name": "target-rhel8"}
+    snapshot_ref format: {"snapshot_name": "clean-rhel8"}
     """
 
     def __init__(self, url: str, port: int, username: str, password: str, verify_ssl: bool = False):
@@ -164,9 +191,9 @@ class VSphereProvider(HypervisorProvider):
         self._content = self._si.RetrieveContent()
         logger.info("vSphere connected to %s:%d", url, port)
 
-    def _find_vm(self, provider_ref: dict):
+    def _find_vm(self, server_ref: dict):
         from pyVmomi import vim
-        vm_name = provider_ref.get("vm_name", "")
+        vm_name = server_ref.get("vm_name", "")
         container = self._content.viewManager.CreateContainerView(
             self._content.rootFolder, [vim.VirtualMachine], True
         )
@@ -192,8 +219,9 @@ class VSphereProvider(HypervisorProvider):
                 return found
         return None
 
-    def restore_snapshot(self, provider_ref: dict, snapshot_name: str) -> None:
-        vm = self._find_vm(provider_ref)
+    def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
+        snapshot_name = snapshot_ref["snapshot_name"]
+        vm = self._find_vm(server_ref)
         snapshot = self._find_snapshot(vm, snapshot_name)
         if not snapshot:
             raise ValueError(f"Snapshot '{snapshot_name}' not found on VM '{vm.name}'")
@@ -205,16 +233,17 @@ class VSphereProvider(HypervisorProvider):
         if vm.runtime.powerState != vim.VirtualMachinePowerState.poweredOn:
             task = vm.PowerOnVM_Task()
             self._wait_for_task(task)
+        return None  # vSphere IPs are static, no change
 
-    def get_vm_status(self, provider_ref: dict) -> VMStatus:
+    def get_vm_status(self, server_ref: dict) -> VMStatus:
         from pyVmomi import vim
-        vm = self._find_vm(provider_ref)
+        vm = self._find_vm(server_ref)
         power_state = vm.runtime.powerState
         status = "running" if power_state == vim.VirtualMachinePowerState.poweredOn else "stopped"
         return VMStatus(name=vm.name, status=status)
 
-    def create_snapshot(self, provider_ref: dict, snapshot_name: str, description: str = "") -> dict:
-        vm = self._find_vm(provider_ref)
+    def create_snapshot(self, server_ref: dict, snapshot_name: str, description: str = "") -> dict:
+        vm = self._find_vm(server_ref)
         logger.info("Creating snapshot '%s' on VM '%s'", snapshot_name, vm.name)
         task = vm.CreateSnapshot_Task(
             name=snapshot_name,
@@ -223,10 +252,11 @@ class VSphereProvider(HypervisorProvider):
             quiesce=True,
         )
         self._wait_for_task(task)
-        return {**provider_ref, "snapshot_name": snapshot_name}
+        return {"snapshot_name": snapshot_name}
 
-    def snapshot_exists(self, provider_ref: dict, snapshot_name: str) -> bool:
-        vm = self._find_vm(provider_ref)
+    def snapshot_exists(self, server_ref: dict, snapshot_ref: dict) -> bool:
+        snapshot_name = snapshot_ref.get("snapshot_name", "")
+        vm = self._find_vm(server_ref)
         return self._find_snapshot(vm, snapshot_name) is not None
 
     def _wait_for_task(self, task, timeout_sec: int = 600):
@@ -243,11 +273,168 @@ class VSphereProvider(HypervisorProvider):
         raise TimeoutError(f"vSphere task timed out after {timeout_sec}s")
 
 
+class VultrProvider(HypervisorProvider):
+    """Vultr cloud provider.
+
+    Uses httpx for Vultr API v2 access.
+    server_ref format:   {"instance_id": "uuid-string", "region": "ewr"}
+    snapshot_ref format: {"snapshot_id": "uuid-string", "snapshot_name": "clean-base"}
+    """
+
+    VULTR_API_BASE = "https://api.vultr.com/v2"
+
+    def __init__(self, api_key: str):
+        import httpx
+        self._api_key = api_key
+        self._client = httpx.Client(
+            base_url=self.VULTR_API_BASE,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+        logger.info("Vultr provider initialized")
+
+    def _request(self, method: str, path: str, **kwargs):
+        """Make an API request with retry on 429/5xx."""
+        max_retries = 3
+        resp = None
+        for attempt in range(1, max_retries + 1):
+            resp = self._client.request(method, path, **kwargs)
+            if resp.status_code in (200, 201, 202, 204):
+                return resp
+            if resp.status_code == 429 or resp.status_code >= 500:
+                wait = min(2 ** attempt, 30)
+                logger.warning("Vultr API %d on %s, retry in %ds", resp.status_code, path, wait)
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+        if resp is not None:
+            resp.raise_for_status()
+
+    def _get_instance(self, instance_id: str) -> dict:
+        """Get instance details from Vultr API."""
+        resp = self._request("GET", f"/instances/{instance_id}")
+        return resp.json()["instance"]
+
+    def _get_snapshot_by_id(self, snapshot_id: str) -> Optional[dict]:
+        """Get snapshot details, returns None if not found."""
+        try:
+            resp = self._request("GET", f"/snapshots/{snapshot_id}")
+            return resp.json()["snapshot"]
+        except Exception:
+            return None
+
+    def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
+        """Restore instance from a snapshot.
+
+        Args:
+            server_ref: {"instance_id": "..."} from ServerORM.server_infra_ref.
+            snapshot_ref: {"snapshot_id": "..."} from BaselineORM.provider_ref.
+
+        Returns:
+            The instance's main_ip after restore (may differ from pre-restore IP).
+        """
+        instance_id = server_ref["instance_id"]
+        snapshot_id = snapshot_ref.get("snapshot_id")
+        if not snapshot_id:
+            raise ValueError(
+                f"snapshot_ref missing 'snapshot_id'. Got: {snapshot_ref}. "
+                f"BaselineORM.provider_ref must contain {{'snapshot_id': '<vultr-uuid>'}}."
+            )
+        snapshot_name = snapshot_ref.get("snapshot_name", snapshot_id)
+        logger.info("Restoring instance %s from snapshot %s (%s)", instance_id, snapshot_name, snapshot_id)
+        self._request("POST", f"/instances/{instance_id}/restore", json={"snapshot_id": snapshot_id})
+
+        # Wait for restore to begin — Vultr API is async so the instance
+        # may still show "active/running" for a few seconds before the
+        # restore process actually kicks in and transitions it.
+        logger.info("Waiting for restore to begin on %s...", instance_id)
+        time.sleep(15)
+
+        # Poll until instance is active and running again
+        elapsed = 15
+        timeout = 600
+        while elapsed < timeout:
+            instance = self._get_instance(instance_id)
+            status = instance.get("status")
+            power = instance.get("power_status")
+            logger.debug("Instance %s: status=%s, power=%s (elapsed=%ds)", instance_id, status, power, elapsed)
+            if status == "active" and power == "running":
+                new_ip = instance.get("main_ip")
+                logger.info("Instance %s restored and running, ip=%s (took %ds)", instance_id, new_ip, elapsed)
+                return new_ip
+            time.sleep(15)
+            elapsed += 15
+        raise TimeoutError(f"Instance {instance_id} not active after restore ({timeout}s)")
+
+    def get_vm_status(self, server_ref: dict) -> VMStatus:
+        """Get current status of a Vultr instance."""
+        instance_id = server_ref["instance_id"]
+        instance = self._get_instance(instance_id)
+
+        vultr_status = instance.get("status", "unknown")
+        power_status = instance.get("power_status", "unknown")
+
+        # Map Vultr statuses to our standard statuses
+        if vultr_status == "active" and power_status == "running":
+            status = "running"
+        elif vultr_status == "active" and power_status == "stopped":
+            status = "stopped"
+        else:
+            status = "unknown"
+
+        return VMStatus(
+            name=instance.get("label", instance_id),
+            status=status,
+        )
+
+    def create_snapshot(self, server_ref: dict, snapshot_name: str, description: str = "") -> dict:
+        """Create a snapshot of a Vultr instance.
+
+        Returns:
+            snapshot_ref dict: {"snapshot_id": "...", "snapshot_name": "..."}.
+        """
+        instance_id = server_ref["instance_id"]
+        logger.info("Creating snapshot '%s' for instance %s", snapshot_name, instance_id)
+
+        resp = self._request("POST", "/snapshots", json={
+            "instance_id": instance_id,
+            "description": description or f"{snapshot_name} snapshot",
+        })
+        snapshot = resp.json()["snapshot"]
+        snapshot_id = snapshot["id"]
+
+        # Poll until snapshot is complete
+        elapsed = 0
+        timeout = 900
+        while elapsed < timeout:
+            snap = self._get_snapshot_by_id(snapshot_id)
+            if snap and snap.get("status") == "complete":
+                break
+            time.sleep(20)
+            elapsed += 20
+        else:
+            raise TimeoutError(f"Snapshot {snapshot_id} not complete after {timeout}s")
+
+        logger.info("Snapshot '%s' -> %s complete", snapshot_name, snapshot_id)
+        return {"snapshot_id": snapshot_id, "snapshot_name": snapshot_name}
+
+    def snapshot_exists(self, server_ref: dict, snapshot_ref: dict) -> bool:
+        """Check if snapshot still exists on Vultr."""
+        snapshot_id = snapshot_ref.get("snapshot_id")
+        if not snapshot_id:
+            return False
+        snap = self._get_snapshot_by_id(snapshot_id)
+        return snap is not None
+
+
 def create_hypervisor_provider(
     hypervisor_type: str,
     url: str,
     port: int,
-    credential,  # ProxmoxCredential or VSphereCredential
+    credential,  # ProxmoxCredential, VSphereCredential, or VultrCredential
 ) -> HypervisorProvider:
     """Factory: create HypervisorProvider from type and credentials."""
     if hypervisor_type == "proxmox":
@@ -265,5 +452,7 @@ def create_hypervisor_provider(
             password=credential.password,
             verify_ssl=credential.verify_ssl,
         )
+    elif hypervisor_type == "vultr":
+        return VultrProvider(api_key=credential.api_key)
     else:
         raise ValueError(f"Unsupported hypervisor_type: {hypervisor_type}")

@@ -20,6 +20,7 @@ from orchestrator.services.analysis_models import (
 )
 from orchestrator.services.rule_templates import RULE_PRESETS, RULE_TEMPLATES, RuleTemplate
 from orchestrator.services.stats_parser import AgentStatsSummary, MetricSummary
+from orchestrator.services.statistical_tests import StatisticalTestResult
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +81,27 @@ def evaluate_rule(
     system_deltas: Optional[SystemDeltaSummary],
     agent_stats: Optional[AgentStatsSummary],
     jtl_delta: Optional[JtlDelta],
+    statistical_tests: Optional[List[StatisticalTestResult]] = None,
+    process_statistical_tests: Optional[List[StatisticalTestResult]] = None,
+    jtl_statistical_tests: Optional[List[StatisticalTestResult]] = None,
 ) -> RuleEvaluation:
     """Evaluate a single rule against measured data.
 
     Routes to the appropriate data source and extracts the actual value,
     then compares against the rule's threshold using the template's operator.
     """
+    # Two-gate evaluation for system-wide statistical rules
+    if template.data_source == "statistical":
+        return _evaluate_statistical_rule(rule, template, statistical_tests)
+
+    # Two-gate evaluation for per-process statistical rules
+    if template.data_source == "statistical_process":
+        return _evaluate_process_statistical_rule(rule, template, process_statistical_tests)
+
+    # Two-gate evaluation for JTL statistical rules
+    if template.data_source == "jtl_statistical":
+        return _evaluate_jtl_statistical_rule(rule, template, jtl_statistical_tests)
+
     actual_value = _extract_value(template, system_deltas, agent_stats, jtl_delta)
 
     if actual_value is None:
@@ -199,11 +215,320 @@ def _extract_value(
     return None
 
 
+def _evaluate_statistical_rule(
+    rule: AnalysisRuleORM,
+    template: RuleTemplate,
+    statistical_tests: Optional[List[StatisticalTestResult]],
+) -> RuleEvaluation:
+    """Evaluate a statistical rule using two-gate logic.
+
+    Gate 1: Mann-Whitney p-value < 0.05 (statistically significant?)
+    Gate 2: |Cliff's delta| >= threshold (meaningful effect size?)
+
+    Both gates must fail for the rule to fail.
+    """
+    if not statistical_tests:
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=rule.threshold_value,
+            actual_value=0.0,
+            unit=template.unit,
+            passed=True,
+            description=f"No statistical test data for {template.name} — skipped",
+        )
+
+    # Find the test result for this metric
+    test_result = None
+    for tr in statistical_tests:
+        if tr.metric == template.metric:
+            test_result = tr
+            break
+
+    if test_result is None:
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=rule.threshold_value,
+            actual_value=0.0,
+            unit=template.unit,
+            passed=True,
+            description=f"No statistical test for metric '{template.metric}' — skipped",
+        )
+
+    cd = test_result.cliff_delta
+    p_val = test_result.mann_whitney_p
+    cd_interp = test_result.cliff_delta_interpretation
+    ci_lo = test_result.bootstrap_ci_low
+    ci_hi = test_result.bootstrap_ci_high
+    effect_threshold = rule.threshold_value
+
+    # Two-gate logic:
+    # Gate 1: Is the difference statistically significant?
+    significant = p_val < 0.05
+    # Gate 2: Is the effect size meaningful? (positive delta = initial > base)
+    meaningful = cd > effect_threshold  # one-sided: agent increased the metric
+
+    if not significant:
+        passed = True
+        desc = (
+            f"{template.name}: not significant (p={p_val:.4f}, "
+            f"delta={cd:.3f} [{cd_interp}], CI=[{ci_lo:.2f}, {ci_hi:.2f}])"
+        )
+    elif not meaningful:
+        passed = True
+        desc = (
+            f"{template.name}: significant but negligible effect "
+            f"(p={p_val:.4f}, delta={cd:.3f} [{cd_interp}] < {effect_threshold}, "
+            f"CI=[{ci_lo:.2f}, {ci_hi:.2f}])"
+        )
+    else:
+        passed = False
+        desc = (
+            f"{template.name} FAILED: significant {cd_interp} effect "
+            f"(p={p_val:.4f}, delta={cd:.3f} > {effect_threshold}, "
+            f"CI=[{ci_lo:.2f}, {ci_hi:.2f}])"
+        )
+
+    return RuleEvaluation(
+        rule_id=rule.id,
+        template_key=template.key,
+        rule_name=template.name,
+        category=template.category,
+        severity=rule.severity.value,
+        threshold=effect_threshold,
+        actual_value=round(cd, 6),
+        unit=template.unit,
+        passed=passed,
+        description=desc,
+    )
+
+
+def _evaluate_process_statistical_rule(
+    rule: AnalysisRuleORM,
+    template: RuleTemplate,
+    process_tests: Optional[List[StatisticalTestResult]],
+) -> RuleEvaluation:
+    """Evaluate a per-process statistical rule using two-gate logic.
+
+    Finds ALL per-process test results matching the template metric
+    (e.g., all tests ending with ":cpu_percent") and applies two-gate
+    logic to each. If ANY process fails both gates, the rule fails.
+    Reports the worst-case process in the description.
+    """
+    if not process_tests:
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=rule.threshold_value,
+            actual_value=0.0,
+            unit=template.unit,
+            passed=True,
+            description=(
+                f"No per-process statistical data for {template.name} — skipped "
+                f"(ensure service_monitor_patterns is configured)"
+            ),
+        )
+
+    # Find all test results matching this metric type
+    # Per-process tests use metric format: "proc:{name}:{metric}"
+    suffix = f":{template.metric}"
+    matching = [t for t in process_tests if t.metric.endswith(suffix)]
+
+    if not matching:
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=rule.threshold_value,
+            actual_value=0.0,
+            unit=template.unit,
+            passed=True,
+            description=f"No per-process tests for '{template.metric}' — skipped",
+        )
+
+    effect_threshold = rule.threshold_value
+    worst_cd = 0.0
+    worst_proc = None
+    any_failed = False
+    per_proc_details = []
+
+    for tr in matching:
+        # Extract process name from metric "proc:{name}:{metric}"
+        parts = tr.metric.split(":")
+        proc_name = parts[1] if len(parts) >= 3 else tr.metric
+
+        significant = tr.mann_whitney_p < 0.05
+        meaningful = tr.cliff_delta > effect_threshold
+        failed = significant and meaningful
+
+        if failed:
+            any_failed = True
+        if tr.cliff_delta > worst_cd:
+            worst_cd = tr.cliff_delta
+            worst_proc = proc_name
+
+        status = "FAIL" if failed else "ok"
+        per_proc_details.append(
+            f"{proc_name}({status}: d={tr.cliff_delta:.3f}, p={tr.mann_whitney_p:.4f})"
+        )
+
+    if not any_failed:
+        desc = (
+            f"{template.name}: all processes within threshold — "
+            + ", ".join(per_proc_details)
+        )
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=effect_threshold,
+            actual_value=round(worst_cd, 6),
+            unit=template.unit,
+            passed=True,
+            description=desc,
+        )
+    else:
+        desc = (
+            f"{template.name} FAILED on '{worst_proc}': "
+            f"significant effect (delta={worst_cd:.3f} > {effect_threshold}) — "
+            + ", ".join(per_proc_details)
+        )
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=effect_threshold,
+            actual_value=round(worst_cd, 6),
+            unit=template.unit,
+            passed=False,
+            description=desc,
+        )
+
+
+def _evaluate_jtl_statistical_rule(
+    rule: AnalysisRuleORM,
+    template: RuleTemplate,
+    jtl_tests: Optional[List[StatisticalTestResult]],
+) -> RuleEvaluation:
+    """Evaluate a JTL statistical rule using two-gate logic.
+
+    For throughput: negative delta = agent reducing throughput (bad).
+      Threshold is negative (e.g., -0.20). Fails if delta < threshold.
+    For response time: positive delta = agent adding latency (bad).
+      Threshold is positive (e.g., 0.20). Fails if delta > threshold.
+    """
+    if not jtl_tests:
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=rule.threshold_value,
+            actual_value=0.0,
+            unit=template.unit,
+            passed=True,
+            description=f"No JTL statistical data for {template.name} — skipped",
+        )
+
+    # Find the test result for this metric
+    test_result = None
+    for tr in jtl_tests:
+        if tr.metric == template.metric:
+            test_result = tr
+            break
+
+    if test_result is None:
+        return RuleEvaluation(
+            rule_id=rule.id,
+            template_key=template.key,
+            rule_name=template.name,
+            category=template.category,
+            severity=rule.severity.value,
+            threshold=rule.threshold_value,
+            actual_value=0.0,
+            unit=template.unit,
+            passed=True,
+            description=f"No JTL test for metric '{template.metric}' — skipped",
+        )
+
+    cd = test_result.cliff_delta
+    p_val = test_result.mann_whitney_p
+    cd_interp = test_result.cliff_delta_interpretation
+    ci_lo = test_result.bootstrap_ci_low
+    ci_hi = test_result.bootstrap_ci_high
+    threshold = rule.threshold_value
+
+    # Gate 1: statistically significant?
+    significant = p_val < 0.05
+
+    # Gate 2: meaningful effect?
+    # For throughput (operator=gt, threshold=-0.20): fails if delta < threshold (big drop)
+    # For response time (operator=lt, threshold=0.20): fails if delta > threshold (big increase)
+    if template.operator == "gt":
+        meaningful = cd < threshold  # negative delta worse than negative threshold
+    else:
+        meaningful = cd > threshold  # positive delta exceeds positive threshold
+
+    if not significant:
+        passed = True
+        desc = (
+            f"{template.name}: not significant (p={p_val:.4f}, "
+            f"delta={cd:.3f} [{cd_interp}], CI=[{ci_lo:.2f}, {ci_hi:.2f}])"
+        )
+    elif not meaningful:
+        passed = True
+        desc = (
+            f"{template.name}: significant but negligible effect "
+            f"(p={p_val:.4f}, delta={cd:.3f} [{cd_interp}], "
+            f"threshold={threshold}, CI=[{ci_lo:.2f}, {ci_hi:.2f}])"
+        )
+    else:
+        passed = False
+        desc = (
+            f"{template.name} FAILED: significant {cd_interp} effect "
+            f"(p={p_val:.4f}, delta={cd:.3f}, threshold={threshold}, "
+            f"CI=[{ci_lo:.2f}, {ci_hi:.2f}])"
+        )
+
+    return RuleEvaluation(
+        rule_id=rule.id,
+        template_key=template.key,
+        rule_name=template.name,
+        category=template.category,
+        severity=rule.severity.value,
+        threshold=threshold,
+        actual_value=round(cd, 6),
+        unit=template.unit,
+        passed=passed,
+        description=desc,
+    )
+
+
 def evaluate_rules(
     rules: List[AnalysisRuleORM],
     system_deltas: Optional[SystemDeltaSummary],
     agent_stats: Optional[AgentStatsSummary],
     jtl_delta: Optional[JtlDelta],
+    statistical_tests: Optional[List[StatisticalTestResult]] = None,
+    process_statistical_tests: Optional[List[StatisticalTestResult]] = None,
+    jtl_statistical_tests: Optional[List[StatisticalTestResult]] = None,
 ) -> List[RuleEvaluation]:
     """Evaluate all rules against measured data."""
     evaluations = []
@@ -212,7 +537,10 @@ def evaluate_rules(
         if not template:
             logger.warning("Unknown rule template key: %s", rule.rule_template_key)
             continue
-        evaluation = evaluate_rule(rule, template, system_deltas, agent_stats, jtl_delta)
+        evaluation = evaluate_rule(
+            rule, template, system_deltas, agent_stats, jtl_delta,
+            statistical_tests, process_statistical_tests, jtl_statistical_tests,
+        )
         evaluations.append(evaluation)
     return evaluations
 

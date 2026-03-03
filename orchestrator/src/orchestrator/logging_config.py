@@ -61,14 +61,16 @@ def setup_logging(
         ))
     root_logger.addHandler(console_handler)
 
-    # File handler (if log_dir specified)
+    # File handler (if log_dir specified) — human-readable, line-buffered for tailing
     if log_dir:
         log_path = Path(log_dir)
         log_path.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(
-            log_path / "orchestrator.log", encoding="utf-8"
-        )
-        file_handler.setFormatter(JSONFormatter())
+        fh_stream = open(log_path / "orchestrator.log", "a", encoding="utf-8", buffering=1)
+        file_handler = logging.StreamHandler(fh_stream)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)-7s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
         root_logger.addHandler(file_handler)
 
     # Quiet noisy libraries

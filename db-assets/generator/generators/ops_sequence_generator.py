@@ -73,14 +73,14 @@ class ServerNormalOpsGenerator(OpsSequenceGenerator):
     """Generate operation sequence for server-normal.jmx.
 
     CSV columns: seq_id, op_type
-    Distribution: 40% cpu, 30% mem, 29% disk, 1% anomaly
+    Distribution: 40% cpu, 30% mem, 30% disk
+    (Anomaly/stress testing is a separate end-test phase, not mixed into load.)
     """
 
     OP_POOL = (
         ['cpu'] * 40 +
         ['mem'] * 30 +
-        ['disk'] * 29 +
-        ['anomaly'] * 1
+        ['disk'] * 30
     )
 
     FIELDNAMES = ['seq_id', 'op_type']
@@ -128,7 +128,8 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
                  output_format, output_folder_idx, is_confidential,
                  make_zip, source_file_ids
 
-    Distribution: 35% cpu, 34% mem, 30% file, 1% anomaly
+    Distribution: 35% cpu, 35% mem, 30% file
+    (Anomaly/stress testing is a separate end-test phase.)
 
     For file operations, all parameters are pre-determined in the CSV so that
     the same CSV produces identical file I/O patterns across base and initial
@@ -137,9 +138,8 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
 
     OP_POOL = (
         ['cpu'] * 35 +
-        ['mem'] * 34 +
-        ['file'] * 30 +
-        ['anomaly'] * 1
+        ['mem'] * 35 +
+        ['file'] * 30
     )
 
     SIZE_BRACKETS = {
@@ -454,6 +454,102 @@ class DbLoadOpsGenerator(OpsSequenceGenerator):
 
     def write_csv(self, operations: List[Dict], output_path: str) -> str:
         """Write merged DB operations to CSV file.
+
+        Args:
+            operations: List from generate()
+            output_path: Filesystem path for the CSV
+
+        Returns:
+            The output_path written to
+        """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(operations)
+        return output_path
+
+
+class StressActivitySequenceGenerator(OpsSequenceGenerator):
+    """Generate suspicious activity sequence for server-stress.jmx.
+
+    CSV columns: seq_id, activity_type, duration_ms
+
+    Cycles through OS-appropriate suspicious activities that EDR/AV agents
+    would flag. Activities are performed by the emulator's /api/v1/operations/suspicious
+    endpoint. Each activity is atomic: does something suspicious then cleans up.
+
+    Linux activities: crontab_write, tmp_executable, process_spawn,
+        etc_hosts_modify, sensitive_file_access, syslog_inject,
+        hidden_file_create, setuid_attempt
+    Windows activities: registry_write, scheduled_task, service_query,
+        hidden_file_create, powershell_encoded, hosts_file_modify,
+        startup_folder_write, wmi_query
+    """
+
+    LINUX_ACTIVITIES = [
+        'crontab_write', 'tmp_executable', 'process_spawn',
+        'etc_hosts_modify', 'sensitive_file_access', 'syslog_inject',
+        'hidden_file_create', 'setuid_attempt',
+    ]
+
+    WINDOWS_ACTIVITIES = [
+        'registry_write', 'scheduled_task', 'service_query',
+        'hidden_file_create', 'powershell_encoded', 'hosts_file_modify',
+        'startup_folder_write', 'wmi_query',
+    ]
+
+    FIELDNAMES = ['seq_id', 'activity_type', 'duration_ms']
+
+    def __init__(
+        self,
+        test_run_id: str,
+        load_profile: str,
+        os_family: str = 'linux',
+    ):
+        """Initialize with OS family for activity pool selection.
+
+        Args:
+            test_run_id: Unique test run identifier
+            load_profile: Load profile name
+            os_family: 'linux' or 'windows' — determines which activities to use
+        """
+        super().__init__(test_run_id, load_profile)
+        self.os_family = os_family
+        self.activity_pool = (
+            self.LINUX_ACTIVITIES if os_family == 'linux'
+            else self.WINDOWS_ACTIVITIES
+        )
+
+    def generate(
+        self,
+        count: int,
+        duration_ms_min: int = 300,
+        duration_ms_max: int = 2000,
+    ) -> List[Dict]:
+        """Generate deterministic suspicious activity sequence.
+
+        Args:
+            count: Number of activities to generate
+            duration_ms_min: Minimum duration per activity
+            duration_ms_max: Maximum duration per activity
+
+        Returns:
+            List of dicts with seq_id, activity_type, duration_ms
+        """
+        operations = []
+        for seq_id in range(1, count + 1):
+            activity_type = self.rng.choice(self.activity_pool)
+            duration_ms = self.rng.randint(duration_ms_min, duration_ms_max)
+            operations.append({
+                'seq_id': seq_id,
+                'activity_type': activity_type,
+                'duration_ms': duration_ms,
+            })
+        return operations
+
+    def write_csv(self, operations: List[Dict], output_path: str) -> str:
+        """Write stress activity sequence to CSV file.
 
         Args:
             operations: List from generate()

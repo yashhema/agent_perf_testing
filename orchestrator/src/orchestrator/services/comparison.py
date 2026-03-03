@@ -41,7 +41,7 @@ from orchestrator.services.analysis_models import (
     MetricDeltaStats,
     SystemDeltaSummary,
 )
-from orchestrator.services.jtl_parser import JtlParser, JtlResult
+from orchestrator.services.jtl_parser import JtlParser, JtlRawData, JtlResult
 from orchestrator.services.ratio_normalizer import (
     compute_normalized_ratios,
     serialize_ratios,
@@ -51,6 +51,10 @@ from orchestrator.services.rule_engine import (
     determine_verdict,
     evaluate_rules,
     get_rules_for_scenario,
+)
+from orchestrator.services.statistical_tests import (
+    StatisticalTestResult,
+    run_statistical_tests,
 )
 from orchestrator.services.stats_parser import (
     AgentStatsSummary,
@@ -103,11 +107,11 @@ class ComparisonEngine:
             for target_config in targets:
                 server = session.get(ServerORM, target_config.target_id)
 
-                # Get system stats summaries (all 7 metrics)
-                base_sys, base_agent = self._aggregate_phase_stats(
+                # Get system stats summaries (all 7 metrics) + raw samples
+                base_sys, base_agent, base_samples = self._aggregate_phase_stats(
                     session, test_run.id, server.id, lp.id, snapshot_num=1
                 )
-                initial_sys, initial_agent = self._aggregate_phase_stats(
+                initial_sys, initial_agent, initial_samples = self._aggregate_phase_stats(
                     session, test_run.id, server.id, lp.id, snapshot_num=2
                 )
 
@@ -121,7 +125,15 @@ class ComparisonEngine:
                 # Compute system deltas (all 7 metrics x all stats)
                 system_deltas = self._compute_system_delta(base_sys, initial_sys)
 
-                # Get JTL results
+                # Compute statistical tests on raw samples (system-wide for display)
+                stat_tests = self._compute_statistical_tests(base_samples, initial_samples)
+
+                # Compute per-process statistical tests (for verdict)
+                proc_stat_tests = self._compute_process_statistical_tests(
+                    base_samples, initial_samples
+                )
+
+                # Get JTL results (aggregate + raw for statistical tests)
                 base_jtl = self._aggregate_jtl(
                     session, test_run.id, server.id, lp.id, snapshot_num=1
                 )
@@ -130,6 +142,16 @@ class ComparisonEngine:
                 )
                 jtl_delta = self._compute_jtl_delta(base_jtl, initial_jtl)
 
+                base_jtl_raw = self._aggregate_jtl_raw(
+                    session, test_run.id, server.id, lp.id, snapshot_num=1
+                )
+                initial_jtl_raw = self._aggregate_jtl_raw(
+                    session, test_run.id, server.id, lp.id, snapshot_num=2
+                )
+                jtl_stat_tests = self._compute_jtl_statistical_tests(
+                    base_jtl_raw, initial_jtl_raw
+                )
+
                 # Compute normalized ratios
                 ratios = (
                     compute_normalized_ratios(base_sys, initial_agent)
@@ -137,8 +159,11 @@ class ComparisonEngine:
                     else None
                 )
 
-                # Evaluate rules
-                evaluations = evaluate_rules(rules, system_deltas, initial_agent, jtl_delta)
+                # Evaluate rules (including per-process and JTL statistical rules)
+                evaluations = evaluate_rules(
+                    rules, system_deltas, initial_agent, jtl_delta,
+                    stat_tests, proc_stat_tests, jtl_stat_tests,
+                )
                 verdict = determine_verdict(evaluations)
 
                 comparison = FullComparisonData(
@@ -149,6 +174,9 @@ class ComparisonEngine:
                     verdict=verdict.verdict,
                     verdict_summary=verdict.worst_failure or "",
                     normalized_ratios=ratios,
+                    statistical_tests=stat_tests,
+                    process_statistical_tests=proc_stat_tests,
+                    jtl_statistical_tests=jtl_stat_tests,
                 )
                 all_target_comparisons.append(comparison)
 
@@ -165,8 +193,25 @@ class ComparisonEngine:
             # Aggregated comparison across all targets
             if all_target_comparisons:
                 aggregated = self._aggregate_full_comparisons(all_target_comparisons)
+                # Use statistical tests from first target for aggregated verdict
+                agg_stat_tests = next(
+                    (c.statistical_tests for c in all_target_comparisons if c.statistical_tests),
+                    None,
+                )
+                agg_proc_stat_tests = next(
+                    (c.process_statistical_tests for c in all_target_comparisons
+                     if c.process_statistical_tests),
+                    None,
+                )
+                agg_jtl_stat_tests = next(
+                    (c.jtl_statistical_tests for c in all_target_comparisons
+                     if c.jtl_statistical_tests),
+                    None,
+                )
                 agg_evaluations = evaluate_rules(
-                    rules, aggregated.system_deltas, aggregated.agent_overhead, aggregated.jtl_delta
+                    rules, aggregated.system_deltas, aggregated.agent_overhead,
+                    aggregated.jtl_delta, agg_stat_tests, agg_proc_stat_tests,
+                    agg_jtl_stat_tests,
                 )
                 agg_verdict = determine_verdict(agg_evaluations)
                 aggregated.rule_evaluations = agg_evaluations
@@ -199,11 +244,12 @@ class ComparisonEngine:
         target_id: int,
         load_profile_id: int,
         snapshot_num: int,
-    ) -> Tuple[Optional[StatsSummary], Optional[AgentStatsSummary]]:
+    ) -> Tuple[Optional[StatsSummary], Optional[AgentStatsSummary], List[Dict[str, Any]]]:
         """Load and aggregate stats across all cycles for a phase.
 
-        Returns (system_summary, agent_summary) tuple.
+        Returns (system_summary, agent_summary, raw_merged_samples) tuple.
         Performs cross-cycle validation on cpu_percent and excludes anomalous cycles.
+        The raw_merged_samples are the trimmed, validated samples for statistical tests.
         """
         results = session.query(PhaseExecutionResultORM).filter(
             PhaseExecutionResultORM.test_run_id == test_run_id,
@@ -214,7 +260,7 @@ class ComparisonEngine:
         ).order_by(PhaseExecutionResultORM.cycle_number).all()
 
         if not results:
-            return None, None
+            return None, None, []
 
         # Collect samples per cycle
         per_cycle_samples: List[List[Dict[str, Any]]] = []
@@ -251,12 +297,111 @@ class ComparisonEngine:
                 cycle_idx += 1
 
         if not all_samples:
-            return None, None
+            return None, None, []
 
         system_summary = self._parser.compute_summary(all_samples)
         agent_summary = self._parser.compute_agent_summary(all_samples)
 
-        return system_summary, agent_summary
+        return system_summary, agent_summary, all_samples
+
+    def _compute_process_statistical_tests(
+        self,
+        base_samples: List[Dict[str, Any]],
+        initial_samples: List[Dict[str, Any]],
+    ) -> List[StatisticalTestResult]:
+        """Run non-parametric statistical tests on per-process metrics.
+
+        Extracts per-process time series from process_stats in raw samples,
+        then runs Cliff's delta + Mann-Whitney + Bootstrap CI for each
+        process that appears in both base and initial phases.
+
+        Metric names use format: "proc:{process_name}:{metric}"
+        e.g., "proc:sshd:cpu_percent", "proc:emulator:memory_rss_mb"
+
+        Returns list of StatisticalTestResult (one per process per metric).
+        """
+        if not base_samples or not initial_samples:
+            return []
+
+        base_ts = self._parser.extract_per_process_timeseries(base_samples)
+        initial_ts = self._parser.extract_per_process_timeseries(initial_samples)
+
+        if not base_ts and not initial_ts:
+            logger.info("No process_stats data in samples — skipping per-process tests")
+            return []
+
+        results = []
+        process_metrics = ["cpu_percent", "memory_rss_mb"]
+
+        # Compare processes that exist in both base and initial
+        common_processes = sorted(set(base_ts.keys()) & set(initial_ts.keys()))
+        for proc_name in common_processes:
+            for metric in process_metrics:
+                base_vals = base_ts[proc_name].get(metric, [])
+                init_vals = initial_ts[proc_name].get(metric, [])
+                if not base_vals or not init_vals:
+                    continue
+
+                metric_key = f"proc:{proc_name}:{metric}"
+                test_result = run_statistical_tests(metric_key, base_vals, init_vals)
+                results.append(test_result)
+                logger.info(
+                    "Process stat test [%s]: cliff_delta=%.4f (%s), p=%.6f, "
+                    "CI=[%.2f, %.2f], n_base=%d, n_initial=%d",
+                    metric_key, test_result.cliff_delta,
+                    test_result.cliff_delta_interpretation,
+                    test_result.mann_whitney_p,
+                    test_result.bootstrap_ci_low, test_result.bootstrap_ci_high,
+                    test_result.base_n, test_result.initial_n,
+                )
+
+        # Log processes only in initial (likely agent processes — pure overhead)
+        initial_only = sorted(set(initial_ts.keys()) - set(base_ts.keys()))
+        if initial_only:
+            logger.info(
+                "Processes only in initial (new overhead): %s",
+                ", ".join(initial_only),
+            )
+
+        # Log processes only in base (unusual — process disappeared after agent install)
+        base_only = sorted(set(base_ts.keys()) - set(initial_ts.keys()))
+        if base_only:
+            logger.warning(
+                "Processes only in base (disappeared after agent install): %s",
+                ", ".join(base_only),
+            )
+
+        return results
+
+    def _compute_statistical_tests(
+        self,
+        base_samples: List[Dict[str, Any]],
+        initial_samples: List[Dict[str, Any]],
+    ) -> List[StatisticalTestResult]:
+        """Run non-parametric statistical tests on raw samples for each metric.
+
+        Returns list of StatisticalTestResult (one per system metric).
+        """
+        if not base_samples or not initial_samples:
+            return []
+
+        results = []
+        for metric in SYSTEM_METRICS:
+            base_vals = [s.get(metric, 0.0) for s in base_samples]
+            init_vals = [s.get(metric, 0.0) for s in initial_samples]
+
+            test_result = run_statistical_tests(metric, base_vals, init_vals)
+            results.append(test_result)
+            logger.info(
+                "Statistical test [%s]: cliff_delta=%.4f (%s), p=%.6f, "
+                "bootstrap CI=[%.2f, %.2f], n_base=%d, n_initial=%d",
+                metric, test_result.cliff_delta, test_result.cliff_delta_interpretation,
+                test_result.mann_whitney_p,
+                test_result.bootstrap_ci_low, test_result.bootstrap_ci_high,
+                test_result.base_n, test_result.initial_n,
+            )
+
+        return results
 
     def _aggregate_jtl(
         self,
@@ -290,6 +435,113 @@ class ComparisonEngine:
             return None
 
         return self._merge_jtl_results(jtl_results)
+
+    def _aggregate_jtl_raw(
+        self,
+        session: Session,
+        test_run_id: int,
+        target_id: int,
+        load_profile_id: int,
+        snapshot_num: int,
+    ) -> Optional[JtlRawData]:
+        """Aggregate raw JTL data across all cycles for statistical tests."""
+        results = session.query(PhaseExecutionResultORM).filter(
+            PhaseExecutionResultORM.test_run_id == test_run_id,
+            PhaseExecutionResultORM.target_id == target_id,
+            PhaseExecutionResultORM.load_profile_id == load_profile_id,
+            PhaseExecutionResultORM.snapshot_num == snapshot_num,
+            PhaseExecutionResultORM.status == ExecutionStatus.completed,
+        ).order_by(PhaseExecutionResultORM.cycle_number).all()
+
+        raw_list: List[JtlRawData] = []
+        for result in results:
+            if not result.jmeter_jtl_path or not Path(result.jmeter_jtl_path).exists():
+                continue
+            try:
+                raw = self._jtl_parser.parse_raw(result.jmeter_jtl_path)
+                if raw.response_times_ms:
+                    raw_list.append(raw)
+            except Exception as e:
+                logger.warning("Failed to parse raw JTL %s: %s", result.jmeter_jtl_path, e)
+
+        if not raw_list:
+            return None
+
+        return JtlParser.merge_raw_data(raw_list)
+
+    def _compute_jtl_statistical_tests(
+        self,
+        base_raw: Optional[JtlRawData],
+        initial_raw: Optional[JtlRawData],
+    ) -> List[StatisticalTestResult]:
+        """Run statistical tests on raw JTL data.
+
+        Tests:
+          - jtl:throughput_per_sec — per-second throughput timeseries
+          - jtl:response_time_ms — all individual response times
+          - jtl:{label}:response_time_ms — per-label response times
+        """
+        if not base_raw or not initial_raw:
+            return []
+
+        results = []
+
+        # Throughput timeseries comparison
+        if base_raw.throughput_per_sec_timeseries and initial_raw.throughput_per_sec_timeseries:
+            tr = run_statistical_tests(
+                "jtl:throughput_per_sec",
+                base_raw.throughput_per_sec_timeseries,
+                initial_raw.throughput_per_sec_timeseries,
+            )
+            results.append(tr)
+            logger.info(
+                "JTL stat test [throughput]: cliff_delta=%.4f (%s), p=%.6f, "
+                "CI=[%.2f, %.2f], n_base=%d, n_initial=%d",
+                tr.cliff_delta, tr.cliff_delta_interpretation,
+                tr.mann_whitney_p,
+                tr.bootstrap_ci_low, tr.bootstrap_ci_high,
+                tr.base_n, tr.initial_n,
+            )
+
+        # Overall response time distribution comparison
+        if base_raw.response_times_ms and initial_raw.response_times_ms:
+            tr = run_statistical_tests(
+                "jtl:response_time_ms",
+                base_raw.response_times_ms,
+                initial_raw.response_times_ms,
+            )
+            results.append(tr)
+            logger.info(
+                "JTL stat test [response_time]: cliff_delta=%.4f (%s), p=%.6f, "
+                "CI=[%.2f, %.2f], n_base=%d, n_initial=%d",
+                tr.cliff_delta, tr.cliff_delta_interpretation,
+                tr.mann_whitney_p,
+                tr.bootstrap_ci_low, tr.bootstrap_ci_high,
+                tr.base_n, tr.initial_n,
+            )
+
+        # Per-label response time comparison
+        common_labels = sorted(
+            set(base_raw.per_label_response_times.keys())
+            & set(initial_raw.per_label_response_times.keys())
+        )
+        for label in common_labels:
+            base_vals = base_raw.per_label_response_times[label]
+            init_vals = initial_raw.per_label_response_times[label]
+            if not base_vals or not init_vals:
+                continue
+
+            metric_key = f"jtl:{label}:response_time_ms"
+            tr = run_statistical_tests(metric_key, base_vals, init_vals)
+            results.append(tr)
+            logger.info(
+                "JTL stat test [%s]: cliff_delta=%.4f (%s), p=%.6f, "
+                "n_base=%d, n_initial=%d",
+                metric_key, tr.cliff_delta, tr.cliff_delta_interpretation,
+                tr.mann_whitney_p, tr.base_n, tr.initial_n,
+            )
+
+        return results
 
     def _merge_jtl_results(self, results: List[JtlResult]) -> JtlResult:
         """Merge multiple JTL results using weighted average by request count."""
@@ -604,6 +856,57 @@ class ComparisonEngine:
         # Normalized ratios
         if data.normalized_ratios:
             result["normalized_ratios"] = serialize_ratios(data.normalized_ratios)
+
+        # Statistical tests (system-wide, for display)
+        if data.statistical_tests:
+            result["statistical_tests_system"] = {
+                st.metric: {
+                    "cliff_delta": st.cliff_delta,
+                    "cliff_delta_interpretation": st.cliff_delta_interpretation,
+                    "mann_whitney_u": st.mann_whitney_u,
+                    "mann_whitney_p": st.mann_whitney_p,
+                    "mann_whitney_significant": st.mann_whitney_significant,
+                    "bootstrap_mean_diff": st.bootstrap_mean_diff,
+                    "bootstrap_ci_95": [st.bootstrap_ci_low, st.bootstrap_ci_high],
+                    "base_sample_count": st.base_n,
+                    "initial_sample_count": st.initial_n,
+                }
+                for st in data.statistical_tests
+            }
+
+        # Per-process statistical tests (verdict-determining)
+        if data.process_statistical_tests:
+            result["statistical_tests_process"] = {
+                st.metric: {
+                    "cliff_delta": st.cliff_delta,
+                    "cliff_delta_interpretation": st.cliff_delta_interpretation,
+                    "mann_whitney_u": st.mann_whitney_u,
+                    "mann_whitney_p": st.mann_whitney_p,
+                    "mann_whitney_significant": st.mann_whitney_significant,
+                    "bootstrap_mean_diff": st.bootstrap_mean_diff,
+                    "bootstrap_ci_95": [st.bootstrap_ci_low, st.bootstrap_ci_high],
+                    "base_sample_count": st.base_n,
+                    "initial_sample_count": st.initial_n,
+                }
+                for st in data.process_statistical_tests
+            }
+
+        # JTL statistical tests
+        if data.jtl_statistical_tests:
+            result["statistical_tests_jtl"] = {
+                st.metric: {
+                    "cliff_delta": st.cliff_delta,
+                    "cliff_delta_interpretation": st.cliff_delta_interpretation,
+                    "mann_whitney_u": st.mann_whitney_u,
+                    "mann_whitney_p": st.mann_whitney_p,
+                    "mann_whitney_significant": st.mann_whitney_significant,
+                    "bootstrap_mean_diff": st.bootstrap_mean_diff,
+                    "bootstrap_ci_95": [st.bootstrap_ci_low, st.bootstrap_ci_high],
+                    "base_sample_count": st.base_n,
+                    "initial_sample_count": st.initial_n,
+                }
+                for st in data.jtl_statistical_tests
+            }
 
         # Verdict
         if data.verdict:

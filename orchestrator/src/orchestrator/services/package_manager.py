@@ -7,11 +7,20 @@ Package resolution per phase (D23 — always complete deployment):
   - Base phase: load_generator_package_grp_id
   - Initial phase: load_generator_package_grp_id + initial_package_grp_id + other_package_grp_ids
   - Functional: functional_package_grp_id during specified phase
+
+Prerequisite scripts:
+  Each PackageGroupMember can specify a prereq_script — a path relative to
+  the ``prerequisites/`` directory (e.g. ``ubuntu/java_jre.sh``).  Scripts
+  are organised by OS vendor, mirroring the ``discovery/`` layout.  The
+  deployer uploads the script to the target VM and executes it *before*
+  uploading the package itself.  Scripts must be idempotent (check first,
+  install only if missing).
 """
 
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -25,6 +34,9 @@ from orchestrator.models.orm import (
 )
 
 logger = logging.getLogger(__name__)
+
+# prerequisites/ sits alongside src/ and discovery/ in the orchestrator root
+_PREREQ_DIR = Path(__file__).resolve().parents[3] / "prerequisites"
 
 
 @dataclass
@@ -42,6 +54,7 @@ class ResolvedPackage:
     output_path: Optional[str]
     uninstall_command: Optional[str]
     status_command: Optional[str]
+    prereq_script: Optional[str] = None
 
 
 class PackageResolver:
@@ -111,6 +124,7 @@ class PackageResolver:
                 output_path=member.output_path,
                 uninstall_command=member.uninstall_command,
                 status_command=member.status_command,
+                prereq_script=member.prereq_script,
             ))
 
         return resolved
@@ -153,6 +167,7 @@ class PackageDeployer:
         """Deploy a single resolved package to a target server.
 
         Steps:
+          0. Run prerequisite script (prereq_script) if defined
           1. Upload package from orchestrator path to target root_install_path
           2. Extract (extraction_command) if defined
           3. Install (install_command) if defined
@@ -162,7 +177,18 @@ class PackageDeployer:
             package.group_name, package.member_id, package.root_install_path,
         )
 
-        # Step 1: Upload
+        # Step 0: Run prerequisite script
+        if package.prereq_script:
+            self._run_prereq_script(executor, package)
+
+        # Step 1: Ensure parent directory exists, then upload
+        rip = package.root_install_path
+        if rip.startswith("/"):
+            remote_parent = rip.rsplit("/", 1)[0]
+            executor.execute(f"mkdir -p {remote_parent}")
+        elif "\\" in rip:
+            remote_parent = rip.rsplit("\\", 1)[0]
+            executor.execute(f'powershell -Command "New-Item -ItemType Directory -Force -Path \'{remote_parent}\'"')
         executor.upload(package.path, package.root_install_path)
 
         # Step 2: Extract
@@ -199,6 +225,43 @@ class PackageDeployer:
         result = executor.execute(package.uninstall_command)
         if not result.success:
             logger.warning("Uninstall warning for '%s': %s", package.group_name, result.stderr)
+
+    def _run_prereq_script(self, executor: RemoteExecutor, package: ResolvedPackage) -> None:
+        """Upload and execute a prerequisite script on the target VM.
+
+        The script path is relative to the ``prerequisites/`` directory.
+        Scripts must be idempotent — they check if the prerequisite is
+        already present and install only if missing.
+        """
+        script_rel = package.prereq_script
+        local_path = _PREREQ_DIR / script_rel
+        if not local_path.exists():
+            raise FileNotFoundError(
+                f"Prerequisite script not found: {local_path} "
+                f"(prereq_script='{script_rel}' for package '{package.group_name}')"
+            )
+
+        # Determine remote temp path and execution command based on script type
+        script_name = local_path.name
+        if script_name.endswith(".ps1"):
+            remote_path = f"C:\\Windows\\Temp\\prereq_{script_name}"
+            run_cmd = f"powershell -ExecutionPolicy Bypass -File \"{remote_path}\""
+        else:
+            remote_path = f"/tmp/prereq_{script_name}"
+            run_cmd = f"chmod +x {remote_path} && {remote_path}"
+
+        logger.info(
+            "Running prerequisite script '%s' for package '%s'",
+            script_rel, package.group_name,
+        )
+        executor.upload(str(local_path), remote_path)
+        result = executor.execute(run_cmd, timeout_sec=300)
+        if not result.success:
+            raise RuntimeError(
+                f"Prerequisite script '{script_rel}' failed for "
+                f"'{package.group_name}' (exit={result.exit_code}): {result.stderr}"
+            )
+        logger.info("Prerequisite script '%s' completed: %s", script_rel, result.stdout.strip()[-200:])
 
     def deploy_all(self, executor: RemoteExecutor, packages: List[ResolvedPackage]) -> None:
         """Deploy multiple packages to a target server."""

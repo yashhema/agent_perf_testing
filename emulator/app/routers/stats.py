@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..models.responses import (
     StatsResponse,
     IterationTimingResponse,
+    ProcessStatsResponse,
     RecentStatsResponse,
     StatsSampleResponse,
     AllStatsResponse,
@@ -73,6 +74,13 @@ async def get_recent_stats(
                 network_recv_bytes=s.network_recv_bytes,
                 network_sent_rate_mbps=s.network_sent_rate_mbps,
                 network_recv_rate_mbps=s.network_recv_rate_mbps,
+                process_stats=[
+                    ProcessStatsResponse(
+                        name=ps.name, pid=ps.pid, cpu_percent=ps.cpu_percent,
+                        memory_percent=ps.memory_percent, memory_rss_mb=ps.memory_rss_mb,
+                    )
+                    for ps in s.process_stats
+                ],
             )
             for s in samples
         ],
@@ -141,6 +149,15 @@ async def get_all_stats(
                 network_recv_bytes=s.get("network_recv_bytes", 0),
                 network_sent_rate_mbps=s.get("network_sent_rate_mbps", 0.0),
                 network_recv_rate_mbps=s.get("network_recv_rate_mbps", 0.0),
+                process_stats=[
+                    ProcessStatsResponse(
+                        name=ps.get("name", ""), pid=ps.get("pid", 0),
+                        cpu_percent=ps.get("cpu_percent", 0.0),
+                        memory_percent=ps.get("memory_percent", 0.0),
+                        memory_rss_mb=ps.get("memory_rss_mb", 0.0),
+                    )
+                    for ps in s.get("process_stats", [])
+                ],
             )
             for s in samples
         ],

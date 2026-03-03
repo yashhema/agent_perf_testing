@@ -1,5 +1,10 @@
-"""Alembic environment configuration for the orchestrator."""
+"""Alembic environment configuration for the orchestrator.
 
+Supports both PostgreSQL and SQL Server via the ORCHESTRATOR_DB_URL
+environment variable or the orchestrator.yaml config file.
+"""
+
+import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -16,6 +21,11 @@ from orchestrator.models.orm import *  # noqa: E402, F401, F403
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Allow overriding the database URL via environment variable
+db_url = os.environ.get("ORCHESTRATOR_DB_URL")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata
 

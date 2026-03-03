@@ -13,15 +13,19 @@ import yaml
 @dataclass
 class CalibrationConfig:
     observation_duration_sec: int = 30
-    observation_reading_count: int = 5
-    calibration_stability_ratio: float = 1.0
-    calibration_confirmation_count: int = 3
+    observation_reading_count: int = 20
+    calibration_stability_ratio: float = 0.5
+    calibration_confirmation_count: int = 2
     max_calibration_iterations: int = 50
+    max_thread_count: int = 30
+    stability_min_in_range_pct: float = 55.0
+    stability_max_below_pct: float = 10.0
 
 
 @dataclass
 class InfrastructureConfig:
     snapshot_restore_timeout_sec: int = 300
+    skip_snapshot_restore: bool = False
     post_restore_verification_enabled: bool = True
     post_restore_verification_commands: Dict[str, str] = field(default_factory=lambda: {
         "linux": "uptime",
@@ -48,7 +52,14 @@ class EmulatorConfig:
 
 @dataclass
 class DatabaseConfig:
-    url: str = "postgresql://orchestrator:orchestrator@localhost:5432/orchestrator"
+    """Database configuration supporting both PostgreSQL and SQL Server.
+
+    URL format examples:
+      PostgreSQL:  postgresql://user:pass@host:5432/dbname
+      SQL Server:  mssql+pyodbc://user:pass@host/dbname?driver=ODBC+Driver+17+for+SQL+Server
+      SQL Server (trusted):  mssql+pyodbc://@host/dbname?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes
+    """
+    url: str = "mssql+pyodbc://@localhost/orchestrator?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
     echo: bool = False
 
 
@@ -84,10 +95,17 @@ def load_config(config_path: str) -> AppConfig:
 
     Returns:
         Populated AppConfig instance. Missing sections use defaults.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
     """
-    path = Path(config_path)
+    path = Path(config_path).resolve()
     if not path.exists():
-        return AppConfig()
+        raise FileNotFoundError(
+            f"Config file not found: {config_path} (resolved: {path}). "
+            f"Ensure you are running from the orchestrator/ directory, "
+            f"or pass --config with an absolute path."
+        )
 
     with open(path, "r") as f:
         raw = yaml.safe_load(f) or {}
