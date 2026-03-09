@@ -382,3 +382,93 @@ get_server_credential(server_id=7, os_family="linux")
 
 ### New Files Needed
 - `orchestrator/migrations/add_server_os_columns.sql` — Schema migration
+
+---
+
+## 8. Additional Issues Found During Analysis
+
+### 8.1 `PackageDeployer.check_status_any()` — Also Passes ServerORM
+
+**File**: `orchestrator/src/orchestrator/services/package_manager.py` (line 304)
+
+```python
+def check_status_any(self, session, executor, package_group_ids, server):
+    resolver = PackageResolver()
+    packages = resolver.resolve(session, package_group_ids, server)  # <-- same bug
+```
+
+This method also calls `resolver.resolve()` passing `server` (a `ServerORM`). While not directly called from `BaselineOrchestrator` yet, it would fail if used. The protocol-based fix for `resolve()` (Section 2.1) automatically fixes this too.
+
+### 8.2 `LabORM.loadgen_snapshot_id` — Not Used in Baseline-Compare Mode
+
+**File**: `orchestrator/src/orchestrator/models/orm.py` (line 59)
+
+`LabORM` has `loadgen_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=False)` which points to a `BaselineORM` row. This is required for live-compare mode (the loadgen is restored to this snapshot every run).
+
+In baseline-compare mode, the loadgen is **persistent** (never snapshot-restored). The `loadgen_snapshot_id` FK is still required (non-nullable), so a dummy `BaselineORM` record must exist for baseline-compare labs. This is a schema constraint issue — not a runtime bug — but it means baseline-compare labs still depend on the `baselines` table existing.
+
+**Current workaround**: Lab id=4 (Proxmox Lab) references a valid `BaselineORM` record even though it's not used. This is acceptable but could be improved by making `loadgen_snapshot_id` nullable for baseline-compare labs.
+
+### 8.3 Discovery Timing vs Package Deployment — Ordering Issue
+
+In `BaselineOrchestrator._do_setup()`, the current sequence is:
+
+```
+1. Deploy JMeter to loadgen       <-- needs PackageResolver -> FAILS (no OS info)
+2. Restore target to snapshot
+3. Deploy emulator to target      <-- needs PackageResolver -> FAILS (no OS info)
+4. Run discovery on target        <-- discovers OS info
+```
+
+**Problem**: Package deployment happens BEFORE discovery. Even with `ServerORM` columns added, on the FIRST run they will be NULL because no discovery has happened yet.
+
+**Fix**: Either:
+- **(A)** Pre-populate `ServerORM.os_vendor_family` etc. via admin UI / API when adding servers
+- **(B)** Run discovery FIRST (before package deployment), persist to `ServerORM`, then deploy
+- **(C)** Both — allow pre-population but also auto-discover on first run
+
+**Recommended**: Option C — pre-populate via admin UI for immediate use, with auto-discovery as fallback/verification.
+
+### 8.4 Multi-Server Baseline Test Runs
+
+The user's plan involves 2 target servers being tested in parallel (like the original live-compare mode). However, `BaselineTestRunORM` only has a single `server_id` field — it's designed for 1 target per test run.
+
+**Current design**: Run separate `BaselineTestRunORM` records for each target, launched in parallel via the API.
+
+**Implication**: Unlike live-compare (which coordinates N targets in a single `TestRunORM`), baseline-compare relies on the API/UI layer to launch multiple test runs concurrently. The orchestrator itself handles one target per run. This is by design but worth noting for the test plan.
+
+### 8.5 Error Message Persistence in Background Threads
+
+When `BaselineOrchestrator.run()` is invoked in a background thread (via `threading.Thread`), the SQLAlchemy session may not persist `error_message` correctly if the exception occurs after the session's transaction scope ends.
+
+**File**: `orchestrator/src/orchestrator/api/baseline_test_runs.py` — the background thread creates its own session, but `sm.fail()` must commit within that session's scope.
+
+**Current code** (baseline_orchestrator.py line 100-102):
+```python
+except Exception as e:
+    logger.exception("Baseline test run %d failed: %s", test_run.id, e)
+    sm.fail(session, test_run, str(e))
+```
+
+This should work since `sm.fail()` calls `session.commit()`, but the session must still be open (not expired). Need to verify `session.expire_on_commit` behavior for background threads.
+
+---
+
+## 9. Checklist: What Stays Untouched
+
+The following code paths MUST NOT be modified. Any change here risks breaking the original live-compare mode:
+
+- [ ] `Orchestrator.run()` — complete method
+- [ ] `Orchestrator._do_setup()` — snapshot restore + package deploy flow
+- [ ] `Orchestrator._do_calibration()` — multi-target calibration loop
+- [ ] `Orchestrator._do_execution()` — 2-snapshot × N-profile × M-cycle loop
+- [ ] `Orchestrator._do_comparison()` — `run_comparison()` call
+- [ ] `ExecutionEngine.execute()` — complete class
+- [ ] `PreFlightValidator.validate()` — complete class
+- [ ] `state_machine.py` — `TestRunState` transitions
+- [ ] `PackageResolver.resolve_for_phase()` — existing method signature
+- [ ] `DiscoveryService.discover_and_store()` — existing method
+- [ ] `BaselineORM` — no column changes
+- [ ] `TestRunORM` — no column changes
+- [ ] `TestRunTargetORM` — no column changes
+- [ ] `ComparisonEngine.run_comparison()` — existing method
