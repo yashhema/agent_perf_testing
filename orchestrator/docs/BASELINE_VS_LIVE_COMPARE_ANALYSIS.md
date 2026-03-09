@@ -472,3 +472,126 @@ The following code paths MUST NOT be modified. Any change here risks breaking th
 - [ ] `TestRunORM` — no column changes
 - [ ] `TestRunTargetORM` — no column changes
 - [ ] `ComparisonEngine.run_comparison()` — existing method
+
+---
+
+## 10. Concrete Code Changes (Reference Implementation)
+
+### 10.1 SQL Migration — `add_server_os_columns.sql`
+
+```sql
+-- Migration: Add OS version columns to servers table for baseline-compare package resolution
+-- These columns are populated by discovery and used by PackageResolver._build_os_string()
+
+ALTER TABLE servers ADD os_vendor_family VARCHAR(100) NULL;
+ALTER TABLE servers ADD os_major_ver VARCHAR(20) NULL;
+ALTER TABLE servers ADD os_minor_ver VARCHAR(20) NULL;
+
+-- For existing baseline-compare servers, populate from manual input or first discovery run
+-- Example: UPDATE servers SET os_vendor_family='ubuntu', os_major_ver='22' WHERE id=6;
+```
+
+### 10.2 ORM Change — `ServerORM`
+
+```python
+# In models/orm.py, add to ServerORM class (after os_family):
+os_vendor_family = Column(String(100), nullable=True)   # e.g., "ubuntu", "rhel", "windows"
+os_major_ver = Column(String(20), nullable=True)        # e.g., "22", "9", "2022"
+os_minor_ver = Column(String(20), nullable=True)        # e.g., "04", "3"
+```
+
+### 10.3 PackageResolver Change
+
+```python
+# In package_manager.py, change _build_os_string to accept duck-typed object:
+@staticmethod
+def _build_os_string(os_info) -> str:
+    """Build OS match string: '{vendor}/{major}/{minor}'.
+
+    Accepts any object with os_vendor_family and os_major_ver attributes.
+    Works with both BaselineORM (live-compare) and ServerORM (baseline-compare).
+    """
+    parts = [os_info.os_vendor_family, os_info.os_major_ver]
+    if os_info.os_minor_ver:
+        parts.append(os_info.os_minor_ver)
+    return "/".join(parts)
+```
+
+**Type annotation change** (resolve method):
+```python
+# Before:
+def resolve(self, session, package_group_ids, baseline: BaselineORM) -> List[ResolvedPackage]:
+
+# After (duck typing — no import change needed):
+def resolve(self, session, package_group_ids, os_info) -> List[ResolvedPackage]:
+```
+
+Note: Parameter name changes from `baseline` to `os_info` but the internal call `self._build_os_string(os_info)` works the same. The `Orchestrator` still passes `BaselineORM` objects — they have the same attributes.
+
+### 10.4 BaselineOrchestrator Change — Persist Discovery to ServerORM
+
+```python
+# In baseline_orchestrator.py _do_setup(), after running discovery:
+os_info = discovery.discover_os(target_exec)
+test_run.os_kind = os_info.get("os_kind")
+test_run.os_major_ver = os_info.get("os_major_ver")
+test_run.os_minor_ver = os_info.get("os_minor_ver")
+
+# NEW: Also persist to ServerORM for package resolution on subsequent runs
+if not server.os_vendor_family:
+    server.os_vendor_family = os_info.get("os_vendor_family") or os_info.get("os_kind")
+if not server.os_major_ver:
+    server.os_major_ver = os_info.get("os_major_ver")
+if not server.os_minor_ver:
+    server.os_minor_ver = os_info.get("os_minor_ver")
+session.commit()
+```
+
+### 10.5 Setup Reordering — Fix Discovery-Before-Deploy
+
+```python
+# Current order (BROKEN for first run):
+#   1. Deploy JMeter (needs OS info) -> FAILS
+#   2. Restore target
+#   3. Deploy emulator (needs OS info) -> FAILS
+#   4. Run discovery (gets OS info)
+
+# Fixed order:
+#   1. Check if ServerORM has OS info for loadgen
+#   2. If not, SSH to loadgen, run discovery, persist to ServerORM
+#   3. Deploy JMeter (OS info now available)
+#   4. Restore target
+#   5. Run discovery on target, persist to ServerORM
+#   6. Deploy emulator (OS info now available)
+```
+
+The loadgen needs special handling: in baseline-compare mode it's never snapshot-restored, so we can SSH to it and run discovery before anything else. For the target, we must restore the snapshot first, then discover, then deploy.
+
+---
+
+## 11. Test Plan
+
+### 11.1 Phase 1 Validation — Package Resolution Fix
+
+| Test Case | Steps | Expected Result |
+|-----------|-------|-----------------|
+| Baseline new_baseline | Create test run with Proxmox lab | Passes validation, setup completes, packages deployed |
+| Live-compare regression | Create test run with Vultr lab | Existing behavior unchanged, uses BaselineORM |
+| Missing OS info | Run with ServerORM.os_vendor_family=NULL | Discovery runs first, populates ServerORM, then deploy succeeds |
+| Populated OS info | Run with ServerORM.os_vendor_family set | Skips discovery for package resolution, deploys immediately |
+
+### 11.2 Phase 2 Validation — Full E2E
+
+| Test Case | Steps | Expected Result |
+|-----------|-------|-----------------|
+| new_baseline (2 targets) | Launch 2 BaselineTestRunORM in parallel | Both complete independently, SnapshotProfileDataORM populated |
+| compare (Option A) | Run compare against stored baseline | Reuses calibration + JMX, produces comparison verdict |
+| compare_with_new_calibration (Option B) | Fresh calibration + compare | New calibration, compares against stored baseline stats |
+
+### 11.3 Regression Gates
+
+Before merging any changes:
+1. Verify `Orchestrator.run()` is UNCHANGED (git diff confirms no modifications)
+2. Verify `PackageResolver.resolve()` still works with `BaselineORM` argument
+3. Verify `CredentialsStore.get_server_credential()` cascade still works without `by_mode_os_type`
+4. Verify all existing DB tables and columns are unchanged
