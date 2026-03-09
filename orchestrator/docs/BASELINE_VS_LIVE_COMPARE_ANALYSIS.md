@@ -780,3 +780,159 @@ Re-analysis of execution engine, state machine, validation, API, comparison, UI,
 10. M1+M2: Hardcoded Linux paths
 11. M7: loadgen_executor connection leak
 12. M12: XSS in snapshot picker
+
+---
+
+## 14. Deep Analysis Pass (v5) — Method-Level Findings
+
+Fifth pass focused on actual method signatures, constructor parameters, API serialization, concurrent access, and migration completeness. Found **22 new issues** not covered in previous passes.
+
+### 14.1 CRITICAL
+
+**C5. ComparisonResultResponse.test_run_id typed as non-optional int, but ORM column is nullable**
+- `schemas.py` line 644: `test_run_id: int`
+- `orm.py` line 419: `Column(Integer, nullable=True)`
+- For baseline-compare results, `test_run_id` is NULL (only `baseline_test_run_id` is set)
+- Pydantic raises ValidationError when serializing — breaks `/comparison-results` endpoint
+
+### 14.2 HIGH
+
+**H10. CalibrationEngine constructor receives AppConfig instead of CalibrationConfig**
+- `baseline_orchestrator.py` line 322: `CalibrationEngine(self._config)` passes `AppConfig`
+- `calibration.py` line 58: expects `CalibrationConfig`
+- Accesses `self._config.max_thread_count`, `self._config.observation_duration_sec` etc. — `AttributeError` at runtime
+- Live-compare (orchestrator.py line 281) correctly passes `self._config.calibration`
+
+**H11. executor.run() does not exist — should be executor.execute()**
+- `baseline_orchestrator.py` lines 181-182: `loadgen_exec.run(f"rm -rf ...")`
+- `baseline_orchestrator.py` lines 244-245: `target_exec.run(...)`
+- `baseline_execution.py` line 317: `_clean_emulator_dirs` calls `.run()`
+- `RemoteExecutor` has `.execute()`, not `.run()` — `AttributeError` at runtime
+
+**H12. StatsParser instantiated with arguments it doesn't accept**
+- `baseline_execution.py` lines 82-85: `StatsParser(trim_start_sec=..., trim_end_sec=...)`
+- `StatsParser.__init__` accepts no parameters — `TypeError` at construction time
+
+**H13. em_client.get_all_stats() called without required test_run_id argument**
+- `baseline_execution.py` line 234: `em_client.get_all_stats()` — no args
+- `EmulatorClient.get_all_stats()` requires `test_run_id` as positional parameter
+- `TypeError` at runtime during stats collection
+
+**H14. compute_summary() receives wrong data format**
+- `baseline_execution.py` line 254: `self._stats_parser.compute_summary(stats_json)`
+- `stats_json` is the full AllStatsResponse dict (with `metadata`, `samples`, `summary` keys)
+- `compute_summary()` expects `List[Dict]` of sample records
+- Iterating a dict yields string keys, all metrics come back as zero
+
+**H15. snap.group_id = default_subgroup.id set before session.flush()**
+- `baseline_test_runs.py` line 576: `snap.group_id = default_subgroup.id`
+- `default_subgroup` was just created (line 567) and added (line 573) but NOT flushed
+- `default_subgroup.id` is `None` until flush/commit — `group_id` persisted as NULL
+
+**H16. No concurrency guard on shared loadgen**
+- `baseline_test_runs.py` lines 161-177: Multiple test runs can start simultaneously using same `loadgenerator_id`
+- No check if loadgen is already in use by another active test run
+- Two concurrent tests on same loadgen corrupt JMeter results, calibration data
+
+**H17. sync_tree() has no concurrency protection**
+- `snapshot_manager.py` + `baseline_test_runs.py` line 264-275
+- Sync button in UI + take_snapshot (which calls sync_tree internally) can run simultaneously
+- Race on insert violates `(server_id, provider_snapshot_id)` unique constraint — IntegrityError
+
+**H18. Migration missing snapshot_id column in snapshot_groups table**
+- `add_snapshot_groups.sql` lines 26-34: `CREATE TABLE snapshot_groups` omits `snapshot_id` column
+- ORM model `SnapshotGroupORM` has `snapshot_id = Column(Integer, ForeignKey("snapshots.id"))`
+- `setup_proxmox_lab.py` adds it via ALTER TABLE, but standalone migration is incomplete
+
+### 14.3 MEDIUM
+
+**M13. Calibration JTL paths not unique across concurrent runs**
+- `calibration.py` lines 408, 498: hardcoded `/tmp/calibration.jtl`, `/tmp/calibration-stability.jtl`
+- No test_run_id or server_id in filename
+- Two concurrent baseline test runs sharing loadgen write same file — data corruption
+
+**M14. exec_result.stats_summary is a dataclass, not JSON-serializable**
+- `baseline_orchestrator.py` line 621-633: assigns `StatsSummary` dataclass to `SnapshotProfileDataORM.stats_summary` (JSON column)
+- `json.dumps` on dataclass — `TypeError: Object of type StatsSummary is not JSON serializable`
+- Need `dataclasses.asdict(stats_summary)` before assignment
+
+**M15. Start endpoint returns hardcoded "state": "validating" but actual state is "created"**
+- `baseline_test_runs.py` line 179: response has `"state": "validating"`
+- Background thread hasn't transitioned the state yet — misleads UI/API consumers
+
+**M16. create_snapshot_group silently skips snapshot reassignment**
+- `baseline_test_runs.py` line 719: `if snap_obj and not snap_obj.group_id` — guard
+- If snapshot already belongs to another subgroup, it's silently NOT moved to the new one
+- No error/warning raised — user thinks link succeeded
+
+**M17. take_snapshot group_id not validated against correct server**
+- `baseline_test_runs.py` lines 291-294: validates `group_id` exists but not that the group's parent baseline belongs to the same server
+- Snapshot could be linked to a subgroup from a different server's hierarchy
+
+**M18. Step 3 of test creation wizard always triggers hypervisor sync**
+- `create.html` line 172/288: entering step 3 calls `snapshots/sync` every time
+- No debounce or caching — going back/forth between steps hammers the hypervisor API
+
+**M19. escHtml double-encodes snapshot names in onclick handler**
+- `manager.html` line 841: `onclick="doPickSnapshot('${escHtml(hs.name)}')"`
+- HTML entities (e.g., `&amp;`) passed as literal strings to JS function
+- Snapshot names with `&`, `<`, `>`, `"` get mangled in the lookup
+
+**M20. Emulator client and SSH connections not cleaned between profile iterations**
+- `baseline_execution.py` lines 120-279: `EmulatorClient` created at line 160 never closed between loop iterations
+- Emulator state (running tests, stats) carries over between profiles
+
+**M21. Missing indexes on baseline_test_runs table**
+- `add_baseline_compare_tables.sql`: no indexes on `server_id`, `state`, `created_at`
+- API queries filter by these columns and ORDER BY created_at DESC
+
+### 14.4 LOW
+
+**L7. baseline_stats_summary parameter in run_baseline_comparison() is dead code**
+- `comparison.py` line 101: `baseline_stats_summary` accepted but never used
+
+**L8. Emulator not reset between profile calibrations**
+- `baseline_orchestrator.py` lines 329-374: no emulator stop/reset between profiles
+- Accumulated stats from profile 1 calibration may bleed into profile 2
+
+**L9. Compare snapshot filter in create wizard is a no-op**
+- `create.html` line 299: `liveSnaps.filter(s => s.is_baseline || s.id)` — `s.id` always truthy
+- Dropdown shows all snapshots instead of only those with stored data
+
+---
+
+## 15. Final Severity Summary (v1-v5)
+
+| Severity | v1-v3 | v4 | v5 | Total |
+|----------|-------|-----|-----|-------|
+| Critical | 1     | 4   | 1   | **6** |
+| High     | 2     | 9   | 9   | **20**|
+| Medium   | 3     | 12  | 9   | **24**|
+| Low      | 2     | 6   | 3   | **11**|
+| **Total**| **8** | **31**| **22**| **61**|
+
+### Updated Top-Priority Fix Order
+
+**Tier 1 — Absolute blockers (will crash immediately):**
+1. C1+C2: CalibrationResultORM FK / CalibrationEngine type (TestRunORM vs BaselineTestRunORM)
+2. C4: DiscoveryService constructor + missing methods
+3. H10: CalibrationEngine receives AppConfig not CalibrationConfig
+4. H11: executor.run() → executor.execute()
+5. H12: StatsParser constructor args
+6. H13: get_all_stats() missing test_run_id
+7. H14: compute_summary() wrong data format
+
+**Tier 2 — Data corruption / wrong results:**
+8. C3: ComparisonResultORM never created
+9. C5: ComparisonResultResponse.test_run_id non-nullable schema
+10. H2+H3: Hardcoded ServerNormalOpsGenerator
+11. H4: Emulator stop_test wrong test_id
+12. H15: snap.group_id NULL (unflushed ID)
+13. M13: Calibration JTL path collision
+14. M14: StatsSummary not JSON-serializable
+
+**Tier 3 — Concurrency / robustness:**
+15. H16: No loadgen concurrency guard
+16. H17: sync_tree race condition
+17. H5: Execution results in-memory only
+18. H18: Migration missing snapshot_id column
