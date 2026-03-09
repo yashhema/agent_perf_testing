@@ -19,14 +19,19 @@ from typing import Dict, List, Tuple
 
 @dataclass
 class JtlRawData:
-    """Raw data extracted from JTL for statistical comparison.
+    """Raw data extracted from JTL for throughput/error tracking.
 
-    Contains per-second throughput timeseries, raw response times,
-    and per-label response times for Cliff's delta / Mann-Whitney tests.
+    Note: Response times are NOT used for statistical comparison because
+    they are dominated by the configured duration_ms parameter in the
+    emulator, not by agent impact. System stats (CPU%, memory%, disk IO,
+    network IO) are the primary comparison metrics — see Cohen's d in
+    statistical_tests.py and comparison.py.
+
+    This data is retained for informational display (throughput, error rate).
     """
-    throughput_per_sec_timeseries: List[float]  # request count per 1-second bucket
-    response_times_ms: List[float]  # all individual elapsed_ms values
-    per_label_response_times: Dict[str, List[float]]  # label -> list of elapsed_ms
+    throughput_per_sec_timeseries: List[float]
+    response_times_ms: List[float]
+    per_label_response_times: Dict[str, List[float]]
 
 
 @dataclass

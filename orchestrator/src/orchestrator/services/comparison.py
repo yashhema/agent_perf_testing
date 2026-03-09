@@ -35,6 +35,7 @@ from orchestrator.models.orm import (
     TestRunTargetORM,
 )
 from orchestrator.services.analysis_models import (
+    BaselineComparisonData,
     FullComparisonData,
     JtlDelta,
     MetricDelta,
@@ -53,7 +54,11 @@ from orchestrator.services.rule_engine import (
     get_rules_for_scenario,
 )
 from orchestrator.services.statistical_tests import (
+    CohensDResult,
+    PercentileDetail,
     StatisticalTestResult,
+    compute_cohens_d,
+    compute_percentile_detail,
     run_statistical_tests,
 )
 from orchestrator.services.stats_parser import (
@@ -76,11 +81,301 @@ SYSTEM_METRICS = [
 class ComparisonEngine:
     """Compares base vs initial phase results with full analysis pipeline."""
 
-    def __init__(self, trim_start_sec: float = 30, trim_end_sec: float = 10):
+    def __init__(self, config=None, trim_start_sec: float = 30, trim_end_sec: float = 10):
+        self._config = config
         self._parser = StatsParser()
         self._jtl_parser = JtlParser()
         self._trim_start = trim_start_sec
         self._trim_end = trim_end_sec
+
+    def run_baseline_comparison(
+        self,
+        session: Session,
+        baseline_test,  # BaselineTestRunORM
+        server_id: int,
+        load_profile_id: int,
+        test_stats_path: str,
+        test_jtl_path: Optional[str],
+        baseline_stats_path: str,
+        baseline_jtl_path: Optional[str],
+        comparison_mode: str,
+        results_dir: str,
+    ) -> Verdict:
+        """Run Cohen's d comparison for baseline_compare mode.
+
+        Compares test execution stats against stored baseline stats.
+        Returns verdict based on Cohen's d thresholds.
+
+        Args:
+            test_stats_path: Path to stats.csv from the current test execution
+            baseline_stats_path: Path to stats.csv stored in compare_snapshot
+            test_jtl_path: Path to JTL from current test (informational only)
+            baseline_jtl_path: Path to JTL from baseline (informational only)
+            comparison_mode: "option_a" (reuse calibration) or "option_b" (fresh)
+            results_dir: Directory to save comparison result JSON
+        """
+        # Load and trim raw samples from both stats files
+        test_samples = self._load_and_trim_stats(test_stats_path)
+        baseline_samples = self._load_and_trim_stats(baseline_stats_path)
+
+        if not test_samples or not baseline_samples:
+            logger.warning(
+                "Missing stats for baseline comparison: test=%d, baseline=%d samples",
+                len(test_samples), len(baseline_samples),
+            )
+            return Verdict.pending
+
+        # Compute Cohen's d for system metrics
+        system_cohens_d: List[CohensDResult] = []
+        percentile_details: List[PercentileDetail] = []
+
+        for metric in SYSTEM_METRICS:
+            base_vals = [s.get(metric, 0.0) for s in baseline_samples]
+            test_vals = [s.get(metric, 0.0) for s in test_samples]
+
+            cd = compute_cohens_d(metric, base_vals, test_vals)
+            system_cohens_d.append(cd)
+
+            pd = compute_percentile_detail(metric, base_vals, test_vals)
+            percentile_details.append(pd)
+
+            logger.info(
+                "Cohen's d [%s]: d=%.4f (%s), base_mean=%.2f, test_mean=%.2f, "
+                "n_base=%d, n_test=%d",
+                metric, cd.cohens_d, cd.effect_size,
+                cd.base_mean, cd.initial_mean, cd.base_n, cd.initial_n,
+            )
+
+        # Compute Cohen's d for per-process metrics
+        process_cohens_d: List[CohensDResult] = []
+        base_proc_ts = self._parser.extract_per_process_timeseries(baseline_samples)
+        test_proc_ts = self._parser.extract_per_process_timeseries(test_samples)
+
+        common_processes = sorted(set(base_proc_ts.keys()) & set(test_proc_ts.keys()))
+        for proc_name in common_processes:
+            for proc_metric in ["cpu_percent", "memory_rss_mb"]:
+                base_vals = base_proc_ts[proc_name].get(proc_metric, [])
+                test_vals = test_proc_ts[proc_name].get(proc_metric, [])
+                if not base_vals or not test_vals:
+                    continue
+
+                metric_key = f"proc:{proc_name}:{proc_metric}"
+                cd = compute_cohens_d(metric_key, base_vals, test_vals)
+                process_cohens_d.append(cd)
+
+                pd = compute_percentile_detail(metric_key, base_vals, test_vals)
+                percentile_details.append(pd)
+
+                logger.info(
+                    "Cohen's d [%s]: d=%.4f (%s)",
+                    metric_key, cd.cohens_d, cd.effect_size,
+                )
+
+        # Processes only in test (new agent processes)
+        test_only_procs = sorted(set(test_proc_ts.keys()) - set(base_proc_ts.keys()))
+        if test_only_procs:
+            logger.info("New processes in test (agent overhead): %s", ", ".join(test_only_procs))
+            for proc_name in test_only_procs:
+                for proc_metric in ["cpu_percent", "memory_rss_mb"]:
+                    test_vals = test_proc_ts[proc_name].get(proc_metric, [])
+                    if not test_vals:
+                        continue
+                    # No baseline to compare — report as pure overhead
+                    metric_key = f"proc:{proc_name}:{proc_metric}"
+                    avg_val = sum(test_vals) / len(test_vals)
+                    cd = CohensDResult(
+                        metric=metric_key, cohens_d=float("inf"),
+                        effect_size="large",
+                        base_mean=0.0, initial_mean=round(avg_val, 4),
+                        base_std=0.0, initial_std=0.0, pooled_std=0.0,
+                        base_n=0, initial_n=len(test_vals),
+                    )
+                    process_cohens_d.append(cd)
+
+        # JTL informational metrics (not used for verdict)
+        test_jtl_info = None
+        baseline_jtl_info = None
+        if test_jtl_path and Path(test_jtl_path).exists():
+            try:
+                test_jtl_info = self._jtl_parser.parse(test_jtl_path)
+            except Exception as e:
+                logger.warning("Failed to parse test JTL: %s", e)
+        if baseline_jtl_path and Path(baseline_jtl_path).exists():
+            try:
+                baseline_jtl_info = self._jtl_parser.parse(baseline_jtl_path)
+            except Exception as e:
+                logger.warning("Failed to parse baseline JTL: %s", e)
+
+        # Determine verdict from Cohen's d values
+        verdict, verdict_summary = self._determine_cohens_d_verdict(
+            system_cohens_d, process_cohens_d,
+        )
+
+        comparison_data = BaselineComparisonData(
+            system_cohens_d=system_cohens_d,
+            process_cohens_d=process_cohens_d,
+            percentile_details=percentile_details,
+            jtl_info=test_jtl_info,
+            baseline_jtl_info=baseline_jtl_info,
+            verdict=verdict,
+            verdict_summary=verdict_summary,
+        )
+
+        # Save result to JSON
+        result_file = self._save_baseline_result(
+            results_dir, baseline_test.id, server_id, load_profile_id,
+            comparison_data,
+        )
+
+        # Persist ComparisonResultORM to DB so the API can return it
+        comp_result = ComparisonResultORM(
+            baseline_test_run_id=baseline_test.id,
+            target_id=server_id,
+            load_profile_id=load_profile_id,
+            comparison_type=f"baseline_{comparison_mode}",
+            result_file_path=result_file,
+            result_data={
+                "system_cohens_d": [
+                    {"metric": cd.metric, "cohens_d": cd.cohens_d, "effect_size": cd.effect_size}
+                    for cd in system_cohens_d
+                ],
+            },
+            summary_text=verdict_summary,
+            verdict=verdict,
+            violation_count=sum(
+                1 for cd in system_cohens_d if cd.effect_size in ("medium", "large")
+            ),
+        )
+        session.add(comp_result)
+        session.commit()
+
+        return verdict
+
+    def _load_and_trim_stats(self, stats_path: str) -> List[Dict[str, Any]]:
+        """Load stats file and trim warmup/cooldown samples."""
+        if not stats_path or not Path(stats_path).exists():
+            return []
+        stats_data = self._parser.parse_stats_file(stats_path)
+        samples = stats_data.get("samples", [])
+        return self._parser.trim_samples(samples, self._trim_start, self._trim_end)
+
+    def _determine_cohens_d_verdict(
+        self,
+        system_results: List[CohensDResult],
+        process_results: List[CohensDResult],
+    ) -> Tuple[Verdict, str]:
+        """Determine verdict based on Cohen's d effect sizes.
+
+        Verdict logic:
+          - Any system metric with "large" effect -> failed
+          - Any system metric with "medium" effect -> warning
+          - All negligible/small -> passed
+        """
+        worst_effect = "negligible"
+        worst_metric = ""
+        worst_d = 0.0
+
+        for cd in system_results:
+            abs_d = abs(cd.cohens_d)
+            if abs_d > abs(worst_d):
+                worst_d = cd.cohens_d
+                worst_metric = cd.metric
+                worst_effect = cd.effect_size
+
+        if worst_effect == "large":
+            return Verdict.failed, f"{worst_metric}: Cohen's d = {worst_d:.2f} (large effect)"
+        elif worst_effect == "medium":
+            return Verdict.warning, f"{worst_metric}: Cohen's d = {worst_d:.2f} (medium effect)"
+        else:
+            return Verdict.passed, "All system metrics show negligible/small agent impact"
+
+    def _save_baseline_result(
+        self,
+        results_dir: str,
+        test_id: int,
+        server_id: int,
+        load_profile_id: int,
+        data: BaselineComparisonData,
+    ) -> str:
+        """Save baseline comparison result to JSON file. Returns file path."""
+        comp_dir = Path(results_dir)
+        comp_dir.mkdir(parents=True, exist_ok=True)
+        file_path = comp_dir / f"cohens_d_server{server_id}_lp{load_profile_id}.json"
+
+        result = {
+            "system_cohens_d": [
+                {
+                    "metric": cd.metric,
+                    "cohens_d": cd.cohens_d,
+                    "effect_size": cd.effect_size,
+                    "base_mean": cd.base_mean,
+                    "initial_mean": cd.initial_mean,
+                    "base_std": cd.base_std,
+                    "initial_std": cd.initial_std,
+                    "pooled_std": cd.pooled_std,
+                    "base_n": cd.base_n,
+                    "initial_n": cd.initial_n,
+                }
+                for cd in data.system_cohens_d
+            ],
+            "process_cohens_d": [
+                {
+                    "metric": cd.metric,
+                    "cohens_d": cd.cohens_d,
+                    "effect_size": cd.effect_size,
+                    "base_mean": cd.base_mean,
+                    "initial_mean": cd.initial_mean,
+                    "base_n": cd.base_n,
+                    "initial_n": cd.initial_n,
+                }
+                for cd in data.process_cohens_d
+            ],
+            "percentile_details": [
+                {
+                    "metric": pd.metric,
+                    "base": {
+                        "avg": pd.base_avg, "p50": pd.base_p50,
+                        "p90": pd.base_p90, "p95": pd.base_p95,
+                        "p99": pd.base_p99, "std": pd.base_std,
+                        "n": pd.base_n,
+                    },
+                    "initial": {
+                        "avg": pd.initial_avg, "p50": pd.initial_p50,
+                        "p90": pd.initial_p90, "p95": pd.initial_p95,
+                        "p99": pd.initial_p99, "std": pd.initial_std,
+                        "n": pd.initial_n,
+                    },
+                    "delta": {
+                        "avg": pd.delta_avg, "p50": pd.delta_p50,
+                        "p90": pd.delta_p90, "p95": pd.delta_p95,
+                        "p99": pd.delta_p99, "std": pd.delta_std,
+                    },
+                }
+                for pd in data.percentile_details
+            ],
+            "verdict": data.verdict.value if data.verdict else None,
+            "verdict_summary": data.verdict_summary,
+        }
+
+        # Add JTL informational metrics if available
+        if data.jtl_info:
+            result["jtl_test"] = {
+                "throughput_per_sec": data.jtl_info.throughput_per_sec,
+                "error_rate_percent": data.jtl_info.error_rate_percent,
+                "total_requests": data.jtl_info.total_requests,
+            }
+        if data.baseline_jtl_info:
+            result["jtl_baseline"] = {
+                "throughput_per_sec": data.baseline_jtl_info.throughput_per_sec,
+                "error_rate_percent": data.baseline_jtl_info.error_rate_percent,
+                "total_requests": data.baseline_jtl_info.total_requests,
+            }
+
+        with open(file_path, "w") as f:
+            json.dump(result, f, indent=2)
+
+        logger.info("Saved baseline comparison result to %s", file_path)
+        return str(file_path)
 
     def run_comparison(self, session: Session, test_run: TestRunORM, results_dir: str) -> None:
         """Run full comparison for a completed test run.

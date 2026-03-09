@@ -323,6 +323,7 @@ class Orchestrator:
                     jmx_path=f"{run_dir}/test.jmx",
                     ops_sequence_path=f"{run_dir}/ops_sequence_{lp.name}.csv",
                     emulator_port=emulator_port,
+                    test_run_id=test_run.id,
                 )
 
                 try:

@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Baseline Test #{{ run_id }} - Dashboard{% endblock %}
+{% block page_header %}<strong>Baseline Test #{{ run_id }}</strong> — Live Dashboard{% endblock %}
+
+{% block content %}
+<!-- Header cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">State</div>
+        <h5 id="run-state" class="mb-0">-</h5>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Test Type</div>
+        <div id="run-test-type" class="fw-bold">-</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Server</div>
+        <div id="run-server" class="fw-bold small">-</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Current LP</div>
+        <div id="run-current-lp" class="fw-bold">-</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Verdict</div>
+        <div id="run-verdict" class="fw-bold">-</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Actions</div>
+        <div id="run-actions" class="mt-1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Error display -->
+<div class="alert alert-danger d-none mb-3" id="run-error"></div>
+
+<!-- Snapshot info -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Snapshots</h6></div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-6">
+        <strong>Test Snapshot:</strong> <span id="test-snap-name">-</span>
+        <span class="badge bg-secondary ms-1" id="test-snap-id"></span>
+      </div>
+      <div class="col-md-6">
+        <strong>Compare Snapshot:</strong> <span id="compare-snap-name">-</span>
+        <span class="badge bg-secondary ms-1" id="compare-snap-id"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Discovery info (populated after setup) -->
+<div class="card shadow-sm mb-4 d-none" id="discovery-panel">
+  <div class="card-header"><h6 class="mb-0">Discovered Environment</h6></div>
+  <div class="card-body" id="discovery-body"></div>
+</div>
+
+<!-- Calibration progress (shown during calibrating state) -->
+<div class="d-none mb-4" id="cal-progress-panel">
+  <div class="card shadow-sm border-primary">
+    <div class="card-header bg-primary bg-opacity-10">
+      <h6 class="mb-0"><i class="bi bi-crosshair me-2"></i>Calibration Progress</h6>
+    </div>
+    <div class="card-body py-2" id="cal-progress-body">
+      <div class="text-center text-muted py-2">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Load Profile Progress -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Load Profile Progress</h6></div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr>
+        <th>Load Profile</th>
+        <th>Status</th>
+        <th>Threads</th>
+        <th>Stats</th>
+        <th>JTL</th>
+        <th>Comparison</th>
+      </tr></thead>
+      <tbody id="lp-progress-body">
+        <tr><td colspan="6" class="text-center text-muted py-3">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RUN_ID = {{ run_id }};
+let _run = null;
+let _servers = [];
+let _loadProfiles = [];
+let _snapshots = {};
+let _refreshTimer = null;
+
+async function loadAll() {
+  try {
+    if (_servers.length === 0) {
+      [_servers, _loadProfiles] = await Promise.all([
+        API.get('/api/admin/servers'),
+        API.get('/api/admin/load-profiles'),
+      ]);
+    }
+    _run = await API.get('/api/baseline-tests/' + RUN_ID);
+    renderHeader();
+    renderSnapshots();
+    renderDiscovery();
+    await renderLPProgress();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function lpName(id) {
+  const lp = _loadProfiles.find(l => l.id === id);
+  return lp ? lp.name : 'LP #' + id;
+}
+
+function serverName(id) {
+  const s = _servers.find(x => x.id === id);
+  return s ? s.hostname : '#' + id;
+}
+
+function renderHeader() {
+  document.getElementById('run-state').innerHTML = stateBadge(_run.state);
+  document.getElementById('run-test-type').innerHTML =
+    '<span class="badge bg-primary">' + _run.test_type.replace(/_/g, ' ') + '</span>';
+  const _targets = _run.targets || [];
+  const _t0 = _targets[0] || {};
+  const serverLabel = _targets.length === 1
+    ? serverName(_t0.target_id)
+    : _targets.length > 1
+      ? serverName(_t0.target_id) + ' +' + (_targets.length - 1)
+      : '-';
+  document.getElementById('run-server').textContent = serverLabel;
+  document.getElementById('run-current-lp').textContent =
+    _run.current_load_profile_id ? lpName(_run.current_load_profile_id) : '-';
+  document.getElementById('run-verdict').innerHTML =
+    _run.verdict ? `<span class="badge bg-${_run.verdict === 'passed' ? 'success' : _run.verdict === 'failed' ? 'danger' : 'warning'}">${_run.verdict}</span>` : '-';
+
+  // Error
+  const errDiv = document.getElementById('run-error');
+  if (_run.error_message) {
+    errDiv.textContent = _run.error_message;
+    errDiv.classList.remove('d-none');
+  } else {
+    errDiv.classList.add('d-none');
+  }
+
+  // Actions
+  let actions = '';
+  if (_run.state === 'created') {
+    actions += `<button class="btn btn-sm btn-success me-1" onclick="doAction('start')"><i class="bi bi-play-fill"></i></button>`;
+  }
+  if (!['completed','cancelled','failed'].includes(_run.state)) {
+    actions += `<button class="btn btn-sm btn-danger" onclick="doAction('cancel')"><i class="bi bi-x-circle"></i></button>`;
+  }
+  if (_run.state === 'completed') {
+    actions += `<a href="/baseline-tests/${RUN_ID}/results" class="btn btn-sm btn-info"><i class="bi bi-bar-chart me-1"></i>Results</a>`;
+  }
+  document.getElementById('run-actions').innerHTML = actions;
+
+  // Auto-refresh
+  const activeStates = ['validating','setting_up','calibrating','generating','executing','storing','comparing'];
+  if (activeStates.includes(_run.state)) {
+    if (!_refreshTimer) _refreshTimer = setInterval(loadAll, 5000);
+  } else {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  }
+}
+
+async function renderSnapshots() {
+  const targets = _run.targets || [];
+  const t0 = targets[0] || {};
+  // Load snapshot details if not cached
+  async function getSnap(id, serverId) {
+    if (!id || !serverId) return null;
+    if (_snapshots[id]) return _snapshots[id];
+    try {
+      const all = await API.get(`/api/servers/${serverId}/snapshots`);
+      all.forEach(s => _snapshots[s.id] = s);
+      return _snapshots[id] || null;
+    } catch { return null; }
+  }
+  const testSnap = await getSnap(t0.test_snapshot_id, t0.target_id);
+  const compareSnap = await getSnap(t0.compare_snapshot_id, t0.target_id);
+  document.getElementById('test-snap-name').textContent = testSnap ? testSnap.name : (t0.test_snapshot_id ? 'Snap #' + t0.test_snapshot_id : '-');
+  document.getElementById('test-snap-id').textContent = testSnap ? 'ID: ' + testSnap.provider_snapshot_id : '';
+  if (t0.compare_snapshot_id) {
+    document.getElementById('compare-snap-name').textContent = compareSnap ? compareSnap.name : 'Snap #' + t0.compare_snapshot_id;
+    document.getElementById('compare-snap-id').textContent = compareSnap ? 'ID: ' + compareSnap.provider_snapshot_id : '';
+  } else {
+    document.getElementById('compare-snap-name').textContent = 'N/A (new baseline)';
+    document.getElementById('compare-snap-id').textContent = '';
+  }
+}
+
+function renderDiscovery() {
+  const panel = document.getElementById('discovery-panel');
+  const targets = _run.targets || [];
+  if (targets.length === 0 || !targets[0].os_kind) { panel.classList.add('d-none'); return; }
+  panel.classList.remove('d-none');
+  document.getElementById('discovery-body').innerHTML = targets.map(t => {
+    const srvName = serverName(t.target_id);
+    return `<div class="row mb-2">
+      <div class="col-md-2"><strong>${escHtml(srvName)}</strong></div>
+      <div class="col-md-2"><strong>OS:</strong> ${escHtml(t.os_kind || '-')}</div>
+      <div class="col-md-2"><strong>Version:</strong> ${escHtml((t.os_major_ver || '') + '.' + (t.os_minor_ver || ''))}</div>
+      <div class="col-md-6"><strong>Agents:</strong> <code class="small">${escHtml(JSON.stringify(t.agent_versions || {}))}</code></div>
+    </div>`;
+  }).join('');
+}
+
+async function renderLPProgress() {
+  const tbody = document.getElementById('lp-progress-body');
+  // Get comparison results for this run
+  let comparisons = [];
+  try {
+    comparisons = await API.get('/api/baseline-tests/' + RUN_ID + '/comparison-results');
+  } catch {}
+
+  // Get stored profile data for first target's test snapshot
+  const targets = _run.targets || [];
+  const t0 = targets[0] || {};
+  let profileData = [];
+  if (t0.target_id && t0.test_snapshot_id) {
+    try {
+      profileData = await API.get(`/api/servers/${t0.target_id}/snapshots/${t0.test_snapshot_id}/profile-data`);
+    } catch {}
+  }
+
+  const compByLp = {};
+  comparisons.forEach(c => compByLp[c.load_profile_id] = c);
+  const dataByLp = {};
+  profileData.forEach(d => dataByLp[d.load_profile_id] = d);
+
+  // Determine which LPs are selected for this run (we can infer from API data)
+  // Use load profiles from the run's load_profiles if available
+  const runLpIds = _loadProfiles.map(l => l.id); // fallback: show all
+  // Better: get from comparison results + profile data + current_load_profile_id
+  const relevantLpIds = new Set();
+  comparisons.forEach(c => relevantLpIds.add(c.load_profile_id));
+  profileData.forEach(d => relevantLpIds.add(d.load_profile_id));
+  if (_run.current_load_profile_id) relevantLpIds.add(_run.current_load_profile_id);
+  // If none found, show all
+  const lpIds = relevantLpIds.size > 0 ? [...relevantLpIds] : [];
+
+  if (lpIds.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Waiting for execution to start...</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = lpIds.map(lpId => {
+    const name = lpName(lpId);
+    const data = dataByLp[lpId];
+    const comp = compByLp[lpId];
+    const isCurrent = _run.current_load_profile_id === lpId;
+
+    let status;
+    if (comp) {
+      status = '<span class="badge bg-success">completed</span>';
+    } else if (isCurrent) {
+      status = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.6rem;height:.6rem"></span>' + _run.state + '</span>';
+    } else if (data) {
+      status = '<span class="badge bg-success">stored</span>';
+    } else {
+      status = '<span class="badge bg-secondary">pending</span>';
+    }
+
+    const threads = data ? data.thread_count : '-';
+    const stats = data && data.stats_data
+      ? '<i class="bi bi-check-circle-fill text-success"></i>'
+      : '<i class="bi bi-circle text-muted"></i>';
+    const jtl = data && data.jtl_data
+      ? '<i class="bi bi-check-circle-fill text-success"></i>'
+      : '<i class="bi bi-circle text-muted"></i>';
+    const compResult = comp
+      ? `${comp.verdict ? '<span class="badge bg-' + (comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning') + '">' + comp.verdict + '</span>' : '-'}`
+      : '-';
+
+    return `<tr${isCurrent ? ' class="table-active"' : ''}>
+      <td>${escHtml(name)}</td>
+      <td>${status}</td>
+      <td>${threads}</td>
+      <td>${stats}</td>
+      <td>${jtl}</td>
+      <td>${compResult}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function doAction(action) {
+  try {
+    await API.post('/api/baseline-tests/' + RUN_ID + '/' + action);
+    showToast('Baseline test ' + action + 'ed');
+    loadAll();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+document.addEventListener('DOMContentLoaded', loadAll);
+</script>
+{% endblock %}

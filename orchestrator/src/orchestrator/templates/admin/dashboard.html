@@ -39,6 +39,34 @@
   </div>
 </div>
 
+<!-- Baseline test stats -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body d-flex align-items-center">
+        <div class="stat-icon bg-primary text-white me-3"><i class="bi bi-layers"></i></div>
+        <div><div class="text-muted small">Baseline Tests</div><h4 class="mb-0" id="stat-baseline-total">-</h4></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body d-flex align-items-center">
+        <div class="stat-icon bg-warning text-white me-3"><i class="bi bi-play-circle"></i></div>
+        <div><div class="text-muted small">Baseline Active</div><h4 class="mb-0" id="stat-baseline-active">-</h4></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body d-flex align-items-center">
+        <div class="stat-icon bg-info text-white me-3"><i class="bi bi-check-circle"></i></div>
+        <div><div class="text-muted small">Baseline Completed</div><h4 class="mb-0" id="stat-baseline-completed">-</h4></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Recent test runs -->
 <div class="card shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -63,10 +91,11 @@
 (async () => {
   try {
     // Load counts in parallel
-    const [labs, servers, runs] = await Promise.all([
+    const [labs, servers, runs, baselineRuns] = await Promise.all([
       API.get('/api/admin/labs'),
       API.get('/api/admin/servers'),
       API.get('/api/test-runs'),
+      API.get('/api/baseline-tests').catch(() => []),
     ]);
     document.getElementById('stat-labs').textContent = labs.length;
     document.getElementById('stat-servers').textContent = servers.length;
@@ -76,6 +105,14 @@
     const completed = runs.filter(r => r.state === 'completed');
     document.getElementById('stat-active').textContent = active.length;
     document.getElementById('stat-completed').textContent = completed.length;
+
+    // Baseline stats
+    const bActiveStates = ['validating','setting_up','calibrating','generating','executing','storing','comparing'];
+    const bActive = baselineRuns.filter(r => bActiveStates.includes(r.state));
+    const bCompleted = baselineRuns.filter(r => r.state === 'completed');
+    document.getElementById('stat-baseline-total').textContent = baselineRuns.length;
+    document.getElementById('stat-baseline-active').textContent = bActive.length;
+    document.getElementById('stat-baseline-completed').textContent = bCompleted.length;
 
     // Render recent runs (last 10)
     const recent = runs.slice(0, 10);

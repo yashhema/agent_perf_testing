@@ -25,7 +25,10 @@ from sqlalchemy.orm import Session
 from orchestrator.config.settings import CalibrationConfig
 from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.jmeter_controller import JMeterController
+from typing import Union
+
 from orchestrator.models.orm import (
+    BaselineTestRunORM,
     CalibrationResultORM,
     LoadProfileORM,
     ServerORM,
@@ -50,6 +53,7 @@ class CalibrationContext:
     jmx_path: str
     ops_sequence_path: str
     emulator_port: int
+    test_run_id: Optional[int] = None  # For unique temp paths on shared loadgen
 
 
 class CalibrationEngine:
@@ -61,7 +65,7 @@ class CalibrationEngine:
     def calibrate(
         self,
         session: Session,
-        test_run: TestRunORM,
+        test_run: Union[TestRunORM, BaselineTestRunORM],
         ctx: CalibrationContext,
     ) -> int:
         """Run calibration for a single server x load_profile.
@@ -129,14 +133,29 @@ class CalibrationEngine:
     def _get_or_create_record(
         self,
         session: Session,
-        test_run: TestRunORM,
+        test_run: Union[TestRunORM, BaselineTestRunORM],
         ctx: CalibrationContext,
         target_min: float,
         target_max: float,
     ) -> CalibrationResultORM:
-        """Get existing or create new CalibrationResultORM for live progress tracking."""
+        """Get existing or create new CalibrationResultORM for live progress tracking.
+
+        Supports both live-compare (TestRunORM) and baseline-compare (BaselineTestRunORM).
+        """
+        is_baseline = isinstance(test_run, BaselineTestRunORM)
+
+        # Build filter based on test run type
+        if is_baseline:
+            query_filter = (
+                CalibrationResultORM.baseline_test_run_id == test_run.id,
+            )
+        else:
+            query_filter = (
+                CalibrationResultORM.test_run_id == test_run.id,
+            )
+
         existing = session.query(CalibrationResultORM).filter(
-            CalibrationResultORM.test_run_id == test_run.id,
+            *query_filter,
             CalibrationResultORM.server_id == ctx.server.id,
             CalibrationResultORM.load_profile_id == ctx.load_profile.id,
         ).first()
@@ -154,7 +173,6 @@ class CalibrationEngine:
             return existing
 
         record = CalibrationResultORM(
-            test_run_id=test_run.id,
             server_id=ctx.server.id,
             os_type=ctx.server.os_family,
             load_profile_id=ctx.load_profile.id,
@@ -166,6 +184,10 @@ class CalibrationEngine:
             target_cpu_max=target_max,
             message=f"Starting calibration (target {target_min:.0f}-{target_max:.0f}%)",
         )
+        if is_baseline:
+            record.baseline_test_run_id = test_run.id
+        else:
+            record.test_run_id = test_run.id
         session.add(record)
         session.commit()
         return record
@@ -402,11 +424,13 @@ class CalibrationEngine:
             )
             test_id = test_resp.get("test_id", "")
 
-            # Start JMeter
+            # Start JMeter (use test_run_id/server/profile IDs to avoid path collision on shared loadgen)
+            run_tag = f"r{ctx.test_run_id}_s{ctx.server.id}_lp{ctx.load_profile.id}"
+            cal_prefix = f"/tmp/calibration_{run_tag}"
             pid = ctx.jmeter_controller.start(
                 jmx_path=ctx.jmx_path,
-                jtl_path="/tmp/calibration.jtl",
-                log_path="/tmp/calibration.log",
+                jtl_path=f"{cal_prefix}.jtl",
+                log_path=f"{cal_prefix}.log",
                 thread_count=thread_count,
                 ramp_up_sec=ramp_up_sec,
                 duration_sec=self._config.observation_duration_sec + ramp_up_sec,
@@ -493,10 +517,12 @@ class CalibrationEngine:
             )
             test_id = test_resp.get("test_id", "")
 
+            run_tag = f"r{ctx.test_run_id}_s{ctx.server.id}_lp{ctx.load_profile.id}"
+            stab_prefix = f"/tmp/calibration-stability_{run_tag}"
             pid = ctx.jmeter_controller.start(
                 jmx_path=ctx.jmx_path,
-                jtl_path="/tmp/calibration-stability.jtl",
-                log_path="/tmp/calibration-stability.log",
+                jtl_path=f"{stab_prefix}.jtl",
+                log_path=f"{stab_prefix}.log",
                 thread_count=thread_count,
                 ramp_up_sec=ramp_up_sec,
                 duration_sec=duration_sec + ramp_up_sec,
@@ -606,10 +632,13 @@ class CalibrationEngine:
 
     def _cleanup_iteration(self, ctx: CalibrationContext) -> None:
         """Clean up temp files created during calibration iterations."""
+        run_tag = f"r{ctx.test_run_id}_s{ctx.server.id}_lp{ctx.load_profile.id}"
+        cal_prefix = f"/tmp/calibration_{run_tag}"
+        stab_prefix = f"/tmp/calibration-stability_{run_tag}"
         try:
             ctx.jmeter_controller._executor.execute(
-                "rm -f /tmp/calibration.jtl /tmp/calibration.log "
-                "/tmp/calibration-stability.jtl /tmp/calibration-stability.log"
+                f"rm -f {cal_prefix}.jtl {cal_prefix}.log "
+                f"{stab_prefix}.jtl {stab_prefix}.log"
             )
         except Exception as e:
             logger.debug("Cleanup failed (non-fatal): %s", e)

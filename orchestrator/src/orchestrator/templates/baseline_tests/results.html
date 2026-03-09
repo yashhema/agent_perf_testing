@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Baseline Test #{{ run_id }} - Results{% endblock %}
+{% block page_header %}<strong>Baseline Test #{{ run_id }}</strong> — Results{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="/baseline-tests/{{ run_id }}/dashboard" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+  </a>
+</div>
+
+<!-- Verdict Banner -->
+<div id="verdict-banner" style="display:none;"></div>
+
+<!-- Summary -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Summary</h6></div>
+  <div class="card-body" id="summary-section">Loading...</div>
+</div>
+
+<!-- Comparison Results -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0" id="comparison-header">Comparison Results</h6></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th><th>Load Profile</th><th>Type</th><th>Verdict</th><th>Summary</th><th></th>
+        </tr></thead>
+        <tbody id="comparison-body">
+          <tr><td colspan="6" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Stored Profile Data -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Stored Profile Data (Test Snapshot)</h6></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead><tr>
+          <th>Load Profile</th><th>Threads</th><th>Stats File</th><th>JTL File</th>
+          <th>JMX Data</th><th>Source Snapshot</th><th>Created</th>
+        </tr></thead>
+        <tbody id="profile-data-body">
+          <tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detail-modal-title">Comparison Detail</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detail-modal-body"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/comparison-detail.js"></script>
+<script>
+const RUN_ID = {{ run_id }};
+let _loadProfiles = [];
+
+function lpName(id) {
+  const lp = _loadProfiles.find(l => l.id === id);
+  return lp ? lp.name : 'LP #' + id;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const [run, comparisons, lps] = await Promise.all([
+      API.get('/api/baseline-tests/' + RUN_ID),
+      API.get('/api/baseline-tests/' + RUN_ID + '/comparison-results'),
+      API.get('/api/admin/load-profiles'),
+    ]);
+    _loadProfiles = lps;
+
+    // Verdict banner
+    if (run.verdict) {
+      const banner = document.getElementById('verdict-banner');
+      const cls = run.verdict === 'passed' ? 'success' :
+                  run.verdict === 'failed' ? 'danger' : 'warning';
+      banner.style.display = '';
+      banner.innerHTML = `<div class="alert alert-${cls} mb-4 d-flex align-items-center">
+        <i class="bi bi-${run.verdict === 'passed' ? 'check-circle' : run.verdict === 'failed' ? 'x-circle' : 'exclamation-triangle'}-fill me-2 fs-4"></i>
+        <div>
+          <strong>Overall Verdict: ${run.verdict.toUpperCase()}</strong>
+          ${comparisons.filter(c => c.violation_count > 0).length > 0
+            ? ' &mdash; ' + comparisons.reduce((s, c) => s + (c.violation_count || 0), 0) + ' rule violation(s) detected'
+            : ''}
+        </div>
+      </div>`;
+    }
+
+    // Comparison header
+    if (run.test_type === 'new_baseline') {
+      document.getElementById('comparison-header').textContent = 'Comparison Results (N/A for new baseline)';
+    } else {
+      document.getElementById('comparison-header').textContent = 'Comparison Results (Test Snapshot vs Compare Snapshot)';
+    }
+
+    // Summary
+    const targets = run.targets || [];
+    const t0 = targets[0] || {};
+    const serverLabel = targets.length === 1
+      ? '#' + t0.target_id
+      : targets.map(t => '#' + t.target_id).join(', ');
+    document.getElementById('summary-section').innerHTML = `
+      <div class="row g-3">
+        <div class="col-md-3"><strong>Test Type:</strong> <span class="badge bg-primary">${run.test_type.replace(/_/g, ' ')}</span></div>
+        <div class="col-md-3"><strong>State:</strong> ${stateBadge(run.state)}</div>
+        <div class="col-md-3"><strong>Created:</strong> ${fmtDate(run.created_at)}</div>
+        <div class="col-md-3"><strong>Completed:</strong> ${fmtDate(run.completed_at)}</div>
+      </div>
+      <div class="row g-3 mt-1">
+        <div class="col-md-3"><strong>Server(s):</strong> ${serverLabel}</div>
+        <div class="col-md-3"><strong>Test Snapshot:</strong> ${t0.test_snapshot_id ? '#' + t0.test_snapshot_id : '-'}</div>
+        <div class="col-md-3"><strong>Compare Snapshot:</strong> ${t0.compare_snapshot_id ? '#' + t0.compare_snapshot_id : 'N/A'}</div>
+        <div class="col-md-3"><strong>Comparisons:</strong> ${comparisons.length}</div>
+      </div>
+    `;
+
+    // Comparisons
+    const cBody = document.getElementById('comparison-body');
+    if (comparisons.length === 0) {
+      cBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No comparison results</td></tr>';
+    } else {
+      cBody.innerHTML = comparisons.map(c => `<tr>
+        <td>${c.id}</td>
+        <td>${escHtml(lpName(c.load_profile_id))}</td>
+        <td><span class="badge bg-secondary">${c.comparison_type}</span></td>
+        <td>${verdictBadge(c.verdict)}${c.violation_count > 0 ? ' <small class="text-danger">' + c.violation_count + ' violation(s)</small>' : ''}</td>
+        <td class="small">${escHtml(c.summary_text || '-')}</td>
+        <td>
+          ${c.result_data ? `<button class="btn btn-sm btn-outline-primary" onclick="showDetail(${c.id})"><i class="bi bi-eye"></i> Detail</button>` : '-'}
+        </td>
+      </tr>`).join('');
+    }
+
+    // Stored profile data (from first target's test snapshot)
+    try {
+      const profileData = (t0.target_id && t0.test_snapshot_id)
+        ? await API.get(`/api/servers/${t0.target_id}/snapshots/${t0.test_snapshot_id}/profile-data`)
+        : [];
+      const pdBody = document.getElementById('profile-data-body');
+      if (profileData.length === 0) {
+        pdBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No stored data</td></tr>';
+      } else {
+        pdBody.innerHTML = profileData.map(d => `<tr>
+          <td>${escHtml(lpName(d.load_profile_id))}</td>
+          <td>${d.thread_count}</td>
+          <td class="small">${d.stats_data ? '<i class="bi bi-check-circle-fill text-success me-1"></i>' + escHtml(d.stats_data) : '-'}</td>
+          <td class="small">${d.jtl_data ? '<i class="bi bi-check-circle-fill text-success me-1"></i>' + escHtml(d.jtl_data) : '-'}</td>
+          <td class="small">${d.jmx_test_case_data ? '<i class="bi bi-check-circle-fill text-success"></i>' : '-'}</td>
+          <td>${d.source_snapshot_id ? 'Snap #' + d.source_snapshot_id : '<em>fresh</em>'}</td>
+          <td class="small">${fmtDate(d.created_at)}</td>
+        </tr>`).join('');
+      }
+    } catch {}
+
+    // Store comparisons for detail view
+    window._comparisons = comparisons;
+  } catch (e) { showToast(e.message, 'danger'); }
+});
+
+function showDetail(compId) {
+  const c = window._comparisons.find(x => x.id === compId);
+  if (!c || !c.result_data) return;
+  document.getElementById('detail-modal-title').textContent =
+    'Comparison #' + c.id + ' — ' + c.comparison_type + ' (LP: ' + lpName(c.load_profile_id) + ')';
+  document.getElementById('detail-modal-body').innerHTML =
+    renderComparisonDetailHtml(c.result_data, c.summary_text);
+  new bootstrap.Modal(document.getElementById('detail-modal')).show();
+}
+</script>
+{% endblock %}

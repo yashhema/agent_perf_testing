@@ -1,19 +1,212 @@
-"""Non-parametric statistical tests for agent performance comparison.
+"""Statistical tests for agent performance comparison.
 
-Three complementary methods:
-  1. Cliff's delta  — effect size (how much did the distribution shift?)
-  2. Mann-Whitney U — significance (is the shift real or noise?)
-  3. Bootstrap CI   — confidence interval on trimmed mean difference
+Two approaches:
+
+1. Cohen's d (baseline_compare mode) — single O(n) effect size metric.
+   Replaces Cliff's delta + Mann-Whitney + Bootstrap CI for baseline
+   compare mode where we compare system stats (per-second samples)
+   between base (no agent) and initial (with agent) snapshots.
+
+   Thresholds (Cohen, 1988):
+     |d| < 0.2  -> negligible
+     0.2 - 0.5  -> small
+     0.5 - 0.8  -> medium
+     >= 0.8     -> large
+
+2. Non-parametric tests (live_compare mode) — three complementary methods:
+   - Cliff's delta: effect size
+   - Mann-Whitney U: significance test
+   - Bootstrap CI: confidence interval on trimmed mean difference
 
 All implementations are pure Python (no scipy/numpy dependency).
-Mann-Whitney uses normal approximation, which is accurate for n > 20.
 """
 
 import math
 import random
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+
+# ---------------------------------------------------------------------------
+# Cohen's d (baseline_compare mode)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CohensDResult:
+    """Cohen's d result for one metric."""
+    metric: str
+    cohens_d: float
+    effect_size: str  # "negligible", "small", "medium", "large"
+    base_mean: float
+    initial_mean: float
+    base_std: float
+    initial_std: float
+    pooled_std: float
+    base_n: int
+    initial_n: int
+
+
+@dataclass
+class PercentileDetail:
+    """Percentile breakdown for base vs initial (shown on cell click)."""
+    metric: str
+    base_avg: float
+    base_p50: float
+    base_p90: float
+    base_p95: float
+    base_p99: float
+    base_std: float
+    base_n: int
+    initial_avg: float
+    initial_p50: float
+    initial_p90: float
+    initial_p95: float
+    initial_p99: float
+    initial_std: float
+    initial_n: int
+    delta_avg: float
+    delta_p50: float
+    delta_p90: float
+    delta_p95: float
+    delta_p99: float
+    delta_std: float
+
+
+def cohens_d(base: List[float], initial: List[float]) -> Tuple[float, str]:
+    """Compute Cohen's d between two sample sets.
+
+    Cohen's d = (mean_initial - mean_base) / pooled_std_dev
+
+    where pooled_std_dev = sqrt(((n1-1)*s1^2 + (n2-1)*s2^2) / (n1+n2-2))
+
+    Positive d means initial > base (agent increased the metric).
+
+    Returns (d, effect_size_label).
+    """
+    n1 = len(base)
+    n2 = len(initial)
+    if n1 < 2 or n2 < 2:
+        return 0.0, "negligible"
+
+    mean1 = sum(base) / n1
+    mean2 = sum(initial) / n2
+
+    var1 = sum((x - mean1) ** 2 for x in base) / (n1 - 1)
+    var2 = sum((x - mean2) ** 2 for x in initial) / (n2 - 1)
+
+    pooled_var = ((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2)
+    pooled_std = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
+
+    if pooled_std == 0:
+        return 0.0, "negligible"
+
+    d = (mean2 - mean1) / pooled_std
+
+    abs_d = abs(d)
+    if abs_d < 0.2:
+        effect = "negligible"
+    elif abs_d < 0.5:
+        effect = "small"
+    elif abs_d < 0.8:
+        effect = "medium"
+    else:
+        effect = "large"
+
+    return round(d, 4), effect
+
+
+def compute_cohens_d(
+    metric: str,
+    base_samples: List[float],
+    initial_samples: List[float],
+) -> CohensDResult:
+    """Compute Cohen's d with full detail for a single metric."""
+    n1 = len(base_samples)
+    n2 = len(initial_samples)
+
+    mean1 = sum(base_samples) / n1 if n1 > 0 else 0.0
+    mean2 = sum(initial_samples) / n2 if n2 > 0 else 0.0
+
+    var1 = sum((x - mean1) ** 2 for x in base_samples) / (n1 - 1) if n1 > 1 else 0.0
+    var2 = sum((x - mean2) ** 2 for x in initial_samples) / (n2 - 1) if n2 > 1 else 0.0
+
+    std1 = math.sqrt(var1)
+    std2 = math.sqrt(var2)
+
+    d_val, effect = cohens_d(base_samples, initial_samples)
+    pooled_var = ((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2) if (n1 + n2 - 2) > 0 else 0.0
+
+    return CohensDResult(
+        metric=metric,
+        cohens_d=d_val,
+        effect_size=effect,
+        base_mean=round(mean1, 4),
+        initial_mean=round(mean2, 4),
+        base_std=round(std1, 4),
+        initial_std=round(std2, 4),
+        pooled_std=round(math.sqrt(pooled_var), 4) if pooled_var > 0 else 0.0,
+        base_n=n1,
+        initial_n=n2,
+    )
+
+
+def compute_percentile_detail(
+    metric: str,
+    base_samples: List[float],
+    initial_samples: List[float],
+) -> PercentileDetail:
+    """Compute percentile breakdown for base vs initial (Table 2 on cell click)."""
+    def stats(samples):
+        if not samples:
+            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        n = len(samples)
+        s = sorted(samples)
+        avg = sum(samples) / n
+        p50 = _percentile(s, 50)
+        p90 = _percentile(s, 90)
+        p95 = _percentile(s, 95)
+        p99 = _percentile(s, 99)
+        variance = sum((x - avg) ** 2 for x in samples) / (n - 1) if n > 1 else 0.0
+        std = math.sqrt(variance)
+        return avg, p50, p90, p95, p99, std
+
+    b_avg, b_p50, b_p90, b_p95, b_p99, b_std = stats(base_samples)
+    i_avg, i_p50, i_p90, i_p95, i_p99, i_std = stats(initial_samples)
+
+    return PercentileDetail(
+        metric=metric,
+        base_avg=round(b_avg, 4), base_p50=round(b_p50, 4),
+        base_p90=round(b_p90, 4), base_p95=round(b_p95, 4),
+        base_p99=round(b_p99, 4), base_std=round(b_std, 4),
+        base_n=len(base_samples),
+        initial_avg=round(i_avg, 4), initial_p50=round(i_p50, 4),
+        initial_p90=round(i_p90, 4), initial_p95=round(i_p95, 4),
+        initial_p99=round(i_p99, 4), initial_std=round(i_std, 4),
+        initial_n=len(initial_samples),
+        delta_avg=round(i_avg - b_avg, 4), delta_p50=round(i_p50 - b_p50, 4),
+        delta_p90=round(i_p90 - b_p90, 4), delta_p95=round(i_p95 - b_p95, 4),
+        delta_p99=round(i_p99 - b_p99, 4), delta_std=round(i_std - b_std, 4),
+    )
+
+
+def _percentile(sorted_values: List[float], percentile: float) -> float:
+    """Compute percentile using linear interpolation."""
+    n = len(sorted_values)
+    if n == 0:
+        return 0.0
+    if n == 1:
+        return sorted_values[0]
+    k = (percentile / 100.0) * (n - 1)
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        return sorted_values[int(k)]
+    return sorted_values[f] + (sorted_values[c] - sorted_values[f]) * (k - f)
+
+
+# ---------------------------------------------------------------------------
+# Non-parametric tests (live_compare mode — kept for backward compatibility)
+# ---------------------------------------------------------------------------
 
 @dataclass
 class StatisticalTestResult:

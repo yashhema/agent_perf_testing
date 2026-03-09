@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+{% block title %}Create Baseline Test - Orchestrator{% endblock %}
+{% block page_header %}<strong>Create Baseline Test</strong>{% endblock %}
+
+{% block content %}
+<!-- Wizard nav -->
+<ul class="nav wizard-nav mb-4">
+  <li class="nav-item"><a class="nav-link active" href="#" data-step="1">1. Lab &amp; Scenario</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="2">2. Server &amp; Test Type</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="3">3. Snapshots</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="4">4. Load Profiles</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-step="5">5. Review</a></li>
+</ul>
+
+<!-- Step 1: Lab & Scenario -->
+<div class="wizard-step active" id="step-1">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Select Lab &amp; Scenario</h6>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Lab <small class="text-muted">(baseline_compare mode only)</small></label>
+          <select class="form-select" id="sel-lab">
+            <option value="">Loading labs...</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Scenario</label>
+          <select class="form-select" id="sel-scenario" disabled>
+            <option value="">Select a lab first</option>
+          </select>
+        </div>
+      </div>
+      <div id="scenario-details" class="mt-3 d-none">
+        <div class="row g-2">
+          <div class="col-auto"><span class="badge bg-secondary" id="sd-template"></span></div>
+        </div>
+        <p class="text-muted small mt-2 mb-0" id="sd-description"></p>
+      </div>
+    </div>
+    <div class="card-footer text-end">
+      <button class="btn btn-primary" onclick="goStep(2)" id="btn-next-1" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 2: Server & Test Type -->
+<div class="wizard-step" id="step-2">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Select Server &amp; Test Type</h6>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Target Server</label>
+          <select class="form-select" id="sel-server">
+            <option value="">Select a lab first</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Test Type</label>
+          <select class="form-select" id="sel-test-type">
+            <option value="new_baseline">New Baseline - Capture fresh baseline data</option>
+            <option value="compare">Compare - Reuse stored calibration</option>
+            <option value="compare_with_new_calibration">Compare (New Calibration) - Recalibrate then compare</option>
+          </select>
+        </div>
+      </div>
+      <div class="row g-3 mt-1">
+        <div class="col-md-4">
+          <label class="form-label">Load Generator <small class="text-muted">(override)</small></label>
+          <select class="form-select" id="sel-loadgen">
+            <option value="">Use server default</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Partner <small class="text-muted">(override)</small></label>
+          <select class="form-select" id="sel-partner">
+            <option value="">Use server default</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Service Monitor Patterns</label>
+          <input class="form-control" id="inp-patterns" placeholder='["proc1","proc2"]'>
+        </div>
+      </div>
+      <div id="server-defaults" class="mt-2 d-none">
+        <small class="text-muted" id="server-defaults-text"></small>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(1)">Back</button>
+      <button class="btn btn-primary" onclick="goStep(3)" id="btn-next-2" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3: Snapshots -->
+<div class="wizard-step" id="step-3">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Select Snapshots</h6>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Test Snapshot <small class="text-muted">(VM will revert to this)</small></label>
+          <select class="form-select" id="sel-test-snap">
+            <option value="">Loading snapshots...</option>
+          </select>
+        </div>
+        <div class="col-md-6" id="compare-snap-group">
+          <label class="form-label">Compare Snapshot <small class="text-muted">(stored baseline data)</small></label>
+          <select class="form-select" id="sel-compare-snap">
+            <option value="">Select snapshot with stored data</option>
+          </select>
+          <div id="compare-snap-data" class="mt-2"></div>
+        </div>
+      </div>
+      <div class="mt-3">
+        <h6 class="small text-muted mb-2">Snapshot Tree</h6>
+        <div id="snapshot-tree" class="border rounded p-3 bg-light" style="max-height: 300px; overflow-y: auto;">
+          Loading...
+        </div>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(2)">Back</button>
+      <button class="btn btn-primary" onclick="goStep(4)" id="btn-next-3" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 4: Load Profiles -->
+<div class="wizard-step" id="step-4">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Select Load Profiles</h6>
+      <div id="load-profile-list">Loading...</div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(3)">Back</button>
+      <button class="btn btn-primary" onclick="goStep(5)" id="btn-next-4" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 5: Review & Submit -->
+<div class="wizard-step" id="step-5">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Review Configuration</h6>
+      <div id="review-summary"></div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <button class="btn btn-secondary" onclick="goStep(4)">Back</button>
+      <button class="btn btn-success" onclick="submitTest()" id="btn-submit">
+        <i class="bi bi-rocket me-1"></i>Create Baseline Test
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _labs = [], _scenarios = [], _servers = [], _allServers = [], _loadProfiles = [];
+let _snapshots = [], _snapshotTree = [];
+let _selectedLab = null, _selectedScenario = null, _selectedServer = null;
+let _selectedProfiles = [];
+
+// Navigation
+function goStep(n) {
+  // Before entering step 3, load snapshots
+  if (n === 3 && _selectedServer) loadSnapshots();
+  document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + n).classList.add('active');
+  document.querySelectorAll('.wizard-nav .nav-link').forEach(l => {
+    const s = parseInt(l.dataset.step);
+    l.classList.remove('active', 'completed');
+    if (s === n) l.classList.add('active');
+    else if (s < n) l.classList.add('completed');
+  });
+  if (n === 5) buildReview();
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    [_labs, _loadProfiles, _allServers] = await Promise.all([
+      API.get('/api/admin/labs'),
+      API.get('/api/admin/load-profiles'),
+      API.get('/api/admin/servers'),
+    ]);
+    // Filter labs to baseline_compare mode only
+    const baselineLabs = _labs.filter(l => l.execution_mode === 'baseline_compare');
+    const labSel = document.getElementById('sel-lab');
+    labSel.innerHTML = '<option value="">-- Select Lab --</option>' +
+      baselineLabs.map(l => `<option value="${l.id}">${escHtml(l.name)} (ID: ${l.id})</option>`).join('');
+    if (baselineLabs.length === 0) {
+      labSel.innerHTML = '<option value="">No baseline_compare labs found</option>';
+    }
+    renderLoadProfiles();
+  } catch (e) { showToast('Failed to load data: ' + e.message, 'danger'); }
+});
+
+// Lab change -> load scenarios + servers
+document.getElementById('sel-lab').addEventListener('change', async (e) => {
+  const labId = parseInt(e.target.value);
+  _selectedLab = _labs.find(l => l.id === labId) || null;
+  const scenSel = document.getElementById('sel-scenario');
+  const serverSel = document.getElementById('sel-server');
+  if (!labId) {
+    scenSel.innerHTML = '<option value="">Select a lab first</option>';
+    scenSel.disabled = true;
+    return;
+  }
+  try {
+    _scenarios = await API.get('/api/admin/scenarios?lab_id=' + labId);
+    scenSel.innerHTML = '<option value="">-- Select Scenario --</option>' +
+      _scenarios.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('');
+    scenSel.disabled = false;
+    // Filter servers for this lab
+    _servers = _allServers.filter(s => s.lab_id === labId);
+    serverSel.innerHTML = '<option value="">-- Select Server --</option>' +
+      _servers.map(s => `<option value="${s.id}">${escHtml(s.hostname)} (${s.ip_address})</option>`).join('');
+    // Populate loadgen/partner selectors with all servers in lab
+    const loadgenSel = document.getElementById('sel-loadgen');
+    const partnerSel = document.getElementById('sel-partner');
+    const serverOpts = _servers.map(s => `<option value="${s.id}">${escHtml(s.hostname)}</option>`).join('');
+    loadgenSel.innerHTML = '<option value="">Use server default</option>' + serverOpts;
+    partnerSel.innerHTML = '<option value="">Use server default</option>' + serverOpts;
+  } catch (e2) { showToast(e2.message, 'danger'); }
+});
+
+// Scenario change
+document.getElementById('sel-scenario').addEventListener('change', (e) => {
+  const id = parseInt(e.target.value);
+  _selectedScenario = _scenarios.find(s => s.id === id) || null;
+  const det = document.getElementById('scenario-details');
+  if (_selectedScenario) {
+    det.classList.remove('d-none');
+    document.getElementById('sd-template').textContent = _selectedScenario.template_type;
+    document.getElementById('sd-description').textContent = _selectedScenario.description || '';
+    document.getElementById('btn-next-1').disabled = false;
+  } else {
+    det.classList.add('d-none');
+    document.getElementById('btn-next-1').disabled = true;
+  }
+});
+
+// Server change
+document.getElementById('sel-server').addEventListener('change', (e) => {
+  const id = parseInt(e.target.value);
+  _selectedServer = _servers.find(s => s.id === id) || null;
+  document.getElementById('btn-next-2').disabled = !_selectedServer;
+  const defDiv = document.getElementById('server-defaults');
+  if (_selectedServer) {
+    const loadgenName = _selectedServer.default_loadgen_id
+      ? (_allServers.find(s => s.id === _selectedServer.default_loadgen_id)?.hostname || '#' + _selectedServer.default_loadgen_id)
+      : 'not set';
+    const partnerName = _selectedServer.default_partner_id
+      ? (_allServers.find(s => s.id === _selectedServer.default_partner_id)?.hostname || '#' + _selectedServer.default_partner_id)
+      : 'none';
+    document.getElementById('server-defaults-text').textContent =
+      `Defaults: loadgen=${loadgenName}, partner=${partnerName}`;
+    defDiv.classList.remove('d-none');
+  } else {
+    defDiv.classList.add('d-none');
+  }
+});
+
+// Test type change — show/hide compare snapshot
+document.getElementById('sel-test-type').addEventListener('change', updateCompareVisibility);
+function updateCompareVisibility() {
+  const testType = document.getElementById('sel-test-type').value;
+  const group = document.getElementById('compare-snap-group');
+  if (testType === 'new_baseline') {
+    group.style.display = 'none';
+  } else {
+    group.style.display = '';
+  }
+  validateStep3();
+}
+
+// Load snapshots for selected server
+async function loadSnapshots() {
+  if (!_selectedServer) return;
+  try {
+    // Sync first, then get list + tree
+    await API.post(`/api/servers/${_selectedServer.id}/snapshots/sync`);
+    [_snapshots, _snapshotTree] = await Promise.all([
+      API.get(`/api/servers/${_selectedServer.id}/snapshots`),
+      API.get(`/api/servers/${_selectedServer.id}/snapshots/tree`),
+    ]);
+    const liveSnaps = _snapshots.filter(s => !s.is_archived);
+    const testSnapSel = document.getElementById('sel-test-snap');
+    testSnapSel.innerHTML = '<option value="">-- Select --</option>' +
+      liveSnaps.map(s => `<option value="${s.id}">${escHtml(s.name)}${s.is_baseline ? ' (baseline)' : ''}</option>`).join('');
+    // Compare snapshot: show snapshots that have stored data
+    const compareSnapSel = document.getElementById('sel-compare-snap');
+    const dataSnaps = liveSnaps.filter(s => s.is_baseline || s.id); // we'll check data on selection
+    compareSnapSel.innerHTML = '<option value="">-- Select --</option>' +
+      liveSnaps.map(s => `<option value="${s.id}">${escHtml(s.name)}${s.is_baseline ? ' (baseline)' : ''}</option>`).join('');
+
+    renderSnapshotTree(_snapshotTree);
+    updateCompareVisibility();
+  } catch (e) { showToast('Error loading snapshots: ' + e.message, 'danger'); }
+}
+
+function renderSnapshotTree(nodes, depth) {
+  depth = depth || 0;
+  const container = document.getElementById('snapshot-tree');
+  if (depth === 0) container.innerHTML = '';
+  if (!nodes || nodes.length === 0) {
+    if (depth === 0) container.innerHTML = '<span class="text-muted">No snapshots found. Use "Take Snapshot" in the Snapshot Manager.</span>';
+    return;
+  }
+  nodes.forEach(n => {
+    const indent = '&nbsp;'.repeat(depth * 4);
+    const icon = n.is_archived ? '<i class="bi bi-archive text-muted"></i>' : '<i class="bi bi-camera text-primary"></i>';
+    const baseline = n.is_baseline ? ' <span class="badge bg-success badge-sm">baseline</span>' : '';
+    const data = n.has_data ? ' <span class="badge bg-info badge-sm">has data</span>' : '';
+    const archived = n.is_archived ? ' <span class="badge bg-secondary badge-sm">archived</span>' : '';
+    const cls = n.is_archived ? 'text-muted' : '';
+    container.insertAdjacentHTML('beforeend',
+      `<div class="${cls}" style="font-size:0.85rem">${indent}${icon} ${escHtml(n.name)}${baseline}${data}${archived}</div>`);
+    if (n.children && n.children.length > 0) {
+      renderSnapshotTree(n.children, depth + 1);
+    }
+  });
+}
+
+// Compare snapshot change — show stored data
+document.getElementById('sel-compare-snap').addEventListener('change', async (e) => {
+  const snapId = parseInt(e.target.value);
+  const div = document.getElementById('compare-snap-data');
+  if (!snapId) { div.innerHTML = ''; validateStep3(); return; }
+  try {
+    const data = await API.get(`/api/servers/${_selectedServer.id}/snapshots/${snapId}/profile-data`);
+    if (data.length === 0) {
+      div.innerHTML = '<small class="text-warning">No stored data for this snapshot</small>';
+    } else {
+      div.innerHTML = '<small class="text-success">Stored data: ' +
+        data.map(d => `LP#${d.load_profile_id} (${d.thread_count} threads)`).join(', ') + '</small>';
+    }
+  } catch (err) { div.innerHTML = ''; }
+  validateStep3();
+});
+
+document.getElementById('sel-test-snap').addEventListener('change', validateStep3);
+
+function validateStep3() {
+  const testSnap = document.getElementById('sel-test-snap').value;
+  const testType = document.getElementById('sel-test-type').value;
+  const compareSnap = document.getElementById('sel-compare-snap').value;
+  let valid = !!testSnap;
+  if (testType !== 'new_baseline') {
+    valid = valid && !!compareSnap;
+  }
+  document.getElementById('btn-next-3').disabled = !valid;
+}
+
+// Load profiles
+function renderLoadProfiles() {
+  const container = document.getElementById('load-profile-list');
+  container.innerHTML = _loadProfiles.map(lp => `
+    <div class="form-check mb-2">
+      <input class="form-check-input lp-check" type="checkbox" value="${lp.id}" id="lp-${lp.id}" onchange="updateProfileSelection()">
+      <label class="form-check-label" for="lp-${lp.id}">
+        <strong>${escHtml(lp.name)}</strong> &mdash;
+        CPU: ${lp.target_cpu_range_min}%-${lp.target_cpu_range_max}%,
+        Duration: ${lp.duration_sec}s, Ramp-up: ${lp.ramp_up_sec}s
+      </label>
+    </div>
+  `).join('');
+}
+
+function updateProfileSelection() {
+  _selectedProfiles = Array.from(document.querySelectorAll('.lp-check:checked')).map(cb => parseInt(cb.value));
+  document.getElementById('btn-next-4').disabled = _selectedProfiles.length === 0;
+}
+
+// Review
+function buildReview() {
+  const testType = document.getElementById('sel-test-type').value;
+  const testSnapId = document.getElementById('sel-test-snap').value;
+  const compareSnapId = document.getElementById('sel-compare-snap').value;
+  const testSnap = _snapshots.find(s => s.id === parseInt(testSnapId));
+  const compareSnap = compareSnapId ? _snapshots.find(s => s.id === parseInt(compareSnapId)) : null;
+
+  const html = `
+    <table class="table table-sm">
+      <tr><th>Lab</th><td>${escHtml(_selectedLab?.name || '-')}</td></tr>
+      <tr><th>Scenario</th><td>${escHtml(_selectedScenario?.name || '-')} (${_selectedScenario?.template_type || '-'})</td></tr>
+      <tr><th>Server</th><td>${escHtml(_selectedServer?.hostname || '-')} (${_selectedServer?.ip_address || '-'})</td></tr>
+      <tr><th>Test Type</th><td><span class="badge bg-primary">${testType.replace(/_/g, ' ')}</span></td></tr>
+      <tr><th>Test Snapshot</th><td>${escHtml(testSnap?.name || 'Snap #' + testSnapId)}</td></tr>
+      <tr><th>Compare Snapshot</th><td>${compareSnap ? escHtml(compareSnap.name) : '<em>N/A</em>'}</td></tr>
+      <tr><th>Load Profiles</th><td>${_selectedProfiles.map(id => {
+        const lp = _loadProfiles.find(l => l.id === id);
+        return lp ? escHtml(lp.name) : id;
+      }).join(', ')}</td></tr>
+    </table>
+  `;
+  document.getElementById('review-summary').innerHTML = html;
+}
+
+// Submit
+async function submitTest() {
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  try {
+    const testType = document.getElementById('sel-test-type').value;
+    const target = {
+      server_id: _selectedServer.id,
+      test_snapshot_id: parseInt(document.getElementById('sel-test-snap').value),
+    };
+    if (testType !== 'new_baseline') {
+      target.compare_snapshot_id = parseInt(document.getElementById('sel-compare-snap').value);
+    }
+    const loadgenId = document.getElementById('sel-loadgen').value;
+    if (loadgenId) target.loadgenerator_id = parseInt(loadgenId);
+    const partnerId = document.getElementById('sel-partner').value;
+    if (partnerId) target.partner_id = parseInt(partnerId);
+    const patterns = document.getElementById('inp-patterns').value.trim();
+    if (patterns) {
+      try { target.service_monitor_patterns = JSON.parse(patterns); } catch {}
+    }
+    const body = {
+      scenario_id: _selectedScenario.id,
+      test_type: testType,
+      load_profile_ids: _selectedProfiles,
+      targets: [target],
+    };
+
+    const run = await API.post('/api/baseline-tests', body);
+    showToast('Baseline test #' + run.id + ' created');
+    window.location.href = '/baseline-tests/' + run.id + '/dashboard';
+  } catch (e) {
+    showToast('Error: ' + e.message, 'danger');
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

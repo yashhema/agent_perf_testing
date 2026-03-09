@@ -68,14 +68,16 @@ class PackageResolver:
         self,
         session: Session,
         package_group_ids: List[int],
-        baseline: BaselineORM,
+        os_info,
     ) -> List[ResolvedPackage]:
         """Resolve multiple package groups for a specific target OS.
 
         Args:
             session: DB session
             package_group_ids: list of PackageGroupORM.id to resolve
-            baseline: BaselineORM with OS info for matching
+            os_info: Any object with os_vendor_family, os_major_ver, os_minor_ver
+                     attributes (BaselineORM for live-compare, ServerORM for
+                     baseline-compare).
 
         Returns:
             List of ResolvedPackage, one per group
@@ -83,7 +85,7 @@ class PackageResolver:
         Raises:
             ValueError: if zero or multiple members match for any group
         """
-        os_string = self._build_os_string(baseline)
+        os_string = self._build_os_string(os_info)
         resolved = []
 
         for group_id in package_group_ids:
@@ -152,11 +154,15 @@ class PackageResolver:
         return self.resolve(session, group_ids, baseline)
 
     @staticmethod
-    def _build_os_string(baseline: BaselineORM) -> str:
-        """Build OS match string: '{vendor}/{major}/{minor}'."""
-        parts = [baseline.os_vendor_family, baseline.os_major_ver]
-        if baseline.os_minor_ver:
-            parts.append(baseline.os_minor_ver)
+    def _build_os_string(os_info) -> str:
+        """Build OS match string: '{vendor}/{major}/{minor}'.
+
+        Accepts any object with os_vendor_family and os_major_ver attributes.
+        Works with both BaselineORM (live-compare) and ServerORM (baseline-compare).
+        """
+        parts = [os_info.os_vendor_family, os_info.os_major_ver]
+        if os_info.os_minor_ver:
+            parts.append(os_info.os_minor_ver)
         return "/".join(parts)
 
 
@@ -267,3 +273,42 @@ class PackageDeployer:
         """Deploy multiple packages to a target server."""
         for package in packages:
             self.deploy(executor, package)
+
+    def deploy_if_needed(self, executor: RemoteExecutor, package: ResolvedPackage) -> bool:
+        """Deploy a package only if not already installed.
+
+        Checks status_command first. If the package is already installed
+        (status_command succeeds), skips deployment.
+
+        Returns:
+            True if package was deployed, False if already present.
+        """
+        if package.status_command:
+            installed = self.check_status(executor, package)
+            if installed:
+                logger.info(
+                    "Package '%s' already installed, skipping deploy",
+                    package.group_name,
+                )
+                return False
+        self.deploy(executor, package)
+        return True
+
+    def check_status_any(
+        self,
+        session,
+        executor: RemoteExecutor,
+        package_group_ids: List[int],
+        server,
+    ) -> bool:
+        """Check if any package from the given groups is installed on the server.
+
+        Resolves packages and checks status_command for each. Returns True
+        if at least one package's status check succeeds.
+        """
+        resolver = PackageResolver()
+        packages = resolver.resolve(session, package_group_ids, server)
+        for pkg in packages:
+            if self.check_status(executor, pkg):
+                return True
+        return False

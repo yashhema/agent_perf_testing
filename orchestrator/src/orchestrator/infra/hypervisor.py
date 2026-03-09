@@ -11,7 +11,7 @@ Data model:
 
     BaselineORM.provider_ref    — provider-specific snapshot identifier
         Proxmox:  {"snapshot_name": "clean-base"}
-        vSphere:  {"snapshot_name": "clean-base"}
+        vSphere:  {"snapshot_name": "clean-base", "snapshot_moref_id": "3"}
         Vultr:    {"snapshot_id": "uuid", "snapshot_name": "clean-base"}
 """
 
@@ -19,7 +19,7 @@ import abc
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,29 @@ class VMStatus:
     name: str
     status: str  # "running", "stopped", "unknown"
     uptime_sec: Optional[float] = None
+
+
+@dataclass
+class HypervisorSnapshot:
+    """Common snapshot structure returned by all providers.
+
+    Every provider MUST normalize its API response into this structure.
+    The UI and backend rely on these exact field names and types.
+    """
+    name: str                          # Human-readable snapshot name
+    description: str                   # Snapshot description (empty string if none)
+    id: str                            # Provider-unique ID (Proxmox=name, vSphere=moref, Vultr=uuid)
+    parent: Optional[str]              # Parent snapshot ID (None if root)
+    created: Optional[int]             # Unix timestamp (seconds). None if unavailable.
+
+    def to_dict(self) -> Dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "id": self.id,
+            "parent": self.parent,
+            "created": self.created,
+        }
 
 
 class HypervisorProvider(abc.ABC):
@@ -80,6 +103,28 @@ class HypervisorProvider(abc.ABC):
         Args:
             server_ref: Provider-specific VM reference (ServerORM.server_infra_ref).
             snapshot_ref: Provider-specific snapshot reference (BaselineORM.provider_ref).
+        """
+
+    @abc.abstractmethod
+    def list_snapshots(self, server_ref: dict) -> List[HypervisorSnapshot]:
+        """Get the full snapshot list for a VM.
+
+        Returns:
+            List of HypervisorSnapshot with common fields:
+              name, description, id, parent, created (unix timestamp).
+            The "id" field is the provider-specific unique identifier per VM:
+              - Proxmox: snapshot name (unique per VM)
+              - vSphere: MoRef integer ID (as string)
+              - Vultr: snapshot UUID
+        """
+
+    @abc.abstractmethod
+    def delete_snapshot(self, server_ref: dict, snapshot_ref: dict) -> None:
+        """Delete a snapshot from the VM.
+
+        Args:
+            server_ref: Provider-specific VM reference.
+            snapshot_ref: Provider-specific snapshot reference.
         """
 
     def wait_for_vm_ready(self, server_ref: dict, timeout_sec: int = 300, poll_interval_sec: int = 10) -> bool:
@@ -164,6 +209,31 @@ class ProxmoxProvider(HypervisorProvider):
         snapshots = self._proxmox.nodes(node).qemu(vmid).snapshot.get()
         return any(s.get("name") == snapshot_name for s in snapshots)
 
+    def list_snapshots(self, server_ref: dict) -> List[HypervisorSnapshot]:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
+        snapshots = self._proxmox.nodes(node).qemu(vmid).snapshot.get()
+        # Proxmox returns flat list with "parent" field; exclude "current" entry
+        # Proxmox enforces unique names per VM, so id = name
+        return [
+            HypervisorSnapshot(
+                name=s["name"],
+                description=s.get("description", ""),
+                id=s["name"],
+                parent=s.get("parent"),
+                created=s.get("snaptime"),
+            )
+            for s in snapshots
+            if s.get("name") != "current"
+        ]
+
+    def delete_snapshot(self, server_ref: dict, snapshot_ref: dict) -> None:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
+        snapshot_name = snapshot_ref.get("snapshot_name", "")
+        logger.info("Deleting snapshot '%s' on %s/qemu/%d", snapshot_name, node, vmid)
+        self._proxmox.nodes(node).qemu(vmid).snapshot(snapshot_name).delete()
+
 
 class VSphereProvider(HypervisorProvider):
     """VMware vSphere hypervisor provider.
@@ -210,6 +280,12 @@ class VSphereProvider(HypervisorProvider):
             return None
         return self._search_snapshot_tree(vm.snapshot.rootSnapshotList, snapshot_name)
 
+    def _find_snapshot_by_moref(self, vm, moref_id: str):
+        """Recursively find a snapshot by MoRef ID (unique within VM)."""
+        if not vm.snapshot:
+            return None
+        return self._search_snapshot_tree_by_id(vm.snapshot.rootSnapshotList, int(moref_id))
+
     def _search_snapshot_tree(self, snapshot_list, snapshot_name):
         for snap in snapshot_list:
             if snap.name == snapshot_name:
@@ -219,12 +295,32 @@ class VSphereProvider(HypervisorProvider):
                 return found
         return None
 
+    def _search_snapshot_tree_by_id(self, snapshot_list, moref_id: int):
+        """Search snapshot tree by MoRef integer ID."""
+        for snap in snapshot_list:
+            if snap.id == moref_id:
+                return snap.snapshot
+            found = self._search_snapshot_tree_by_id(snap.childSnapshotList, moref_id)
+            if found:
+                return found
+        return None
+
+    def _resolve_snapshot(self, vm, snapshot_ref: dict):
+        """Find snapshot by MoRef ID (preferred) or fall back to name."""
+        moref_id = snapshot_ref.get("snapshot_moref_id")
+        if moref_id:
+            snap = self._find_snapshot_by_moref(vm, moref_id)
+            if snap:
+                return snap
+        snapshot_name = snapshot_ref.get("snapshot_name", "")
+        return self._find_snapshot(vm, snapshot_name)
+
     def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
-        snapshot_name = snapshot_ref["snapshot_name"]
         vm = self._find_vm(server_ref)
-        snapshot = self._find_snapshot(vm, snapshot_name)
+        snapshot = self._resolve_snapshot(vm, snapshot_ref)
         if not snapshot:
-            raise ValueError(f"Snapshot '{snapshot_name}' not found on VM '{vm.name}'")
+            raise ValueError(f"Snapshot not found on VM '{vm.name}': {snapshot_ref}")
+        snapshot_name = snapshot_ref.get("snapshot_name", snapshot_ref.get("snapshot_moref_id"))
         logger.info("Restoring snapshot '%s' on VM '%s'", snapshot_name, vm.name)
         task = snapshot.RevertToSnapshot_Task()
         self._wait_for_task(task)
@@ -252,12 +348,69 @@ class VSphereProvider(HypervisorProvider):
             quiesce=True,
         )
         self._wait_for_task(task)
-        return {"snapshot_name": snapshot_name}
+        # Re-read VM to find the newly created snapshot's MoRef ID
+        vm = self._find_vm(server_ref)
+        moref_id = self._find_moref_by_name_latest(vm, snapshot_name)
+        return {"snapshot_name": snapshot_name, "snapshot_moref_id": moref_id}
+
+    def _find_moref_by_name_latest(self, vm, snapshot_name: str) -> Optional[str]:
+        """Find the MoRef ID for a snapshot by name. If duplicates, return the highest ID."""
+        if not vm.snapshot:
+            return None
+        matches = []
+        self._collect_morefs_by_name(vm.snapshot.rootSnapshotList, snapshot_name, matches)
+        if not matches:
+            return None
+        # Highest ID = most recently created
+        return str(max(matches))
+
+    def _collect_morefs_by_name(self, snapshot_list, name: str, result: list):
+        for snap in snapshot_list:
+            if snap.name == name:
+                result.append(snap.id)
+            self._collect_morefs_by_name(snap.childSnapshotList, name, result)
 
     def snapshot_exists(self, server_ref: dict, snapshot_ref: dict) -> bool:
-        snapshot_name = snapshot_ref.get("snapshot_name", "")
         vm = self._find_vm(server_ref)
-        return self._find_snapshot(vm, snapshot_name) is not None
+        return self._resolve_snapshot(vm, snapshot_ref) is not None
+
+    def list_snapshots(self, server_ref: dict) -> List[HypervisorSnapshot]:
+        vm = self._find_vm(server_ref)
+        if not vm.snapshot:
+            return []
+        result: List[HypervisorSnapshot] = []
+        self._collect_snapshot_tree(vm.snapshot.rootSnapshotList, parent_id=None, result=result)
+        return result
+
+    def _collect_snapshot_tree(self, snapshot_list, parent_id: Optional[str], result: List[HypervisorSnapshot]):
+        """Recursively collect all snapshots into a flat list with parent references."""
+        for snap in snapshot_list:
+            snap_id = str(snap.id)
+            # Convert vSphere datetime to unix timestamp
+            created_ts = None
+            try:
+                created_ts = int(snap.createTime.timestamp())
+            except Exception:
+                pass
+            result.append(HypervisorSnapshot(
+                name=snap.name,
+                description=snap.description or "",
+                id=snap_id,
+                parent=parent_id,
+                created=created_ts,
+            ))
+            self._collect_snapshot_tree(snap.childSnapshotList, parent_id=snap_id, result=result)
+
+    def delete_snapshot(self, server_ref: dict, snapshot_ref: dict) -> None:
+        vm = self._find_vm(server_ref)
+        snapshot = self._resolve_snapshot(vm, snapshot_ref)
+        snapshot_name = snapshot_ref.get("snapshot_name", snapshot_ref.get("snapshot_moref_id"))
+        if snapshot:
+            logger.info("Deleting snapshot '%s' from VM '%s'", snapshot_name, vm.name)
+            task = snapshot.RemoveSnapshot_Task(removeChildren=False)
+            self._wait_for_task(task)
+        else:
+            logger.warning("Snapshot '%s' not found on VM '%s'", snapshot_name, vm.name)
 
     def _wait_for_task(self, task, timeout_sec: int = 600):
         """Wait for a vSphere task to complete."""
@@ -428,6 +581,35 @@ class VultrProvider(HypervisorProvider):
             return False
         snap = self._get_snapshot_by_id(snapshot_id)
         return snap is not None
+
+    def list_snapshots(self, server_ref: dict) -> List[HypervisorSnapshot]:
+        """List all Vultr snapshots. Vultr snapshots are flat (no hierarchy)."""
+        from datetime import datetime as dt
+        resp = self._request("GET", "/snapshots")
+        snapshots = resp.json().get("snapshots", [])
+        result = []
+        for s in snapshots:
+            created_ts = None
+            try:
+                created_ts = int(dt.fromisoformat(s["date_created"].replace("Z", "+00:00")).timestamp())
+            except Exception:
+                pass
+            result.append(HypervisorSnapshot(
+                name=s.get("description", s["id"]),
+                description=s.get("description", ""),
+                id=s["id"],
+                parent=None,  # Vultr snapshots have no parent hierarchy
+                created=created_ts,
+            ))
+        return result
+
+    def delete_snapshot(self, server_ref: dict, snapshot_ref: dict) -> None:
+        """Delete a Vultr snapshot."""
+        snapshot_id = snapshot_ref.get("snapshot_id")
+        if not snapshot_id:
+            raise ValueError("snapshot_ref missing 'snapshot_id'")
+        logger.info("Deleting Vultr snapshot %s", snapshot_id)
+        self._request("DELETE", f"/snapshots/{snapshot_id}")
 
 
 def create_hypervisor_provider(

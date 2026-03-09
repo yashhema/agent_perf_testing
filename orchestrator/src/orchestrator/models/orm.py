@@ -25,9 +25,12 @@ from sqlalchemy.orm import relationship
 from orchestrator.models.database import Base
 from orchestrator.models.enums import (
     AgentType,
+    BaselineTestState,
+    BaselineTestType,
     BaselineType,
     DBType,
     DiskType,
+    ExecutionMode,
     ExecutionStatus,
     FunctionalTestPhase,
     HypervisorType,
@@ -57,6 +60,9 @@ class LabORM(Base):
     hypervisor_type = Column(Enum(HypervisorType), nullable=False)
     hypervisor_manager_url = Column(String(512), nullable=False)
     hypervisor_manager_port = Column(Integer, nullable=False)
+    execution_mode = Column(
+        Enum(ExecutionMode), nullable=False, default=ExecutionMode.live_compare,
+    )
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
@@ -98,6 +104,9 @@ class ServerORM(Base):
     hostname = Column(String(255), nullable=False)
     ip_address = Column(String(45), nullable=False, unique=True)
     os_family = Column(Enum(OSFamily), nullable=False)
+    os_vendor_family = Column(String(100), nullable=True)   # e.g., "ubuntu", "rhel", "windows"
+    os_major_ver = Column(String(20), nullable=True)        # e.g., "22", "9", "2022"
+    os_minor_ver = Column(String(20), nullable=True)        # e.g., "04", "3"
     lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False)
     hardware_profile_id = Column(Integer, ForeignKey("hardware_profiles.id"), nullable=False)
     server_infra_type = Column(Enum(ServerInfraType), nullable=False)
@@ -108,12 +117,18 @@ class ServerORM(Base):
     db_name = Column(String(255), nullable=True)
     db_user = Column(String(255), nullable=True)
     db_password = Column(String(255), nullable=True)
+    # Baseline-compare defaults (used when no per-test override)
+    default_loadgen_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
+    default_partner_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
+    service_monitor_patterns = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
     lab = relationship("LabORM", back_populates="servers")
     hardware_profile = relationship("HardwareProfileORM", back_populates="servers")
     baseline = relationship("BaselineORM", foreign_keys=[baseline_id])
+    default_loadgen = relationship("ServerORM", foreign_keys=[default_loadgen_id], remote_side="ServerORM.id")
+    default_partner = relationship("ServerORM", foreign_keys=[default_partner_id], remote_side="ServerORM.id")
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +341,8 @@ class CalibrationResultORM(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=False)
+    test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=True)
+    baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=True)
     server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
     os_type = Column(Enum(OSFamily), nullable=False)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
@@ -355,7 +371,10 @@ class CalibrationResultORM(Base):
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
     # Relationships
-    test_run = relationship("TestRunORM", back_populates="calibration_results")
+    test_run = relationship("TestRunORM", back_populates="calibration_results",
+                            foreign_keys=[test_run_id])
+    baseline_test_run = relationship("BaselineTestRunORM",
+                                     foreign_keys=[baseline_test_run_id])
     server = relationship("ServerORM")
     load_profile = relationship("LoadProfileORM")
 
@@ -404,7 +423,8 @@ class ComparisonResultORM(Base):
     __tablename__ = "comparison_results"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=False)
+    test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=True)
+    baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=True)
     target_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
     comparison_type = Column(String(50), nullable=False)
@@ -417,6 +437,7 @@ class ComparisonResultORM(Base):
 
     # Relationships
     test_run = relationship("TestRunORM", back_populates="comparison_results")
+    baseline_test_run = relationship("BaselineTestRunORM", back_populates="comparison_results")
     target = relationship("ServerORM")
     load_profile = relationship("LoadProfileORM")
 
@@ -506,3 +527,201 @@ class AnalysisRuleORM(Base):
 
     # Relationships
     agent = relationship("AgentORM", back_populates="analysis_rules")
+
+
+# ===========================================================================
+# Baseline-Compare Mode Tables
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# SnapshotBaselineORM — First-level "Group": clean OS state per target VM
+# UI label: "Group"
+# ---------------------------------------------------------------------------
+class SnapshotBaselineORM(Base):
+    __tablename__ = "snapshot_baselines"
+    __table_args__ = (
+        UniqueConstraint("server_id", "snapshot_id", name="uq_sb_server_snapshot"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
+    snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    server = relationship("ServerORM", backref="snapshot_baselines")
+    snapshot = relationship("SnapshotORM", foreign_keys=[snapshot_id])
+    groups = relationship("SnapshotGroupORM", back_populates="baseline", cascade="all, delete-orphan")
+
+
+# ---------------------------------------------------------------------------
+# SnapshotGroupORM — Second-level "Subgroup": agent/team under a group
+# UI label: "Subgroup"
+# ---------------------------------------------------------------------------
+class SnapshotGroupORM(Base):
+    __tablename__ = "snapshot_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    baseline_id = Column(Integer, ForeignKey("snapshot_baselines.id"), nullable=False)
+    snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    baseline = relationship("SnapshotBaselineORM", back_populates="groups")
+    snapshot = relationship("SnapshotORM", foreign_keys=[snapshot_id])
+    snapshots = relationship("SnapshotORM", back_populates="group", foreign_keys="SnapshotORM.group_id")
+
+
+# ---------------------------------------------------------------------------
+# SnapshotORM — Hierarchical snapshot tree tied to a server
+# ---------------------------------------------------------------------------
+class SnapshotORM(Base):
+    __tablename__ = "snapshots"
+    __table_args__ = (
+        UniqueConstraint("server_id", "provider_snapshot_id", name="uq_snapshot_server_provider_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
+    parent_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
+    group_id = Column(Integer, ForeignKey("snapshot_groups.id"), nullable=True)
+    provider_snapshot_id = Column(String(100), nullable=False)
+    provider_ref = Column(JSON, nullable=False)
+    snapshot_tree = Column(JSON, nullable=True)
+    is_baseline = Column(Boolean, nullable=False, default=False)
+    is_archived = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    server = relationship("ServerORM", backref="snapshots")
+    parent = relationship("SnapshotORM", remote_side=[id], backref="children")
+    group = relationship("SnapshotGroupORM", foreign_keys=[group_id], back_populates="snapshots")
+    profile_data = relationship(
+        "SnapshotProfileDataORM",
+        back_populates="snapshot",
+        foreign_keys="SnapshotProfileDataORM.snapshot_id",
+        cascade="all, delete-orphan",
+    )
+
+
+# ---------------------------------------------------------------------------
+# SnapshotProfileDataORM — Per-snapshot, per-load-profile stored data
+# ---------------------------------------------------------------------------
+class SnapshotProfileDataORM(Base):
+    __tablename__ = "snapshot_profile_data"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "load_profile_id", name="uq_snapshot_profile"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=False)
+    load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
+    thread_count = Column(Integer, nullable=False)
+    jmx_test_case_data = Column(String(500), nullable=True)
+    stats_data = Column(String(500), nullable=True)
+    stats_summary = Column(JSON, nullable=True)
+    jtl_data = Column(String(500), nullable=True)
+    source_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    snapshot = relationship(
+        "SnapshotORM", foreign_keys=[snapshot_id], back_populates="profile_data",
+    )
+    load_profile = relationship("LoadProfileORM")
+    source_snapshot = relationship("SnapshotORM", foreign_keys=[source_snapshot_id])
+
+
+# ---------------------------------------------------------------------------
+# BaselineTestRunORM — A test run in baseline-compare mode
+# ---------------------------------------------------------------------------
+class BaselineTestRunORM(Base):
+    __tablename__ = "baseline_test_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False)
+    scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False)
+    test_type = Column(Enum(BaselineTestType), nullable=False)
+    state = Column(
+        Enum(BaselineTestState), nullable=False, default=BaselineTestState.created,
+    )
+    current_load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=True)
+    error_message = Column(Text, nullable=True)
+    verdict = Column(Enum(Verdict), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    lab = relationship("LabORM")
+    scenario = relationship("ScenarioORM")
+    current_load_profile = relationship("LoadProfileORM", foreign_keys=[current_load_profile_id])
+    comparison_results = relationship("ComparisonResultORM", back_populates="baseline_test_run")
+    load_profiles = relationship(
+        "BaselineTestRunLoadProfileORM", back_populates="baseline_test_run",
+        cascade="all, delete-orphan",
+    )
+    targets = relationship(
+        "BaselineTestRunTargetORM", back_populates="baseline_test_run",
+        cascade="all, delete-orphan",
+    )
+
+
+# ---------------------------------------------------------------------------
+# BaselineTestRunTargetORM — Per-target config for baseline test runs
+# ---------------------------------------------------------------------------
+class BaselineTestRunTargetORM(Base):
+    __tablename__ = "baseline_test_run_targets"
+    __table_args__ = (
+        UniqueConstraint("baseline_test_run_id", "target_id", name="uq_baseline_run_target"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=False)
+    target_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
+    loadgenerator_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
+    partner_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
+    test_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=False)
+    compare_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
+    service_monitor_patterns = Column(JSON, nullable=True)
+
+    # Discovery results (written during setting_up)
+    os_kind = Column(String(100), nullable=True)
+    os_major_ver = Column(String(20), nullable=True)
+    os_minor_ver = Column(String(20), nullable=True)
+    agent_versions = Column(JSON, nullable=True)
+
+    # Relationships
+    baseline_test_run = relationship("BaselineTestRunORM", back_populates="targets")
+    target = relationship("ServerORM", foreign_keys=[target_id])
+    loadgenerator = relationship("ServerORM", foreign_keys=[loadgenerator_id])
+    partner = relationship("ServerORM", foreign_keys=[partner_id])
+    test_snapshot = relationship("SnapshotORM", foreign_keys=[test_snapshot_id])
+    compare_snapshot = relationship("SnapshotORM", foreign_keys=[compare_snapshot_id])
+
+
+# ---------------------------------------------------------------------------
+# BaselineTestRunLoadProfileORM — M2M: baseline test run <-> load profiles
+# ---------------------------------------------------------------------------
+class BaselineTestRunLoadProfileORM(Base):
+    __tablename__ = "baseline_test_run_load_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "baseline_test_run_id", "load_profile_id",
+            name="uq_baseline_test_run_lp",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=False)
+    load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
+
+    # Relationships
+    baseline_test_run = relationship("BaselineTestRunORM", back_populates="load_profiles")
+    load_profile = relationship("LoadProfileORM")

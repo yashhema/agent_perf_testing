@@ -103,3 +103,36 @@ class Verdict(str, Enum):
     passed = "passed"
     failed = "failed"
     warning = "warning"
+
+
+# ---------------------------------------------------------------------------
+# Baseline-Compare Mode Enums
+# ---------------------------------------------------------------------------
+
+class ExecutionMode(str, Enum):
+    """Determines how a lab runs tests: live-compare (2 snapshots per run)
+    or baseline-compare (1 snapshot compared against stored baseline data)."""
+    live_compare = "live_compare"
+    baseline_compare = "baseline_compare"
+
+
+class BaselineTestType(str, Enum):
+    """The three test types available in baseline-compare mode."""
+    new_baseline = "new_baseline"
+    compare = "compare"
+    compare_with_new_calibration = "compare_with_new_calibration"
+
+
+class BaselineTestState(str, Enum):
+    """State machine states for baseline-compare test runs."""
+    created = "created"
+    validating = "validating"
+    setting_up = "setting_up"
+    calibrating = "calibrating"
+    generating = "generating"
+    executing = "executing"
+    storing = "storing"
+    comparing = "comparing"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"

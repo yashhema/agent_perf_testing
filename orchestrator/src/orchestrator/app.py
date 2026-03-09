@@ -56,10 +56,14 @@ def create_app() -> FastAPI:
     from orchestrator.api.admin import router as admin_router
     from orchestrator.api.test_runs import router as test_runs_router
     from orchestrator.api.trending import router as trending_router
+    from orchestrator.api.baseline_test_runs import router as baseline_router
+    from orchestrator.api.baseline_test_runs import snapshot_router
     application.include_router(auth_router)
     application.include_router(admin_router)
     application.include_router(test_runs_router)
     application.include_router(trending_router)
+    application.include_router(baseline_router)
+    application.include_router(snapshot_router)
 
     # Register web UI routes
     from orchestrator.web.views import router as web_router

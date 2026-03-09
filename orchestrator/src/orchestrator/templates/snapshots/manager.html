@@ -1,0 +1,952 @@
+{% extends "base.html" %}
+{% block title %}Snapshot Manager - Orchestrator{% endblock %}
+{% block page_header %}<strong>Snapshot Manager</strong>{% endblock %}
+
+{% block content %}
+<!-- Step 1: Server selector -->
+<div class="card shadow-sm mb-4">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-4">
+        <select class="form-select" id="sel-server">
+          <option value="">-- Select Server --</option>
+        </select>
+      </div>
+      <div class="col-auto" id="toolbar-sync" style="display:none">
+        <button class="btn btn-outline-primary btn-sm" onclick="syncSnapshots()">
+          <i class="bi bi-arrow-repeat me-1"></i>Sync from Hypervisor
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Placeholder when no server selected -->
+<div id="no-server-msg" class="text-center text-muted py-5">
+  <i class="bi bi-hdd-rack" style="font-size:3rem"></i>
+  <p class="mt-2">Select a server above to manage its snapshots</p>
+</div>
+
+<!-- Main content (hidden until server selected) -->
+<div id="main-panel" style="display:none">
+  <div class="row g-4">
+
+    <!-- LEFT: Navigation panel -->
+    <div class="col-md-5">
+
+      <!-- Groups (was "Baselines") -->
+      <div class="card shadow-sm mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0"><i class="bi bi-flag me-1"></i>Groups <span class="text-muted fw-normal" style="font-size:.75rem" id="groups-server-label"></span></h6>
+          <button class="btn btn-warning btn-sm" onclick="openGroupModal()">
+            <i class="bi bi-plus-lg me-1"></i>Create Group
+          </button>
+        </div>
+        <div class="card-body p-0" id="groups-list" style="max-height:200px; overflow-y:auto">
+        </div>
+      </div>
+
+      <!-- Subgroups (was "Groups") — shown after group selected -->
+      <div class="card shadow-sm mb-3" id="subgroups-card" style="display:none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0"><i class="bi bi-folder me-1"></i>Subgroups of: <span id="subgroups-parent-name"></span></h6>
+          <button class="btn btn-info btn-sm" onclick="openSubgroupModal()">
+            <i class="bi bi-plus-lg me-1"></i>Create Subgroup
+          </button>
+        </div>
+        <div class="card-body p-0" id="subgroups-list" style="max-height:200px; overflow-y:auto">
+        </div>
+      </div>
+
+      <!-- Snapshots in subgroup — shown after subgroup selected -->
+      <div class="card shadow-sm" id="snapshots-card" style="display:none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0"><i class="bi bi-camera me-1"></i>Snapshots in: <span id="snaps-parent-name"></span></h6>
+          <div>
+            <button class="btn btn-success btn-sm me-1" onclick="openTakeModal()">
+              <i class="bi bi-plus-lg me-1"></i>Take New
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="openPickModal()">
+              <i class="bi bi-list-check me-1"></i>Pick from Hypervisor
+            </button>
+          </div>
+        </div>
+        <div class="card-body p-0" id="snapshots-list" style="max-height:250px; overflow-y:auto">
+        </div>
+      </div>
+
+      <!-- Full tree (collapsible) -->
+      <div class="card shadow-sm mt-3">
+        <div class="card-header" style="cursor:pointer" onclick="toggleTree()">
+          <h6 class="mb-0"><i class="bi bi-diagram-3 me-1"></i>Full Snapshot Tree
+            <i class="bi bi-chevron-down float-end" id="tree-chevron"></i>
+          </h6>
+        </div>
+        <div class="card-body collapse" id="tree-container" style="max-height:300px; overflow-y:auto">
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Detail panel -->
+    <div class="col-md-7">
+      <div class="card shadow-sm">
+        <div class="card-header"><h6 class="mb-0">Detail</h6></div>
+        <div class="card-body" id="detail-container">
+          <div class="text-center text-muted py-4">Select a group, subgroup, or snapshot to view details</div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-3 d-none" id="profile-data-card">
+        <div class="card-header"><h6 class="mb-0">Stored Profile Data</h6></div>
+        <div class="card-body p-0">
+          <table class="table table-sm table-hover mb-0">
+            <thead><tr>
+              <th>Load Profile</th><th>Threads</th><th>Stats</th><th>JTL</th><th>JMX Data</th><th>Source</th>
+            </tr></thead>
+            <tbody id="profile-data-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Group modal -->
+<div class="modal fade" id="group-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          A group captures a clean OS state for server <strong id="grp-modal-server-name"></strong>. A default subgroup will be auto-created.
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Group Name</label>
+          <input type="text" class="form-control" id="grp-name" placeholder="e.g. Clean OS Rocky" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="grp-desc" rows="2"></textarea>
+        </div>
+        <hr>
+        <div class="mb-3">
+          <label class="form-label fw-bold">Snapshot Source</label>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="grp-snap-source" id="grp-snap-existing" value="existing" checked onchange="toggleGrpSnapSource()">
+            <label class="form-check-label" for="grp-snap-existing">Pick existing snapshot from hypervisor</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="grp-snap-source" id="grp-snap-new" value="new" onchange="toggleGrpSnapSource()">
+            <label class="form-check-label" for="grp-snap-new">Take new snapshot (current VM state)</label>
+          </div>
+        </div>
+        <!-- Existing snapshot picker (shown by default) -->
+        <div id="grp-existing-fields">
+          <div id="grp-hv-list" style="max-height:250px; overflow-y:auto; border:1px solid #dee2e6; border-radius:.375rem">
+            <div class="text-muted p-3">Loading...</div>
+          </div>
+          <input type="hidden" id="grp-existing-snap-id">
+        </div>
+        <!-- New snapshot fields (hidden by default) -->
+        <div id="grp-new-fields" style="display:none">
+          <div class="mb-3">
+            <label class="form-label">Snapshot Name (on hypervisor)</label>
+            <input type="text" class="form-control" id="grp-snap-name" placeholder="e.g. clean-os-rocky">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" onclick="doCreateGroup()" id="btn-grp-confirm">
+          <i class="bi bi-flag me-1"></i>Create Group
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Subgroup modal -->
+<div class="modal fade" id="subgroup-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create Subgroup under: <span id="sg-modal-parent-name"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          Install the agent on the VM first, then create a subgroup to capture the state.
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Subgroup Name</label>
+          <input type="text" class="form-control" id="sg-name" placeholder="e.g. CrowdStrike, SentinelOne" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="sg-desc" rows="2"></textarea>
+        </div>
+        <hr>
+        <div class="mb-3">
+          <label class="form-label fw-bold">Snapshot Source</label>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="sg-snap-source" id="sg-snap-existing" value="existing" checked onchange="toggleSgSnapSource()">
+            <label class="form-check-label" for="sg-snap-existing">Pick existing snapshot (children of group only)</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="sg-snap-source" id="sg-snap-new" value="new" onchange="toggleSgSnapSource()">
+            <label class="form-check-label" for="sg-snap-new">Take new snapshot (current VM state)</label>
+          </div>
+        </div>
+        <!-- Existing snapshot picker (shown by default) -->
+        <div id="sg-existing-fields">
+          <div id="sg-hv-list" style="max-height:250px; overflow-y:auto; border:1px solid #dee2e6; border-radius:.375rem">
+            <div class="text-muted p-3">Loading...</div>
+          </div>
+          <input type="hidden" id="sg-existing-snap-id">
+        </div>
+        <!-- New snapshot fields (hidden by default) -->
+        <div id="sg-new-fields" style="display:none">
+          <div class="mb-3">
+            <label class="form-label">Snapshot Name (optional — auto-generated if blank)</label>
+            <input type="text" class="form-control" id="sg-snap-name" placeholder="e.g. crowdstrike-installed">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-info" onclick="doCreateSubgroup()" id="btn-sg-confirm">
+          <i class="bi bi-folder-plus me-1"></i>Create Subgroup
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Take snapshot modal -->
+<div class="modal fade" id="take-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Take Snapshot in: <span id="take-modal-parent-name"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Snapshot Name</label>
+          <input type="text" class="form-control" id="take-snap-name" placeholder="e.g. After Test Run 1" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="take-snap-desc" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" onclick="doTakeSnapshot()" id="btn-take-confirm">
+          <i class="bi bi-camera me-1"></i>Take Snapshot
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pick from hypervisor modal -->
+<div class="modal fade" id="pick-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Pick Snapshot from Hypervisor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2" style="font-size:.85rem">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          These are snapshots currently on the hypervisor. Select one to link it to the current subgroup.
+        </div>
+        <div id="pick-list" style="max-height:400px; overflow-y:auto">
+          <div class="text-center text-muted py-3">Loading...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _servers = [], _snapshots = [], _snapshotTree = [];
+let _groups = [], _subgroups = [], _subgroupSnapshots = [];
+let _selectedServerId = null;
+let _selectedGroupId = null;     // snapshot_baselines.id
+let _selectedSubgroupId = null;  // snapshot_groups.id
+let _selectedSnapshotId = null;
+let _groupModal, _subgroupModal, _takeModal, _pickModal;
+let _loadProfiles = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  _groupModal = new bootstrap.Modal(document.getElementById('group-modal'));
+  _subgroupModal = new bootstrap.Modal(document.getElementById('subgroup-modal'));
+  _takeModal = new bootstrap.Modal(document.getElementById('take-modal'));
+  _pickModal = new bootstrap.Modal(document.getElementById('pick-modal'));
+
+  try {
+    [_servers, _loadProfiles] = await Promise.all([
+      API.get('/api/admin/servers'),
+      API.get('/api/admin/load-profiles'),
+    ]);
+    const sel = document.getElementById('sel-server');
+    _servers.forEach(s => {
+      sel.insertAdjacentHTML('beforeend',
+        `<option value="${s.id}">${escHtml(s.hostname)} (${s.ip_address})</option>`);
+    });
+  } catch (e) { showToast('Failed to load servers: ' + e.message, 'danger'); }
+});
+
+function lpName(id) {
+  const lp = _loadProfiles.find(l => l.id === id);
+  return lp ? lp.name : 'LP #' + id;
+}
+
+// ===========================================================================
+// Server selection
+// ===========================================================================
+
+document.getElementById('sel-server').addEventListener('change', async (e) => {
+  _selectedServerId = parseInt(e.target.value) || null;
+  _selectedGroupId = null;
+  _selectedSubgroupId = null;
+  _selectedSnapshotId = null;
+
+  document.getElementById('no-server-msg').style.display = _selectedServerId ? 'none' : '';
+  document.getElementById('main-panel').style.display = _selectedServerId ? '' : 'none';
+  document.getElementById('toolbar-sync').style.display = _selectedServerId ? '' : 'none';
+  document.getElementById('subgroups-card').style.display = 'none';
+  document.getElementById('snapshots-card').style.display = 'none';
+  resetDetail();
+
+  if (_selectedServerId) {
+    const srv = _servers.find(s => s.id === _selectedServerId);
+    document.getElementById('groups-server-label').textContent = srv ? `for ${srv.hostname}` : '';
+    await loadAll();
+  } else {
+    document.getElementById('groups-server-label').textContent = '';
+  }
+});
+
+function resetDetail() {
+  document.getElementById('detail-container').innerHTML =
+    '<div class="text-center text-muted py-4">Select a group, subgroup, or snapshot to view details</div>';
+  document.getElementById('profile-data-card').classList.add('d-none');
+}
+
+async function loadAll() {
+  if (!_selectedServerId) return;
+  try {
+    [_snapshots, _snapshotTree, _groups, _subgroups] = await Promise.all([
+      API.get(`/api/servers/${_selectedServerId}/snapshots`),
+      API.get(`/api/servers/${_selectedServerId}/snapshots/tree`),
+      API.get(`/api/servers/${_selectedServerId}/snapshot-baselines`),
+      API.get(`/api/servers/${_selectedServerId}/snapshot-groups`),
+    ]);
+    renderGroups();
+    renderTree();
+  } catch (e) { showToast('Error loading data: ' + e.message, 'danger'); }
+}
+
+// ===========================================================================
+// Groups list (was Baselines)
+// ===========================================================================
+
+function renderGroups() {
+  const container = document.getElementById('groups-list');
+  if (_groups.length === 0) {
+    container.innerHTML = '<div class="text-muted p-3" style="font-size:.85rem">No groups yet. Create one to get started.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  _groups.forEach(g => {
+    const active = g.id === _selectedGroupId ? 'bg-warning bg-opacity-10 fw-bold' : '';
+    const snap = _snapshots.find(s => s.id === g.snapshot_id);
+    const div = document.createElement('div');
+    div.className = `px-3 py-2 border-bottom snap-tree-node ${active}`;
+    div.style.cssText = 'cursor:pointer; font-size:.85rem;';
+    div.innerHTML = `
+      <i class="bi bi-flag-fill text-warning me-1"></i>
+      ${escHtml(g.name)}
+      ${snap ? `<code class="ms-1 text-muted" style="font-size:.75rem">${escHtml(snap.provider_snapshot_id)}</code>` : ''}
+    `;
+    div.onclick = () => selectGroup(g);
+    container.appendChild(div);
+  });
+}
+
+function selectGroup(g) {
+  _selectedGroupId = g.id;
+  _selectedSubgroupId = null;
+  _selectedSnapshotId = null;
+  document.getElementById('snapshots-card').style.display = 'none';
+  renderGroups();
+  renderSubgroups(g);
+  showGroupDetail(g);
+}
+
+function showGroupDetail(g) {
+  const snap = _snapshots.find(s => s.id === g.snapshot_id);
+  const subCount = _subgroups.filter(sg => sg.baseline_id === g.id).length;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = `
+    <h6><i class="bi bi-flag-fill text-warning me-2"></i>Group: ${escHtml(g.name)}</h6>
+    <table class="table table-sm mb-3">
+      <tr><th style="width:140px">Group ID</th><td>${g.id}</td></tr>
+      <tr><th>Description</th><td>${escHtml(g.description || '-')}</td></tr>
+      <tr><th>Snapshot</th><td>${snap ? `#${snap.id} — <code>${escHtml(snap.provider_snapshot_id)}</code>` : '<span class="text-danger">No snapshot linked</span>'}</td></tr>
+      <tr><th>Subgroups</th><td>${subCount}</td></tr>
+      <tr><th>Created</th><td>${fmtDate(g.created_at)}</td></tr>
+      ${snap ? `<tr><th>Hypervisor</th><td><span id="validate-g-${g.snapshot_id}" class="text-muted">Not checked</span></td></tr>` : ''}
+    </table>
+    <div>
+      ${snap ? `<button class="btn btn-sm btn-outline-secondary me-2" onclick="validateSnapshot(${g.snapshot_id}, 'validate-g-${g.snapshot_id}')"><i class="bi bi-check-circle me-1"></i>Validate</button>` : ''}
+      ${snap ? `<button class="btn btn-sm btn-outline-warning" onclick="revertToGroup(${g.id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM to Group</button>` : ''}
+    </div>
+  `;
+  document.getElementById('profile-data-card').classList.add('d-none');
+}
+
+// ===========================================================================
+// Subgroups list (was Groups)
+// ===========================================================================
+
+function renderSubgroups(g) {
+  const card = document.getElementById('subgroups-card');
+  card.style.display = '';
+  document.getElementById('subgroups-parent-name').textContent = g.name;
+
+  const subs = _subgroups.filter(sg => sg.baseline_id === g.id);
+  const container = document.getElementById('subgroups-list');
+
+  if (subs.length === 0) {
+    container.innerHTML = '<div class="text-muted p-3" style="font-size:.85rem">No subgroups yet.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  subs.forEach(sg => {
+    const active = sg.id === _selectedSubgroupId ? 'bg-info bg-opacity-10 fw-bold' : '';
+    const snap = sg.snapshot_id ? _snapshots.find(s => s.id === sg.snapshot_id) : null;
+    const noSnap = !sg.snapshot_id;
+    const div = document.createElement('div');
+    div.className = `px-3 py-2 border-bottom snap-tree-node ${active}`;
+    div.style.cssText = 'cursor:pointer; font-size:.85rem;';
+    div.innerHTML = `
+      <i class="bi bi-folder-fill text-info me-1"></i>
+      ${escHtml(sg.name)}
+      ${snap ? `<code class="ms-1 text-muted" style="font-size:.75rem">${escHtml(snap.provider_snapshot_id)}</code>` : ''}
+      ${noSnap ? '<span class="badge bg-danger ms-1" style="font-size:.6rem">no snapshot</span>' : ''}
+    `;
+    div.onclick = () => selectSubgroup(sg);
+    container.appendChild(div);
+  });
+}
+
+async function selectSubgroup(sg) {
+  _selectedSubgroupId = sg.id;
+  _selectedSnapshotId = null;
+  const g = _groups.find(b => b.id === sg.baseline_id);
+  if (g) renderSubgroups(g);
+  showSubgroupDetail(sg);
+  await renderSubgroupSnapshots(sg);
+}
+
+function showSubgroupDetail(sg) {
+  const g = _groups.find(b => b.id === sg.baseline_id);
+  const snap = sg.snapshot_id ? _snapshots.find(s => s.id === sg.snapshot_id) : null;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = `
+    <h6><i class="bi bi-folder-fill text-info me-2"></i>Subgroup: ${escHtml(sg.name)}</h6>
+    <table class="table table-sm mb-3">
+      <tr><th style="width:140px">Subgroup ID</th><td>${sg.id}</td></tr>
+      <tr><th>Parent Group</th><td>${g ? escHtml(g.name) : 'Group #' + sg.baseline_id}</td></tr>
+      <tr><th>Description</th><td>${escHtml(sg.description || '-')}</td></tr>
+      <tr><th>Snapshot</th><td>${snap ? `#${snap.id} — <code>${escHtml(snap.provider_snapshot_id)}</code>` : '<span class="text-danger">No snapshot linked</span>'}</td></tr>
+      <tr><th>Created</th><td>${fmtDate(sg.created_at)}</td></tr>
+      ${snap ? `<tr><th>Hypervisor</th><td><span id="validate-sg-${sg.snapshot_id}" class="text-muted">Not checked</span></td></tr>` : ''}
+    </table>
+    <div>
+      ${snap ? `<button class="btn btn-sm btn-outline-secondary me-2" onclick="validateSnapshot(${sg.snapshot_id}, 'validate-sg-${sg.snapshot_id}')"><i class="bi bi-check-circle me-1"></i>Validate</button>` : ''}
+      ${snap ? `<button class="btn btn-sm btn-outline-warning" onclick="revertSnapshot(${sg.snapshot_id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM</button>` : ''}
+    </div>
+  `;
+  document.getElementById('profile-data-card').classList.add('d-none');
+}
+
+async function renderSubgroupSnapshots(sg) {
+  const card = document.getElementById('snapshots-card');
+  card.style.display = '';
+  document.getElementById('snaps-parent-name').textContent = sg.name;
+  document.getElementById('take-modal-parent-name').textContent = sg.name;
+
+  try {
+    _subgroupSnapshots = await API.get(`/api/servers/${_selectedServerId}/snapshot-groups/${sg.id}/snapshots`);
+  } catch { _subgroupSnapshots = []; }
+
+  const container = document.getElementById('snapshots-list');
+  if (_subgroupSnapshots.length === 0) {
+    container.innerHTML = '<div class="text-muted p-3" style="font-size:.85rem">No snapshots in this subgroup.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  _subgroupSnapshots.forEach(s => {
+    const active = s.id === _selectedSnapshotId ? 'bg-primary bg-opacity-10 fw-bold' : '';
+    const archived = s.is_archived ? ' text-muted' : '';
+    const div = document.createElement('div');
+    div.className = `px-3 py-2 border-bottom snap-tree-node ${active}${archived}`;
+    div.style.cssText = 'cursor:pointer; font-size:.85rem;';
+    div.innerHTML = `
+      <i class="bi bi-${s.is_archived ? 'archive' : 'camera'} ${s.is_archived ? 'text-muted' : 'text-primary'} me-1"></i>
+      ${escHtml(s.name)}
+      <code class="ms-1 text-muted" style="font-size:.75rem">${escHtml(s.provider_snapshot_id)}</code>
+      ${s.is_baseline ? ' <span class="badge bg-success" style="font-size:.6rem">baseline</span>' : ''}
+      ${s.is_archived ? ' <span class="badge bg-secondary" style="font-size:.6rem">archived</span>' : ''}
+    `;
+    div.onclick = () => showSnapshotDetail(s);
+    container.appendChild(div);
+  });
+}
+
+// ===========================================================================
+// Snapshot detail
+// ===========================================================================
+
+async function showSnapshotDetail(snap) {
+  _selectedSnapshotId = snap.id;
+  // Re-render list to highlight
+  if (_selectedSubgroupId) {
+    const sg = _subgroups.find(s => s.id === _selectedSubgroupId);
+    if (sg) await renderSubgroupSnapshots(sg);
+  }
+
+  const sgName = snap.group_id ? (_subgroups.find(sg => sg.id === snap.group_id)?.name || '#' + snap.group_id) : '-';
+
+  const container = document.getElementById('detail-container');
+  container.innerHTML = `
+    <h6><i class="bi bi-camera text-primary me-2"></i>Snapshot: ${escHtml(snap.name)}</h6>
+    <table class="table table-sm mb-3">
+      <tr><th style="width:140px">DB ID</th><td>${snap.id}</td></tr>
+      <tr><th>Description</th><td>${escHtml(snap.description || '-')}</td></tr>
+      <tr><th>Provider ID</th><td><code>${escHtml(snap.provider_snapshot_id)}</code></td></tr>
+      <tr><th>Parent</th><td>${snap.parent_id ? 'Snap #' + snap.parent_id : 'root'}</td></tr>
+      <tr><th>Subgroup</th><td>${escHtml(sgName)}</td></tr>
+      <tr><th>Is Baseline</th><td>${snap.is_baseline ? '<span class="badge bg-success">Yes</span>' : 'No'}</td></tr>
+      <tr><th>Is Archived</th><td>${snap.is_archived ? '<span class="badge bg-secondary">Yes</span>' : 'No'}</td></tr>
+      <tr><th>Created</th><td>${fmtDate(snap.created_at)}</td></tr>
+      <tr><th>Hypervisor</th><td><span id="validate-s-${snap.id}" class="text-muted">Not checked</span></td></tr>
+    </table>
+    <div>
+      <button class="btn btn-sm btn-outline-secondary me-2" onclick="validateSnapshot(${snap.id}, 'validate-s-${snap.id}')">
+        <i class="bi bi-check-circle me-1"></i>Validate
+      </button>
+      ${!snap.is_archived ? `<button class="btn btn-sm btn-outline-warning me-2" onclick="revertSnapshot(${snap.id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM</button>` : ''}
+      ${!snap.is_archived ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteSnapshot(${snap.id})"><i class="bi bi-trash me-1"></i>Delete</button>` : ''}
+    </div>
+  `;
+
+  try {
+    const profileData = await API.get(`/api/servers/${_selectedServerId}/snapshots/${snap.id}/profile-data`);
+    const card = document.getElementById('profile-data-card');
+    const tbody = document.getElementById('profile-data-body');
+    if (profileData.length > 0) {
+      card.classList.remove('d-none');
+      tbody.innerHTML = profileData.map(d => `<tr>
+        <td>${escHtml(lpName(d.load_profile_id))}</td>
+        <td>${d.thread_count}</td>
+        <td>${d.stats_data ? '<i class="bi bi-check-circle-fill text-success"></i>' : '-'}</td>
+        <td>${d.jtl_data ? '<i class="bi bi-check-circle-fill text-success"></i>' : '-'}</td>
+        <td>${d.jmx_test_case_data ? '<i class="bi bi-check-circle-fill text-success"></i>' : '-'}</td>
+        <td>${d.source_snapshot_id ? 'Snap #' + d.source_snapshot_id : 'fresh'}</td>
+      </tr>`).join('');
+    } else { card.classList.add('d-none'); }
+  } catch { document.getElementById('profile-data-card').classList.add('d-none'); }
+}
+
+// ===========================================================================
+// Full tree (collapsible)
+// ===========================================================================
+
+function toggleTree() {
+  const el = document.getElementById('tree-container');
+  const ch = document.getElementById('tree-chevron');
+  el.classList.toggle('show');
+  ch.className = el.classList.contains('show') ? 'bi bi-chevron-up float-end' : 'bi bi-chevron-down float-end';
+}
+
+function renderTree() {
+  const c = document.getElementById('tree-container');
+  c.innerHTML = '';
+  if (_snapshotTree.length === 0) {
+    c.innerHTML = '<div class="text-muted p-2" style="font-size:.85rem">No snapshots on hypervisor.</div>';
+    return;
+  }
+  renderTreeNodes(_snapshotTree, c, 0);
+}
+
+function renderTreeNodes(nodes, container, depth) {
+  nodes.forEach(n => {
+    const indent = depth * 20;
+    const icon = n.is_archived ? '<i class="bi bi-archive text-muted"></i>' : '<i class="bi bi-camera text-primary"></i>';
+    const baseline = n.is_baseline ? ' <span class="badge bg-success" style="font-size:.6rem">baseline</span>' : '';
+    const groupBadge = n.group_name ? ` <span class="badge" style="font-size:.6rem;background:#6f42c1">${escHtml(n.group_name)}</span>` : '';
+    const div = document.createElement('div');
+    div.className = `py-1 px-2 rounded snap-tree-node ${n.is_archived ? 'text-muted' : ''}`;
+    div.style.cssText = `margin-left:${indent}px; cursor:pointer; font-size:.8rem;`;
+    div.innerHTML = `${icon} ${escHtml(n.name)}${baseline}${groupBadge}`;
+    div.onclick = () => {
+      const snap = _snapshots.find(s => s.id === n.id);
+      if (snap) showSnapshotDetail(snap);
+    };
+    container.appendChild(div);
+    if (n.children && n.children.length > 0) renderTreeNodes(n.children, container, depth + 1);
+  });
+}
+
+// ===========================================================================
+// Actions
+// ===========================================================================
+
+async function syncSnapshots() {
+  if (!_selectedServerId) return;
+  try {
+    showToast('Syncing snapshots from hypervisor...', 'info');
+    await API.post(`/api/servers/${_selectedServerId}/snapshots/sync`);
+    showToast('Sync complete');
+    await loadAll();
+  } catch (e) { showToast('Sync failed: ' + e.message, 'danger'); }
+}
+
+// -- Create Group --
+
+function openGroupModal() {
+  document.getElementById('grp-name').value = '';
+  document.getElementById('grp-snap-name').value = '';
+  document.getElementById('grp-desc').value = '';
+  document.getElementById('grp-snap-existing').checked = true;
+  document.getElementById('grp-existing-snap-id').value = '';
+  // Show server name in modal
+  const srv = _servers.find(s => s.id === _selectedServerId);
+  document.getElementById('grp-modal-server-name').textContent = srv ? `${srv.hostname} (${srv.ip_address})` : '';
+  toggleGrpSnapSource();
+  _groupModal.show();
+}
+
+function toggleGrpSnapSource() {
+  const isExisting = document.getElementById('grp-snap-existing').checked;
+  document.getElementById('grp-existing-fields').style.display = isExisting ? '' : 'none';
+  document.getElementById('grp-new-fields').style.display = isExisting ? 'none' : '';
+  if (isExisting) loadGrpHvList();
+}
+
+async function loadGrpHvList() {
+  const container = document.getElementById('grp-hv-list');
+  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Loading...</div>';
+  try {
+    const hvSnaps = await API.get(`/api/servers/${_selectedServerId}/hypervisor-snapshots`);
+    renderHvPicker(container, hvSnaps, 'grp-existing-snap-id');
+  } catch (e) { container.innerHTML = `<div class="text-danger p-3">${escHtml(e.message)}</div>`; }
+}
+
+async function doCreateGroup() {
+  const name = document.getElementById('grp-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+
+  const isExisting = document.getElementById('grp-snap-existing').checked;
+  const payload = {
+    name,
+    description: document.getElementById('grp-desc').value.trim() || null,
+  };
+
+  if (isExisting) {
+    const existingId = document.getElementById('grp-existing-snap-id').value;
+    if (!existingId) { showToast('Select a snapshot from the list', 'warning'); return; }
+    payload.existing_snapshot_id = parseInt(existingId);
+  } else {
+    const snapName = document.getElementById('grp-snap-name').value.trim();
+    if (!snapName) { showToast('Snapshot name is required', 'warning'); return; }
+    payload.snapshot_name = snapName;
+  }
+
+  const btn = document.getElementById('btn-grp-confirm');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+  try {
+    await API.post(`/api/servers/${_selectedServerId}/snapshot-baselines`, payload);
+    showToast('Group created with default subgroup');
+    _groupModal.hide();
+    await loadAll();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-flag me-1"></i>Create Group';
+}
+
+// -- Revert to Group --
+
+async function revertToGroup(groupId) {
+  if (!confirm('Revert the VM to this group\'s snapshot? The VM will restart.')) return;
+  try {
+    showToast('Reverting VM...', 'info');
+    await API.post(`/api/servers/${_selectedServerId}/snapshot-baselines/${groupId}/revert`);
+    showToast('VM reverted to group snapshot');
+  } catch (e) { showToast('Revert failed: ' + e.message, 'danger'); }
+}
+
+// -- Create Subgroup --
+
+function openSubgroupModal() {
+  if (!_selectedGroupId) { showToast('Select a group first', 'warning'); return; }
+  const g = _groups.find(b => b.id === _selectedGroupId);
+  document.getElementById('sg-modal-parent-name').textContent = g ? g.name : '';
+  document.getElementById('sg-name').value = '';
+  document.getElementById('sg-snap-name').value = '';
+  document.getElementById('sg-desc').value = '';
+  document.getElementById('sg-snap-existing').checked = true;
+  document.getElementById('sg-existing-snap-id').value = '';
+  toggleSgSnapSource();
+  _subgroupModal.show();
+}
+
+function toggleSgSnapSource() {
+  const isExisting = document.getElementById('sg-snap-existing').checked;
+  document.getElementById('sg-existing-fields').style.display = isExisting ? '' : 'none';
+  document.getElementById('sg-new-fields').style.display = isExisting ? 'none' : '';
+  if (isExisting) loadSgHvList();
+}
+
+async function loadSgHvList() {
+  const container = document.getElementById('sg-hv-list');
+  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Loading...</div>';
+  try {
+    // Get the group's snapshot provider_snapshot_id to filter children only
+    const g = _groups.find(b => b.id === _selectedGroupId);
+    const groupSnap = g ? _snapshots.find(s => s.id === g.snapshot_id) : null;
+    const parentParam = groupSnap ? `?parent_of=${encodeURIComponent(groupSnap.provider_snapshot_id)}` : '';
+    const hvSnaps = await API.get(`/api/servers/${_selectedServerId}/hypervisor-snapshots${parentParam}`);
+    if (hvSnaps.length === 0) {
+      container.innerHTML = '<div class="text-muted p-3" style="font-size:.85rem">No child snapshots found under this group\'s snapshot. Take a snapshot on the hypervisor first.</div>';
+      return;
+    }
+    renderHvPicker(container, hvSnaps, 'sg-existing-snap-id');
+  } catch (e) { container.innerHTML = `<div class="text-danger p-3">${escHtml(e.message)}</div>`; }
+}
+
+async function doCreateSubgroup() {
+  const name = document.getElementById('sg-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+
+  const isExisting = document.getElementById('sg-snap-existing').checked;
+  const payload = {
+    baseline_id: _selectedGroupId,
+    name,
+    description: document.getElementById('sg-desc').value.trim() || null,
+  };
+
+  if (isExisting) {
+    const existingId = document.getElementById('sg-existing-snap-id').value;
+    if (!existingId) { showToast('Select a snapshot from the list', 'warning'); return; }
+    payload.existing_snapshot_id = parseInt(existingId);
+  } else {
+    const snapName = document.getElementById('sg-snap-name').value.trim();
+    if (snapName) payload.snapshot_name = snapName;
+  }
+
+  const btn = document.getElementById('btn-sg-confirm');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+  try {
+    await API.post(`/api/servers/${_selectedServerId}/snapshot-groups`, payload);
+    showToast('Subgroup created');
+    _subgroupModal.hide();
+    await loadAll();
+    const g = _groups.find(b => b.id === _selectedGroupId);
+    if (g) selectGroup(g);
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-folder-plus me-1"></i>Create Subgroup';
+}
+
+// -- Take Snapshot (in subgroup) --
+
+function openTakeModal() {
+  if (!_selectedSubgroupId) { showToast('Select a subgroup first', 'warning'); return; }
+  document.getElementById('take-snap-name').value = '';
+  document.getElementById('take-snap-desc').value = '';
+  _takeModal.show();
+}
+
+async function doTakeSnapshot() {
+  const name = document.getElementById('take-snap-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+  const btn = document.getElementById('btn-take-confirm');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Taking...';
+  try {
+    await API.post(`/api/servers/${_selectedServerId}/snapshots/take`, {
+      name,
+      description: document.getElementById('take-snap-desc').value.trim(),
+      group_id: _selectedSubgroupId,
+    });
+    showToast('Snapshot created');
+    _takeModal.hide();
+    await loadAll();
+    const sg = _subgroups.find(s => s.id === _selectedSubgroupId);
+    if (sg) await renderSubgroupSnapshots(sg);
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-camera me-1"></i>Take Snapshot';
+}
+
+// -- Pick from Hypervisor --
+
+async function openPickModal() {
+  if (!_selectedSubgroupId) { showToast('Select a subgroup first', 'warning'); return; }
+  _pickModal.show();
+  const container = document.getElementById('pick-list');
+  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border"></span> Loading from hypervisor...</div>';
+  try {
+    const hvSnaps = await API.get(`/api/servers/${_selectedServerId}/hypervisor-snapshots`);
+    if (hvSnaps.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center py-3">No snapshots found on hypervisor.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    hvSnaps.forEach(hs => {
+      const linked = hs.linked_in_db;
+      const div = document.createElement('div');
+      div.className = `px-3 py-2 border-bottom d-flex justify-content-between align-items-center ${linked ? 'bg-light' : 'snap-tree-node'}`;
+      div.style.cssText = 'font-size:.85rem;';
+      div.innerHTML = `
+        <div>
+          <i class="bi bi-camera ${linked ? 'text-muted' : 'text-primary'} me-1"></i>
+          <strong>${escHtml(hs.name)}</strong>
+          ${hs.parent ? `<span class="text-muted ms-2">parent: ${escHtml(hs.parent)}</span>` : ''}
+          ${hs.description ? `<br><span class="text-muted ms-3">${escHtml(hs.description)}</span>` : ''}
+        </div>
+        <div>
+          ${linked
+            ? '<span class="badge bg-secondary">Already linked</span>'
+            : `<button class="btn btn-sm btn-outline-primary" onclick="doPickSnapshot('${escHtml(hs.name)}')"><i class="bi bi-link me-1"></i>Link</button>`
+          }
+        </div>
+      `;
+      container.appendChild(div);
+    });
+  } catch (e) {
+    container.innerHTML = `<div class="text-danger p-3">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function doPickSnapshot(providerSnapshotName) {
+  try {
+    showToast('Syncing and linking...', 'info');
+    // Sync to make sure snapshot is in our DB
+    await API.post(`/api/servers/${_selectedServerId}/snapshots/sync`);
+    _snapshots = await API.get(`/api/servers/${_selectedServerId}/snapshots`);
+    const snap = _snapshots.find(s => s.provider_snapshot_id === providerSnapshotName && !s.is_archived);
+    if (!snap) {
+      showToast('Could not find synced snapshot in DB', 'danger');
+      return;
+    }
+    // Link to current subgroup
+    await API.post(`/api/servers/${_selectedServerId}/snapshot-groups/${_selectedSubgroupId}/link-snapshot/${snap.id}`);
+    showToast(`Snapshot "${providerSnapshotName}" linked to subgroup`);
+    _pickModal.hide();
+    await loadAll();
+    // Re-select subgroup
+    const sg = _subgroups.find(s => s.id === _selectedSubgroupId);
+    if (sg) await renderSubgroupSnapshots(sg);
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+// -- Shared: render hypervisor snapshot picker --
+
+function renderHvPicker(container, hvSnaps, hiddenInputId) {
+  container.innerHTML = '';
+  hvSnaps.forEach(hs => {
+    const linked = hs.linked_in_db;
+    const dbId = hs.db_snapshot_id;
+    const div = document.createElement('div');
+    div.className = `px-3 py-2 border-bottom d-flex justify-content-between align-items-center ${linked ? '' : 'snap-tree-node'}`;
+    div.style.cssText = 'font-size:.85rem; cursor:pointer;';
+    div.innerHTML = `
+      <div>
+        <i class="bi bi-camera ${linked ? 'text-success' : 'text-primary'} me-1"></i>
+        <strong>${escHtml(hs.name)}</strong>
+        ${hs.parent ? `<span class="text-muted ms-2">parent: ${escHtml(hs.parent)}</span>` : ''}
+        ${linked ? ' <span class="badge bg-success" style="font-size:.6rem">in DB</span>' : ''}
+      </div>
+    `;
+    div.onclick = async () => {
+      // If not in DB yet, sync first
+      if (!linked) {
+        showToast('Syncing snapshot to DB...', 'info');
+        await API.post(`/api/servers/${_selectedServerId}/snapshots/sync`);
+        _snapshots = await API.get(`/api/servers/${_selectedServerId}/snapshots`);
+        const synced = _snapshots.find(s => s.provider_snapshot_id === hs.name && !s.is_archived);
+        if (!synced) { showToast('Could not sync snapshot', 'danger'); return; }
+        document.getElementById(hiddenInputId).value = synced.id;
+      } else {
+        document.getElementById(hiddenInputId).value = dbId;
+      }
+      // Highlight selected
+      container.querySelectorAll('div.border-bottom').forEach(d => d.style.background = '');
+      div.style.background = '#e3f2fd';
+      showToast(`Selected: ${hs.name}`);
+    };
+    container.appendChild(div);
+  });
+  if (hvSnaps.length === 0) {
+    container.innerHTML = '<div class="text-muted p-3" style="font-size:.85rem">No snapshots found on hypervisor.</div>';
+  }
+}
+
+// -- Validate Snapshot --
+
+async function validateSnapshot(snapId, elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
+  try {
+    const res = await API.post(`/api/servers/${_selectedServerId}/snapshots/${snapId}/validate`);
+    el.innerHTML = res.exists_on_hypervisor
+      ? '<span class="text-success"><i class="bi bi-check-circle-fill"></i> Exists</span>'
+      : '<span class="text-danger"><i class="bi bi-x-circle-fill"></i> Missing</span>';
+  } catch (e) {
+    el.innerHTML = `<span class="text-danger">Error: ${escHtml(e.message)}</span>`;
+  }
+}
+
+// -- Revert / Delete --
+
+async function revertSnapshot(snapId) {
+  if (!confirm('Revert the VM to this snapshot? The VM will restart.')) return;
+  try {
+    showToast('Reverting VM...', 'info');
+    await API.post(`/api/servers/${_selectedServerId}/snapshots/${snapId}/revert`);
+    showToast('VM reverted');
+  } catch (e) { showToast('Revert failed: ' + e.message, 'danger'); }
+}
+
+async function deleteSnapshot(snapId) {
+  if (!confirm('Delete this snapshot from the hypervisor? It will be archived in the DB.')) return;
+  try {
+    await API.post(`/api/servers/${_selectedServerId}/snapshots/delete`, { snapshot_id: snapId });
+    showToast('Snapshot deleted');
+    await loadAll();
+  } catch (e) { showToast('Delete failed: ' + e.message, 'danger'); }
+}
+</script>
+{% endblock %}

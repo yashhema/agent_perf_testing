@@ -13,9 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from orchestrator.models.enums import (
     AgentType,
+    BaselineTestState,
+    BaselineTestType,
     BaselineType,
     DBType,
     DiskType,
+    ExecutionMode,
     ExecutionStatus,
     FunctionalTestPhase,
     HypervisorType,
@@ -41,6 +44,7 @@ class LabCreate(BaseModel):
     hypervisor_type: HypervisorType
     hypervisor_manager_url: str = Field(max_length=512)
     hypervisor_manager_port: int
+    execution_mode: ExecutionMode = ExecutionMode.live_compare
 
 
 class LabUpdate(BaseModel):
@@ -52,6 +56,7 @@ class LabUpdate(BaseModel):
     hypervisor_type: Optional[HypervisorType] = None
     hypervisor_manager_url: Optional[str] = Field(default=None, max_length=512)
     hypervisor_manager_port: Optional[int] = None
+    execution_mode: Optional[ExecutionMode] = None
 
 
 class LabResponse(BaseModel):
@@ -65,6 +70,7 @@ class LabResponse(BaseModel):
     hypervisor_type: HypervisorType
     hypervisor_manager_url: str
     hypervisor_manager_port: int
+    execution_mode: ExecutionMode
     created_at: datetime
 
 
@@ -155,6 +161,9 @@ class ServerResponse(BaseModel):
     db_name: Optional[str]
     db_user: Optional[str]
     db_password: Optional[str]
+    default_loadgen_id: Optional[int] = None
+    default_partner_id: Optional[int] = None
+    service_monitor_patterns: Optional[List[str]] = None
     created_at: datetime
 
 
@@ -632,8 +641,9 @@ class PhaseExecutionResultResponse(BaseModel):
 class ComparisonResultResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    test_run_id: int
-    target_id: Optional[int]
+    test_run_id: Optional[int] = None
+    baseline_test_run_id: Optional[int] = None
+    target_id: Optional[int] = None
     load_profile_id: int
     comparison_type: str
     result_file_path: Optional[str]
@@ -674,3 +684,188 @@ class TrendFiltersResponse(BaseModel):
     os_major_vers: List[str]
     hardware_profiles: List[Dict[str, Any]]
     load_profiles: List[Dict[str, Any]]
+
+
+# ===========================================================================
+# Baseline-Compare Mode Schemas
+# ===========================================================================
+
+# ---- Snapshot Baseline ----
+
+class SnapshotBaselineCreate(BaseModel):
+    name: str = Field(max_length=200)
+    description: Optional[str] = None
+    snapshot_name: Optional[str] = Field(
+        default=None, max_length=200,
+        description="Name for new hypervisor snapshot. Required if existing_snapshot_id is not set.",
+    )
+    existing_snapshot_id: Optional[int] = Field(
+        default=None,
+        description="Link to an existing DB snapshot instead of creating a new one.",
+    )
+
+
+class SnapshotBaselineResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    server_id: int
+    snapshot_id: int
+    name: str
+    description: Optional[str]
+    created_at: datetime
+
+
+# ---- Snapshot Group (UI: "Subgroup") ----
+
+class SnapshotGroupCreate(BaseModel):
+    baseline_id: int
+    name: str = Field(max_length=200)
+    description: Optional[str] = None
+    snapshot_name: Optional[str] = Field(
+        default=None, max_length=200,
+        description="Hypervisor snapshot name. Auto-generated if omitted.",
+    )
+    existing_snapshot_id: Optional[int] = Field(
+        default=None,
+        description="Link to an existing snapshot instead of creating a new one.",
+    )
+
+
+class SnapshotGroupResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    baseline_id: int
+    snapshot_id: Optional[int]
+    name: str
+    description: Optional[str]
+    created_at: datetime
+
+
+# ---- Hypervisor Snapshot (common structure from all providers) ----
+
+class HypervisorSnapshotSchema(BaseModel):
+    """Common snapshot structure returned by all hypervisor providers."""
+    name: str
+    description: str
+    id: str
+    parent: Optional[str]
+    created: Optional[int]
+
+
+class HypervisorSnapshotListItem(HypervisorSnapshotSchema):
+    """Hypervisor snapshot with DB linkage annotations (for picker UI)."""
+    linked_in_db: bool = False
+    db_snapshot_id: Optional[int] = None
+
+
+# ---- Snapshot ----
+
+class SnapshotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str]
+    server_id: int
+    parent_id: Optional[int]
+    group_id: Optional[int]
+    provider_snapshot_id: str
+    provider_ref: Dict[str, Any]
+    snapshot_tree: Optional[List[HypervisorSnapshotSchema]]
+    is_baseline: bool
+    is_archived: bool
+    created_at: datetime
+
+
+class SnapshotProfileDataResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    snapshot_id: int
+    load_profile_id: int
+    thread_count: int
+    jmx_test_case_data: Optional[str]
+    stats_data: Optional[str]
+    stats_summary: Optional[Dict[str, Any]]
+    jtl_data: Optional[str]
+    source_snapshot_id: Optional[int]
+    created_at: datetime
+
+
+class SnapshotTreeNode(BaseModel):
+    """Recursive tree representation of a snapshot and its children."""
+    id: int
+    name: str
+    description: Optional[str]
+    is_baseline: bool
+    is_archived: bool
+    has_data: bool
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    children: List["SnapshotTreeNode"] = []
+
+
+class TakeSnapshotRequest(BaseModel):
+    name: str = Field(max_length=200)
+    description: Optional[str] = None
+    group_id: Optional[int] = None
+
+
+class DeleteSnapshotRequest(BaseModel):
+    snapshot_id: int
+
+
+class ValidateSnapshotResponse(BaseModel):
+    snapshot_id: int
+    provider_snapshot_id: str
+    exists_on_hypervisor: bool
+
+
+# ---- Baseline Test Run ----
+
+class BaselineTestRunTargetEntry(BaseModel):
+    """One target server entry in a baseline test run create request."""
+    server_id: int
+    test_snapshot_id: int
+    compare_snapshot_id: Optional[int] = None
+    # Optional per-target overrides (defaults taken from ServerORM)
+    loadgenerator_id: Optional[int] = None
+    partner_id: Optional[int] = None
+    service_monitor_patterns: Optional[List[str]] = None
+
+
+class BaselineTestRunCreate(BaseModel):
+    scenario_id: int
+    test_type: BaselineTestType
+    load_profile_ids: List[int] = Field(min_length=1)
+    targets: List[BaselineTestRunTargetEntry] = Field(min_length=1)
+
+
+class BaselineTestRunTargetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    baseline_test_run_id: int
+    target_id: int
+    loadgenerator_id: int
+    partner_id: Optional[int]
+    test_snapshot_id: int
+    compare_snapshot_id: Optional[int]
+    service_monitor_patterns: Optional[List[str]]
+    os_kind: Optional[str] = None
+    os_major_ver: Optional[str] = None
+    os_minor_ver: Optional[str] = None
+    agent_versions: Optional[Dict[str, Any]] = None
+
+
+class BaselineTestRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    lab_id: int
+    scenario_id: int
+    test_type: BaselineTestType
+    state: BaselineTestState
+    current_load_profile_id: Optional[int]
+    error_message: Optional[str]
+    verdict: Optional[Verdict] = None
+    targets: List[BaselineTestRunTargetResponse] = []
+    created_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]

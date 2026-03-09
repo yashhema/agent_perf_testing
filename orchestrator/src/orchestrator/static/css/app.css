@@ -79,6 +79,13 @@
 .state-paused { background: #ffc107; color: #000; }
 .state-cancelled { background: #6c757d; }
 .state-failed { background: #dc3545; }
+.state-generating { background: #d63384; }
+.state-storing { background: #0dcaf0; color: #000; }
+
+/* Snapshot tree */
+.snap-tree-node:hover {
+  background: rgba(13, 110, 253, 0.08);
+}
 
 /* Execution status badges */
 .exec-pending { background: #6c757d; }

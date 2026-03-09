@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Baseline Tests - Orchestrator{% endblock %}
+{% block page_header %}<strong>Baseline Tests</strong>{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select class="form-select form-select-sm" id="filter-server">
+          <option value="">All Servers</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <select class="form-select form-select-sm" id="filter-state">
+          <option value="">All States</option>
+          <option value="created">Created</option>
+          <option value="validating">Validating</option>
+          <option value="setting_up">Setting Up</option>
+          <option value="calibrating">Calibrating</option>
+          <option value="generating">Generating</option>
+          <option value="executing">Executing</option>
+          <option value="storing">Storing</option>
+          <option value="comparing">Comparing</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadRuns()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      </div>
+      <div class="col-auto ms-auto">
+        <a href="/baseline-tests/create" class="btn btn-sm btn-primary"><i class="bi bi-plus me-1"></i>New Baseline Test</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th>
+          <th>Server</th>
+          <th>Scenario</th>
+          <th>Test Type</th>
+          <th>Test Snapshot</th>
+          <th>Compare Snapshot</th>
+          <th>State</th>
+          <th>Verdict</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody id="runs-table-body">
+          <tr><td colspan="10" class="text-center text-muted py-4">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _servers = [];
+let _snapshots = {};
+
+async function init() {
+  try {
+    _servers = await API.get('/api/admin/servers');
+    const sel = document.getElementById('filter-server');
+    _servers.forEach(s => {
+      sel.insertAdjacentHTML('beforeend',
+        `<option value="${s.id}">${escHtml(s.hostname)} (${s.ip_address})</option>`);
+    });
+    loadRuns();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function serverName(id) {
+  const s = _servers.find(x => x.id === id);
+  return s ? s.hostname : '#' + id;
+}
+
+function testTypeBadge(t) {
+  const cls = t === 'new_baseline' ? 'primary' : t === 'compare' ? 'info' : 'warning text-dark';
+  const label = t.replace(/_/g, ' ');
+  return `<span class="badge bg-${cls}">${label}</span>`;
+}
+
+async function loadRuns() {
+  try {
+    let path = '/api/baseline-tests';
+    const params = [];
+    const serverId = document.getElementById('filter-server').value;
+    const stateFilter = document.getElementById('filter-state').value;
+    if (serverId) params.push('server_id=' + serverId);
+    if (stateFilter) params.push('state=' + stateFilter);
+    if (params.length) path += '?' + params.join('&');
+
+    const runs = await API.get(path);
+    const tbody = document.getElementById('runs-table-body');
+    if (runs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No baseline tests found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = runs.map(r => {
+      const verdictBadge = r.verdict
+        ? `<span class="badge bg-${r.verdict === 'passed' ? 'success' : r.verdict === 'failed' ? 'danger' : 'warning'}">${r.verdict}</span>`
+        : '<span class="badge bg-secondary">-</span>';
+      const actions = buildActions(r);
+      const targets = r.targets || [];
+      const t0 = targets[0] || {};
+      const serverLabel = targets.length === 1
+        ? escHtml(serverName(t0.target_id))
+        : targets.length > 1
+          ? escHtml(serverName(t0.target_id)) + ' +' + (targets.length - 1)
+          : '-';
+      const testSnapLabel = t0.test_snapshot_id ? 'Snap #' + t0.test_snapshot_id : '-';
+      const compareSnapLabel = t0.compare_snapshot_id ? 'Snap #' + t0.compare_snapshot_id : '-';
+      return `<tr>
+        <td>${r.id}</td>
+        <td>${serverLabel}</td>
+        <td>Scenario #${r.scenario_id}</td>
+        <td>${testTypeBadge(r.test_type)}</td>
+        <td>${testSnapLabel}</td>
+        <td>${compareSnapLabel}</td>
+        <td>${stateBadge(r.state)}</td>
+        <td>${verdictBadge}</td>
+        <td>${fmtDate(r.created_at)}</td>
+        <td class="text-nowrap">${actions}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function buildActions(r) {
+  let html = `<a href="/baseline-tests/${r.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="Dashboard"><i class="bi bi-speedometer2"></i></a>`;
+  if (r.state === 'created') {
+    html += `<button class="btn btn-sm btn-outline-success me-1" onclick="runAction(${r.id},'start')" title="Start"><i class="bi bi-play-fill"></i></button>`;
+  }
+  if (!['completed','cancelled','failed'].includes(r.state)) {
+    html += `<button class="btn btn-sm btn-outline-danger" onclick="runAction(${r.id},'cancel')" title="Cancel"><i class="bi bi-x-circle"></i></button>`;
+  }
+  if (r.state === 'completed') {
+    html += `<a href="/baseline-tests/${r.id}/results" class="btn btn-sm btn-outline-info me-1" title="Results"><i class="bi bi-bar-chart"></i></a>`;
+  }
+  return html;
+}
+
+async function runAction(id, action) {
+  try {
+    await API.post(`/api/baseline-tests/${id}/${action}`);
+    showToast(`Baseline test ${action}ed`);
+    loadRuns();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+document.getElementById('filter-state').addEventListener('change', loadRuns);
+document.getElementById('filter-server').addEventListener('change', loadRuns);
+document.addEventListener('DOMContentLoaded', init);
+</script>
+{% endblock %}

@@ -48,6 +48,7 @@ _ENUM_OPTIONS = {
     "template_type": ["server-normal", "server-file-heavy", "db-load"],
     "functional_test_phase": ["base", "initial"],
     "run_mode": ["complete", "step_by_step"],
+    "execution_mode": ["live_compare", "baseline_compare"],
 }
 
 
@@ -62,6 +63,7 @@ async def admin_labs(request: Request):
             {"key": "id", "label": "ID"},
             {"key": "name", "label": "Name"},
             {"key": "hypervisor_type", "label": "Hypervisor"},
+            {"key": "execution_mode", "label": "Mode"},
             {"key": "hypervisor_manager_url", "label": "Manager URL"},
             {"key": "hypervisor_manager_port", "label": "Port"},
             {"key": "created_at", "label": "Created", "type": "date"},
@@ -71,6 +73,8 @@ async def admin_labs(request: Request):
             {"key": "description", "label": "Description", "type": "textarea"},
             {"key": "hypervisor_type", "label": "Hypervisor Type", "type": "select",
              "options": _ENUM_OPTIONS["hypervisor_type"], "required": True},
+            {"key": "execution_mode", "label": "Execution Mode", "type": "select",
+             "options": _ENUM_OPTIONS["execution_mode"], "required": True},
             {"key": "hypervisor_manager_url", "label": "Manager URL", "type": "text", "required": True},
             {"key": "hypervisor_manager_port", "label": "Manager Port", "type": "number", "required": True},
             {"key": "jmeter_package_grpid", "label": "JMeter Package Group ID", "type": "number", "required": True},
@@ -334,6 +338,39 @@ async def test_run_calibration(request: Request, run_id: int):
     return templates.TemplateResponse("test_runs/calibration.html", {
         "request": request, "run_id": run_id,
     })
+
+
+# ---- Baseline Test Pages ----
+
+@router.get("/baseline-tests", response_class=HTMLResponse)
+async def baseline_test_list(request: Request):
+    return templates.TemplateResponse("baseline_tests/list.html", {"request": request})
+
+
+@router.get("/baseline-tests/create", response_class=HTMLResponse)
+async def baseline_test_create(request: Request):
+    return templates.TemplateResponse("baseline_tests/create.html", {"request": request})
+
+
+@router.get("/baseline-tests/{run_id}/dashboard", response_class=HTMLResponse)
+async def baseline_test_dashboard(request: Request, run_id: int):
+    return templates.TemplateResponse("baseline_tests/dashboard.html", {
+        "request": request, "run_id": run_id,
+    })
+
+
+@router.get("/baseline-tests/{run_id}/results", response_class=HTMLResponse)
+async def baseline_test_results(request: Request, run_id: int):
+    return templates.TemplateResponse("baseline_tests/results.html", {
+        "request": request, "run_id": run_id,
+    })
+
+
+# ---- Snapshot Manager ----
+
+@router.get("/snapshots", response_class=HTMLResponse)
+async def snapshot_manager(request: Request):
+    return templates.TemplateResponse("snapshots/manager.html", {"request": request})
 
 
 # ---- Analytics ----

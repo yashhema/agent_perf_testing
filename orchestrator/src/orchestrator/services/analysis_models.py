@@ -21,13 +21,18 @@ from orchestrator.services.stats_parser import (
 from orchestrator.services.jtl_parser import JtlResult
 
 # Re-export for consumers that import from analysis_models
-from orchestrator.services.statistical_tests import StatisticalTestResult
+from orchestrator.services.statistical_tests import (
+    CohensDResult,
+    PercentileDetail,
+    StatisticalTestResult,
+)
 
 __all__ = [
     "RawAgentStats", "SystemStatsSummary", "AgentStatsSummary", "CycleConsistency",
     "PhaseData", "MetricDeltaStats", "MetricDelta", "SystemDeltaSummary",
-    "JtlDelta", "FullComparisonData", "RuleEvaluation", "ComparisonVerdict",
-    "TestRunVerdict", "StatisticalTestResult",
+    "JtlDelta", "FullComparisonData", "BaselineComparisonData",
+    "RuleEvaluation", "ComparisonVerdict",
+    "TestRunVerdict", "StatisticalTestResult", "CohensDResult", "PercentileDetail",
 ]
 
 
@@ -127,6 +132,27 @@ class JtlDelta:
     throughput_delta_pct: float = 0.0
     error_rate_delta_abs: float = 0.0
     error_rate_delta_pct: float = 0.0
+
+
+@dataclass
+class BaselineComparisonData:
+    """Comparison data for baseline_compare mode (Cohen's d based).
+
+    Used when comparing test_snapshot results against compare_snapshot
+    stored baseline data. Contains Cohen's d matrix and percentile details.
+    """
+    # Cohen's d results for system metrics (CPU%, mem%, disk, network)
+    system_cohens_d: List[CohensDResult] = field(default_factory=list)
+    # Cohen's d results for per-process metrics (proc:name:cpu_percent, etc.)
+    process_cohens_d: List[CohensDResult] = field(default_factory=list)
+    # Percentile details for each metric (shown on cell click)
+    percentile_details: List[PercentileDetail] = field(default_factory=list)
+    # JTL informational metrics (throughput, error rate — not used in comparison)
+    jtl_info: Optional[JtlResult] = None
+    baseline_jtl_info: Optional[JtlResult] = None
+    # Verdict
+    verdict: Optional[Verdict] = None
+    verdict_summary: str = ""
 
 
 @dataclass
