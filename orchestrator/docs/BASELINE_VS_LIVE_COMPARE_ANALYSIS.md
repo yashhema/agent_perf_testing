@@ -595,3 +595,188 @@ Before merging any changes:
 2. Verify `PackageResolver.resolve()` still works with `BaselineORM` argument
 3. Verify `CredentialsStore.get_server_credential()` cascade still works without `by_mode_os_type`
 4. Verify all existing DB tables and columns are unchanged
+
+---
+
+## 12. Deep Analysis Pass (v4) — Additional Findings
+
+Re-analysis of execution engine, state machine, validation, API, comparison, UI, schemas, and configuration uncovered **32 new issues** not covered in sections 1-11. Organized by severity.
+
+### 12.1 CRITICAL Issues (will crash at runtime)
+
+**C1. CalibrationEngine.calibrate() expects TestRunORM, receives BaselineTestRunORM**
+- `calibration.py` line 61: `calibrate(session, test_run: TestRunORM, ctx)`
+- `baseline_orchestrator.py` line 367: passes `BaselineTestRunORM`
+- Inside `_get_or_create_record()`, `CalibrationResultORM.test_run_id = test_run.id` writes into `ForeignKey("test_runs.id")` — the live-compare table
+- A `BaselineTestRunORM.id` value in this FK will cause `IntegrityError` unless IDs happen to collide with `test_runs`
+
+**C2. CalibrationResultORM has no FK to baseline_test_runs**
+- `CalibrationResultORM` only has `test_run_id = ForeignKey("test_runs.id")`
+- No `baseline_test_run_id` column exists
+- `_do_generation()` (line 409) and `_do_execution()` (line 474) query by `test_run_id == test_run.id` where `test_run` is `BaselineTestRunORM` — will find wrong or no data
+
+**C3. run_baseline_comparison() never creates ComparisonResultORM**
+- `comparison.py` `run_baseline_comparison()` saves results to disk JSON only
+- API endpoint `get_baseline_comparison_results` (baseline_test_runs.py line 201) queries `ComparisonResultORM` by `baseline_test_run_id`
+- Will always return empty list — comparison results are never queryable via API
+
+**C4. DiscoveryService constructor mismatch + missing methods**
+- `baseline_orchestrator.py` line 248: `DiscoveryService(self._credentials)` — passes 1 arg
+- `discovery.py` `__init__` requires 2 args: `credentials` and `discovery_dir` — `TypeError` at runtime
+- Calls `discovery.discover_os(target_exec)` and `discovery.discover_agents(target_exec)` — these methods do not exist on `DiscoveryService`
+- Actual method is `discover_and_store(session, test_run, snapshot_num)` designed for live-compare `TestRunTargetORM`
+
+### 12.2 HIGH Issues (wrong behavior, data corruption, or feature broken)
+
+**H1. wait_for_ssh() hardcodes port 22 — fails on Windows targets (WinRM uses 5985/5986)**
+- `baseline_execution.py` lines 54-65: always connects to port 22
+- Called after every snapshot restore (line 139, 224)
+- Windows targets will always timeout after 120s, then `TimeoutError`
+
+**H2. _do_generation() always uses ServerNormalOpsGenerator, ignores scenario template_type**
+- `baseline_orchestrator.py` line 425: hardcodes `ServerNormalOpsGenerator`
+- Live-compare's `SequenceGenerationService` dispatches to `ServerFileHeavyOpsGenerator` or `DbLoadOpsGenerator` based on template type
+- Baseline mode generates wrong operations for `server_file_heavy` or `db_load` scenarios
+
+**H3. _deploy_calibration_csv() also hardcodes ServerNormalOpsGenerator**
+- `baseline_orchestrator.py` line 283: `ServerNormalOpsGenerator("calibration", "calibration")`
+- Calibration runs with wrong op mix for non-normal scenarios, producing incorrect thread counts
+
+**H4. Emulator stop_test() called with wrong test_id**
+- `baseline_execution.py` line 182: constructs `test_id = f"baseline-{baseline_test.id}-lp{lp.id}"`
+- Line 183-190: `em_client.start_test()` called with `test_run_id=str(baseline_test.id)` — emulator returns its own test_id
+- Code ignores returned test_id and passes locally-constructed one to `stop_test()` — stops wrong/nonexistent test
+
+**H5. _execution_results stored as instance variable — lost on process restart**
+- `baseline_orchestrator.py` line 494: `self._execution_results = engine.execute(...)`
+- Read in `_do_comparison()` (line 537) and `_do_storing()` (line 586)
+- No DB persistence of execution result paths until STORING completes
+- Process crash between EXECUTING and STORING loses all result paths permanently
+
+**H6. Vultr list_snapshots() returns ALL account snapshots, not filtered to VM**
+- `hypervisor.py` Vultr provider: `GET /snapshots` returns account-wide snapshots
+- Unlike Proxmox/vSphere where snapshots are per-VM, Vultr shows all
+- Snapshot manager and UI display unrelated snapshots from other instances
+
+**H7. BaselineTestRunResponse schema missing load_profile_ids**
+- `schemas.py` `BaselineTestRunResponse` does not include load profile list
+- Dashboard falls back to showing all system load profiles instead of run's actual profiles
+- LP progress information is incorrect
+
+**H8. ServerCreate/ServerUpdate schemas missing baseline-compare fields**
+- `default_loadgen_id`, `default_partner_id`, `service_monitor_patterns` not in create/update schemas
+- Admin UI server page does not list these fields
+- Cannot set `default_loadgen_id` via API/UI — every baseline test creation needs explicit loadgen_id
+
+**H9. doPickSnapshot() uses snapshot name, not provider_snapshot_id — broken on vSphere**
+- `manager.html` line 841: passes `hs.name` to `doPickSnapshot()`
+- Searches `_snapshots.find(s => s.provider_snapshot_id === providerSnapshotName)`
+- Proxmox: works (provider_id = name)
+- vSphere: fails (provider_id = MoRef ID like "3", name = "clean-base") — match always fails
+
+### 12.3 MEDIUM Issues (data quality, robustness, security)
+
+**M1. Emulator config paths hardcoded as Linux — fail on Windows targets**
+- `baseline_execution.py` lines 168-175: `/opt/emulator/data/normal`, `/opt/emulator/output`
+- `_clean_emulator_dirs()` (lines 311-312): `rm -rf /opt/emulator/output/*`
+- Windows targets: paths and commands invalid
+
+**M2. JMeter paths hardcoded to Linux even when loadgen could be Windows**
+- `baseline_execution.py` lines 203, 207-210: `/opt/jmeter/bin/jmeter`
+- `baseline_orchestrator.py` lines 180-182, 356: `/opt/jmeter/runs/...`
+- Windows loadgen: paths invalid
+
+**M3. partner_server lookup has no null check**
+- `baseline_execution.py` lines 164-166: `session.get(ServerORM, partner_id)` may return None
+- Immediately accesses `.ip_address` — `AttributeError` if partner was deleted after test creation
+
+**M4. _do_comparison() accesses compare_data without null check**
+- `baseline_orchestrator.py` lines 531-556: `compare_data.stats_data` crashes if query returns None
+- Time window between validation and comparison where data could be removed
+
+**M5. _do_execution() accesses profile_data.thread_count without null check (compare type)**
+- `baseline_orchestrator.py` lines 464-469: same pattern as M4
+
+**M6. _deploy_stored_jmx_data() uses local file path that may not exist**
+- `baseline_orchestrator.py` line 308: `loadgen_exec.upload(profile_data.jmx_test_case_data, ...)`
+- Path was stored during previous run — if results dir was cleaned, upload fails
+
+**M7. loadgen_executor created in per-profile loop but not closed on error**
+- `baseline_execution.py` lines 193-201, 263: `loadgen_executor` created inside loop
+- `finally` block (line 278) only closes `target_executor`, not `loadgen_executor`
+- Leaks SSH connections on the load generator
+
+**M8. Proxmox snapshot names not validated — names with spaces/special chars fail**
+- `TakeSnapshotRequest` and `SnapshotBaselineCreate` accept any string
+- Proxmox requires alphanumeric + dashes + underscores only
+- User enters "Clean OS (Rocky)" — Proxmox API returns 400 with no clear error message
+
+**M9. Admin UI missing emulator_package_grp_id field for Labs**
+- `views.py` Lab CRUD page `fields` list does not include `emulator_package_grp_id`
+- Cannot configure emulator package through UI — emulator deployment silently skipped
+
+**M10. SnapshotBaselineORM unique constraint prevents reuse of existing snapshots across groups**
+- `uq_sb_server_snapshot` on `(server_id, snapshot_id)` prevents two groups using same snapshot
+- IntegrityError if user tries to create second group with same snapshot
+
+**M11. No AppConfig settings for baseline-compare mode**
+- No `discovery_dir` setting despite `DiscoveryService.__init__` requiring it
+- No baseline-specific comparison thresholds or data retention config
+
+**M12. XSS vulnerability in doPickSnapshot() — snapshot names with single quotes break onclick handler**
+- `manager.html` line 841: `onclick="doPickSnapshot('${escHtml(hs.name)}')"`
+- `escHtml` escapes `&<>"` but NOT single quotes
+- Snapshot name `it's-clean` breaks JS string literal — potential injection
+
+### 12.4 LOW Issues (cosmetic, feature parity gaps)
+
+**L1. State machine comparing->completed transition is unreachable**
+- `baseline_state_machine.py` line 62 allows `comparing -> completed`
+- But `_do_comparison()` always routes to `storing` — dead transition
+
+**L2. Validation checks emulator reachability before snapshot restore**
+- Checks against pre-revert VM state — meaningless and wastes network call time
+
+**L3. BaselineTestState has no `paused` state**
+- Live-compare has `paused` + `run_mode` (complete/step_by_step)
+- Baseline-compare silently only supports `complete` runs — feature parity gap
+
+**L4. Snapshot picker UI does not show `created` timestamp**
+- When multiple snapshots share a name (vSphere), users can't distinguish them
+
+**L5. CSS classes for baseline-specific states may be undefined**
+- `state-storing` and `state-generating` used by baseline states
+- If CSS only defines live-compare state styles, these render without background color
+
+**L6. ComparisonResultORM.target_id may be null in baseline-compare mode**
+- Trending/analytics that filter by target_id will silently drop these records
+
+---
+
+## 13. Updated Severity Summary
+
+| Severity | v1-v3 Count | v4 New Count | Total |
+|----------|-------------|--------------|-------|
+| Critical | 1           | 4            | **5** |
+| High     | 2           | 9            | **11**|
+| Medium   | 3           | 12           | **15**|
+| Low      | 2           | 6            | **8** |
+| **Total**| **8**       | **31**       | **39**|
+
+### Updated Priority Order for Fixes
+
+**Must fix before any baseline test run (blockers):**
+1. C1+C2: CalibrationResultORM FK / CalibrationEngine type mismatch
+2. C3: ComparisonResultORM not created by baseline comparison
+3. C4: DiscoveryService constructor + missing methods
+4. H2+H3: Hardcoded ServerNormalOpsGenerator
+5. H4: Emulator test_id mismatch
+6. H5: Execution results not persisted to DB
+
+**Must fix before production use:**
+7. H1: wait_for_ssh Windows support
+8. H8: ServerCreate/Update missing baseline fields
+9. H9: doPickSnapshot broken on vSphere
+10. M1+M2: Hardcoded Linux paths
+11. M7: loadgen_executor connection leak
+12. M12: XSS in snapshot picker
