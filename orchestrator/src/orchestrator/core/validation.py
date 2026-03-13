@@ -14,9 +14,11 @@ from orchestrator.config.credentials import CredentialsStore
 from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.hypervisor import create_hypervisor_provider
 from orchestrator.infra.remote_executor import create_executor
+from orchestrator.models.enums import TemplateType
 from orchestrator.models.orm import (
     BaselineORM,
     LabORM,
+    ScenarioORM,
     ServerORM,
     TestRunLoadProfileORM,
     TestRunORM,
@@ -195,5 +197,15 @@ class PreFlightValidator:
                             check="service_monitor",
                             message=f"Cannot check agent processes on {server.hostname}: {e}",
                         ))
+
+        # Check: output_folders required for file-heavy scenarios
+        if scenario and scenario.template_type == TemplateType.server_file_heavy:
+            for target_config in targets:
+                srv = session.get(ServerORM, target_config.target_id)
+                if not target_config.output_folders or not target_config.output_folders.strip():
+                    errors.append(ValidationError(
+                        check="output_folders_required",
+                        message=f"output_folders is required for server-file-heavy scenario on server {srv.hostname}",
+                    ))
 
         return ValidationResult(passed=len(errors) == 0, errors=errors)

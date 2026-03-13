@@ -177,10 +177,45 @@ class ProxmoxProvider(HypervisorProvider):
         vmid = server_ref["vmid"]
         snapshot_name = snapshot_ref["snapshot_name"]
         logger.info("Restoring snapshot '%s' on %s/qemu/%d", snapshot_name, node, vmid)
-        self._proxmox.nodes(node).qemu(vmid).snapshot(snapshot_name).rollback.post()
-        # Start VM after restore
-        self._proxmox.nodes(node).qemu(vmid).status.start.post()
+        # Rollback returns a task UPID — must wait for completion before starting VM
+        upid = self._proxmox.nodes(node).qemu(vmid).snapshot(snapshot_name).rollback.post()
+        if upid:
+            self._wait_for_task(node, upid, timeout_sec=300)
+        # Start VM after rollback completes
+        try:
+            self._proxmox.nodes(node).qemu(vmid).status.start.post()
+        except Exception as e:
+            # "already running" is OK — some snapshots restore to running state
+            if "already running" not in str(e).lower():
+                raise
+            logger.info("VM %d already running after rollback", vmid)
         return None  # Proxmox IPs are static, no change
+
+    def _wait_for_task(self, node: str, upid: str, timeout_sec: int = 300) -> None:
+        """Wait for a Proxmox task to complete."""
+        import time as _time
+        elapsed = 0
+        poll_sec = 3
+        while elapsed < timeout_sec:
+            try:
+                task = self._proxmox.nodes(node).tasks(upid).status.get()
+                status = task.get("status", "")
+                if status == "stopped":
+                    exit_status = task.get("exitstatus", "")
+                    if exit_status == "OK":
+                        logger.info("Task %s completed OK (waited %ds)", upid[:30], elapsed)
+                        return
+                    else:
+                        raise RuntimeError(
+                            f"Proxmox task failed: {exit_status} (upid={upid})"
+                        )
+            except RuntimeError:
+                raise
+            except Exception as e:
+                logger.debug("Task status check failed: %s", e)
+            _time.sleep(poll_sec)
+            elapsed += poll_sec
+        raise TimeoutError(f"Proxmox task {upid} did not complete within {timeout_sec}s")
 
     def get_vm_status(self, server_ref: dict) -> VMStatus:
         node = server_ref["node"]

@@ -25,8 +25,11 @@ def get_process_pool() -> ProcessPoolExecutor:
     global _process_pool
     if _process_pool is None:
         ctx = multiprocessing.get_context("spawn")
+        workers = max((os.cpu_count() or 4) * 16, 64)
+        if os.name == "nt":
+            workers = min(workers, 60)  # Windows limit is 61
         _process_pool = ProcessPoolExecutor(
-            max_workers=max((os.cpu_count() or 4) * 16, 64),
+            max_workers=workers,
             mp_context=ctx,
         )
     return _process_pool

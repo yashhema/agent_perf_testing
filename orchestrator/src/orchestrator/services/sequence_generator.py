@@ -44,6 +44,7 @@ from generator.generators.ops_sequence_generator import (
     OpsSequenceGenerator,
     ServerFileHeavyOpsGenerator,
     ServerNormalOpsGenerator,
+    ServerSteadyOpsGenerator,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ class SequenceGenerationService:
                     test_run_id=str(test_run.id),
                     load_profile_name=lp.name,
                     server=server,
+                    target_config=target_config,
                 )
                 ops = self._generate_ops(generator, scenario.template_type, seq_count)
                 generator.write_csv(ops, local_path)
@@ -140,6 +142,7 @@ class SequenceGenerationService:
         test_run_id: str,
         load_profile_name: str,
         server: ServerORM,
+        target_config=None,
     ) -> OpsSequenceGenerator:
         """Instantiate the correct generator for the scenario's template_type."""
         template = scenario.template_type
@@ -148,13 +151,19 @@ class SequenceGenerationService:
             return ServerNormalOpsGenerator(test_run_id, load_profile_name)
 
         elif template == TemplateType.server_file_heavy:
+            num_folders = 4
+            if target_config and target_config.output_folders:
+                num_folders = len([f.strip() for f in target_config.output_folders.split(",") if f.strip()])
             return ServerFileHeavyOpsGenerator(
                 test_run_id=test_run_id,
                 load_profile=load_profile_name,
                 normal_files=self._get_normal_file_ids(),
                 confidential_files=self._get_confidential_file_ids(),
-                num_output_folders=4,
+                num_output_folders=num_folders,
             )
+
+        elif template == TemplateType.server_steady:
+            return ServerSteadyOpsGenerator(test_run_id, load_profile_name)
 
         elif template == TemplateType.db_load:
             db_type = server.db_type.value if server.db_type else "postgresql"

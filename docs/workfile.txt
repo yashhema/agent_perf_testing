@@ -1,0 +1,321 @@
+Source Code Change Log
+======================
+All changes to src/ code are documented here with date, file, and summary.
+
+--- Pre-Phase-2 fixes (discovered during deployment testing) ---
+
+2026-03-10  orchestrator/src/orchestrator/services/package_manager.py
+  - Reordered deploy steps: upload → extract → prereq → install (was: prereq → upload → extract → install)
+  - Reason: Windows emulator bundles Python installer inside tar.gz; prereq script needs extracted files
+
+2026-03-10  emulator/start.ps1
+  - Complete rewrite for WinRM compatibility
+  - Uses WMI Win32_Process.Create instead of Start-Process (WinRM handle inheritance fix)
+  - Fire-and-forget: starts process, verifies alive after 3s, exits immediately
+  - Added Windows Firewall rule for port 8080
+  - Renamed $pid to $procId (PowerShell read-only variable conflict)
+
+2026-03-10  DB: package_group_members (member 4, emulator linux)
+  - Updated extraction_command: added `command -v tar >/dev/null || dnf install -y -q tar;` guard
+
+2026-03-10  DB: package_group_members (member 6, jmeter linux)
+  - Updated extraction_command: added `command -v tar >/dev/null || dnf install -y -q tar;` guard
+
+2026-03-10  DB: baseline_test_run_targets
+  - Added column: output_folders NVARCHAR(500) NULL
+
+2026-03-10  DB: test_run_targets
+  - Added column: output_folders NVARCHAR(500) NULL
+
+--- Phase 2+ changes below ---
+
+2026-03-10  orchestrator/src/orchestrator/core/baseline_state_machine.py
+  - BUG FIX: error_message was always NULL in failed test runs
+  - Root cause: fail() set error_message in memory, then transition() called session.refresh()
+    which reloaded the object from DB, wiping the uncommitted error_message
+  - Fix: set error_message AFTER transition() completes (after refresh + commit),
+    then commit again to persist it
+
+2026-03-10  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - BUG FIX: db-assets path resolution wrong — parents[3] resolved to orchestrator/
+    but db-assets is at agent_perf_testing/db-assets (one level up)
+  - Fix: changed parents[3] to parents[4] in both _do_generation() and
+    _create_generator_for_template() (2 occurrences via replace_all)
+
+2026-03-10  orchestrator/src/orchestrator/app.py
+  - BUG FIX: /packages and /prerequisites static file mounts used parents[3] which
+    resolved to agent_perf_testing/ instead of orchestrator/ where the dirs actually live
+  - Fix: changed parents[3] to parents[2] for both artifacts_dir and prereq_dir
+  - This caused WinRM HTTP pull to get 404 when Windows target tried to download packages
+
+2026-03-10  orchestrator/artifacts/jmx/server-normal.jmx
+  - Increased operation duration_ms from 100 to 500 for all 3 operations (CPU, MEM, DISK)
+  - Increased CPU intensity from 0.7 to 0.8
+  - Root cause: 100ms operations were too brief to register on psutil.cpu_percent()
+    (1-second sampling interval). 30 threads × 70ms CPU burn = operations complete before
+    the next stats sample, resulting in 0.1% observed CPU. 500ms creates sustained
+    overlapping load across all 4 cores.
+
+2026-03-10  DB: load_profiles (id=1, "low")
+  - Widened target_cpu_range from 20-40% to 15-50%
+  - Reason: on 4-vCPU VMs, thread granularity is coarse; narrow range causes
+    calibration stability loop to exhaust
+
+2026-03-11  orchestrator/artifacts/jmx/server-normal.jmx
+  - Renamed sampler testnames: "CPU Burn" → "cpu", "Memory Alloc" → "mem",
+    "Disk Mixed IO" → "disk"
+  - Root cause: SwitchController dispatches by matching ${op_type} from CSV
+    (values: cpu, mem, disk) against sampler testname. Old names didn't match,
+    causing JMeter StackOverflowError (infinite recursion in controller loop)
+
+2026-03-11  emulator/app/stats/collector.py
+  - BUG FIX: CPU stats always reported 0% even under heavy load
+  - Two root causes:
+    1. psutil.cpu_percent(interval=None) in async event loop was unreliable —
+       event loop was blocked handling HTTP requests, starving the stats task
+    2. Stats collection ran as asyncio.Task in same event loop as request handlers
+  - Fix: moved stats collection to a separate threading.Thread (daemon)
+  - Fix: replaced psutil.cpu_percent() with direct /proc/stat reading
+    (falls back to psutil on Windows)
+  - Verified: 10 threads now shows 96-100% CPU on 4-vCPU VM
+
+2026-03-11  orchestrator/src/orchestrator/infra/remote_executor.py
+  - BUG FIX: WinRM operations timing out during package deployment (Run 7)
+  - Root cause: pywinrm default read_timeout_sec is 30s; tar extraction and
+    Python install on Windows take longer
+  - Fix: added read_timeout_sec=120, operation_timeout_sec=110 to WinRM Session
+
+2026-03-11  DB: calibration_results (unique constraint)
+  - BUG FIX: UNIQUE KEY violation when inserting baseline calibration (Run 8)
+  - Root cause: constraint was (test_run_id, server_id, load_profile_id).
+    Baseline runs have test_run_id=NULL. SQL Server treats NULL==NULL,
+    so stale record from Run 6 conflicted with Run 8's insert.
+  - Fix: changed constraint to (test_run_id, baseline_test_run_id, server_id, load_profile_id)
+
+2026-03-11  orchestrator/src/orchestrator/services/comparison.py
+  - FIX: Cohen's d verdict false-positive on memory metrics (Run 14)
+  - Root cause: memory has very low intra-run variance (~0.2% std), so even
+    normal OS variance between boots (70 MB / 0.9%) triggers d=-4.4 ("large").
+    Actual difference was meaningless (648 vs 579 MB).
+  - Fix: added _MIN_DELTA_THRESHOLDS — Cohen's d effect is only counted toward
+    verdict if the absolute mean difference exceeds a practical minimum
+    (e.g. memory_percent > 2pp, memory_used_mb > 150 MB, cpu_percent > 2pp)
+
+2026-03-11  orchestrator/src/orchestrator/infra/remote_executor.py
+  - BUG FIX: SSH session going stale during long test runs (Run 15)
+  - Root cause: paramiko SSH connection created in Phase 2 (deploy) goes idle
+    during calibration+execution (~25 min), remote host drops connection
+  - Fix: added transport.set_keepalive(30) after SSH connect
+
+2026-03-11  orchestrator/src/orchestrator/core/baseline_execution.py
+  - BUG FIX: _trim_start_sec and _trim_end_sec unreachable in __init__ (Run 9)
+  - Root cause: two assignment lines were inside _build_orchestrator_url() after
+    a return statement, instead of in __init__() where they belong
+  - Fix: moved the two lines back to __init__() after _build_orchestrator_url() call
+
+2026-03-11  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - BUG FIX: test run stuck in 'calibrating' state after DB error (Run 8)
+  - Root cause: IntegrityError put SQLAlchemy session into rolled-back state.
+    The except block called sm.fail() which tried to use the same session,
+    failing silently — state never transitioned to 'failed'.
+  - Fix: added session.rollback() before sm.fail() in the except block
+
+2026-03-12  orchestrator/src/orchestrator/core/calibration.py
+  - Added extra_properties field to CalibrationContext dataclass
+  - Pass ctx.extra_properties to jmeter_controller.start() in both
+    _run_observation() and _run_stability_check()
+  - Enables server_steady template to receive dynamic pool_gb via -J flags
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - Added _build_steady_extra_properties() static helper: queries emulator's
+    /stats/system for RAM, calculates pool_gb = 60% of total (capped at 2.0 GB
+    due to JVM byte[] limit), returns extra_properties dict
+  - Updated _do_calibration(): detects server_steady template, builds dynamic
+    extra_properties, passes to CalibrationContext
+  - Updated _do_execution(): passes is_steady flag in target_configs
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_execution.py
+  - Updated execute() Phase 3: for server_steady targets, calls
+    _build_steady_extra_properties() to compute dynamic pool_gb and passes
+    as extra_properties to jmeter_ctrl.start()
+
+2026-03-12  emulator_java/src/main/java/com/emulator/service/MemoryPoolService.java
+  - Replaced single byte[] pool with chunked byte[][] arrays (1.5 GB per chunk)
+  - Removes the ~2.1 GB limit from Java's Integer.MAX_VALUE array index cap
+  - allocate(): splits requested size into N chunks, touches all pages per chunk
+  - touchPool(): maps virtual flat address to chunk[index][offset] for both
+    sequential and random access patterns
+  - No change to PoolResponse or external API — transparent to callers
+
+2026-03-12  orchestrator/artifacts/jmx/server-steady.jmx
+  - Removed setUp Thread Group (Pool Init) — pool allocation now done directly
+    by orchestrator via EmulatorClient.allocate_pool() before JMeter starts
+  - JMeter only handles load generation (/work calls), not setup
+
+2026-03-12  orchestrator/src/orchestrator/infra/emulator_client.py
+  - Added allocate_pool(size_gb) method: POST /api/v1/config/pool with 120s timeout
+  - Added destroy_pool() method: DELETE /api/v1/config/pool
+
+2026-03-12  emulator_java/src/main/java/com/emulator/model/request/NetworkClientRequest.java (NEW)
+  - Request model for /operations/networkclient: req_size_kb, resp_size_kb
+
+2026-03-12  emulator_java/src/main/java/com/emulator/model/request/NetworkServerRequest.java (NEW)
+  - Request model for /operations/networkserver: payload (base64 bytes), resp_size_kb
+
+2026-03-12  emulator_java/src/main/java/com/emulator/service/NetworkClientService.java (NEW)
+  - HTTP-based network client: builds payload of req_size_kb, POSTs to partner's
+    /operations/networkserver endpoint, receives resp_size_kb response
+  - Replaces old raw-socket NetworkOperationService for inter-emulator traffic
+
+2026-03-12  emulator_java/src/main/java/com/emulator/controller/OperationsController.java
+  - Added /operations/networkclient endpoint: delegates to NetworkClientService
+  - Added /operations/networkserver endpoint: receives payload, returns response
+    of requested resp_size_kb size
+  - Injected NetworkClientService into constructor
+
+2026-03-12  orchestrator/artifacts/jmx/server-steady.jmx
+  - Complete rewrite with ThroughputController-based operation mix:
+    68% /work, 10% /file, 20% /networkclient, 1% /cpu spike, 1% /suspicious
+  - Removed setUp Thread Group (pool allocated by orchestrator)
+  - Removed CSV Data Set Config (not needed for steady-state)
+
+2026-03-12  orchestrator/artifacts/jmx/server-file-heavy.jmx
+  - Complete rewrite with ThroughputController-based operation mix:
+    48% /work, 30% /file, 20% /networkclient, 1% /cpu spike, 1% /suspicious
+  - Replaced old /cpu and /mem endpoints with /work (pool-based)
+  - Added /networkclient and /suspicious operations
+  - Kept Groovy pre-processor for zip randomization on file operations
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - Generalized pool allocation: _POOL_RAM_PERCENT dict maps template types to
+    RAM percentages (server_steady=60%, server_file_heavy=40%)
+  - Renamed _setup_steady_pool → _setup_pool (takes template_type param)
+  - Renamed _build_steady_extra_properties → _build_work_extra_properties
+  - Both _do_calibration and _do_execution now handle server_file_heavy too
+  - _do_setup(): loadgen now gets emulator deployed + started when template
+    needs pool (server_steady, server_file_heavy) — required as /networkclient
+    partner to receive /networkserver calls from targets
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - BUG FIX: calibration showed 0% CPU despite /work returning 200 (Run 27)
+  - Root cause: _do_calibration() never called em_client.set_config() with
+    partner and output_folders. Mixed-load JMX templates send 30% of requests
+    to /networkclient (20%) and /file (10%), both returning HTTP 400 instantly
+    when unconfigured. This caused threads to cycle through errors at ~2ms each
+    instead of doing real CPU work, resulting in near-zero CPU readings.
+  - Fix: added set_config() call in _do_calibration() before pool allocation,
+    matching the same logic already in baseline_execution.py (partner_id
+    resolution, output_folders from target_orm or OS defaults)
+
+2026-03-12  orchestrator/src/orchestrator/core/calibration.py
+  - BUG FIX: calibration stats returned 0% CPU because JMeter finished before
+    stats were read (Run 27)
+  - Root cause: JMeter duration_sec was exactly equal to orchestrator sleep time
+    (observation: 30+15=45s sleep, 45s JMeter; stability: 60+15=75s sleep, 75s JMeter).
+    JMeter has 1-2s startup overhead, so it finishes before the orchestrator reads stats.
+  - Fix: set JMeter duration_sec=3600 (1 hour) in both _run_observation() and
+    _run_stability_check(). JMeter never self-terminates during calibration.
+    Orchestrator reads stats while load is guaranteed active, then explicitly
+    kills JMeter via jmeter_controller.stop(pid).
+
+2026-03-12  orchestrator/src/orchestrator/infra/jmeter_controller.py
+  - BUG FIX: JMeter start() hung for 120s (SSH timeout) after duration_sec=3600 change (Run 28)
+  - Root cause: nohup command didn't redirect stdin (< /dev/null), so the backgrounded
+    JMeter process inherited the SSH channel's stdin fd, keeping the channel open.
+    recv_exit_status() blocked until the 120s SSH timeout, causing _run_observation()
+    to fail with an empty exception on every iteration.
+  - Fix: added < /dev/null to the nohup command so the SSH channel closes immediately
+    after the shell prints the PID and exits.
+  - Additional fix: added execute_background() method to SSHExecutor that reads stdout
+    with a socket timeout instead of waiting for recv_exit_status() (which blocks when
+    background processes keep the SSH channel open).
+
+2026-03-12  orchestrator/src/orchestrator/infra/jmeter_controller.py
+  - Added kill_all() method to kill all JMeter processes on the load generator.
+  - Used to clean up stale processes from failed runs where PIDs were never captured.
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - BUG FIX: Added jmeter_ctrl.kill_all() call at start of _do_calibration() (Run 30)
+  - Root cause: When JMeter start() timed out (Run 28/29), PIDs were never captured,
+    so stop(pid) was never called. With duration_sec=3600, stale JMeter processes
+    accumulated on the loadgen (15+ processes × 15 threads each), hammering the target
+    with uncontrolled load. Even 1 calibration thread showed 99% CPU because stale
+    processes were still running from previous failed runs.
+  - Fix: kill_all() cleans up all JMeter processes before calibration begins.
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - BUG FIX: Pool sizing caused 99% CPU from GC pressure (Run 31)
+  - Root cause: Pool was sized as % of total RAM (60% of 7.6GB = 4.5GB), but the JVM
+    heap is total_ram - 2048MB = 5.6GB. A 4.5GB pool in a 5.6GB heap = 82% heap usage,
+    leaving no room for GC. G1GC ran constantly at 389% CPU (all 4 vCPUs).
+  - Fix 1: Changed pool sizing from % of RAM to % of JVM heap.
+    _POOL_RAM_PERCENT -> _POOL_HEAP_PERCENT. server_steady: 50% of heap (was 60% of RAM),
+    server_file_heavy: 30% of heap (was 40% of RAM). Heap is estimated as
+    total_ram - 2048MB (matching start.sh formula).
+  - Fix 2: Added _destroy_pool() and _cleanup_pools() methods. Pool is now released
+    in the finally block of run(), ensuring cleanup on both success and failure.
+
+2026-03-12  emulator_java/src/main/java/com/emulator/ (3 files)
+  - PoolRequest.java: added heap_percent field (optional, alternative to size_gb)
+  - MemoryPoolService.java: added allocateByHeapPercent() — calculates pool size from
+    Runtime.getRuntime().maxMemory() so the emulator owns its own sizing.
+  - ConfigController.java: /pool endpoint now accepts either heap_percent (0-0.8) or
+    size_gb (0-64). heap_percent is preferred — keeps sizing self-contained in emulator.
+
+2026-03-12  orchestrator/src/orchestrator/infra/emulator_client.py
+  - Added allocate_pool_by_heap_percent() method — sends heap_percent to emulator.
+
+2026-03-12  orchestrator/src/orchestrator/infra/jmeter_controller.py
+  - BUG FIX: stop() only killed jmeter shell wrapper, Java child process survived (Run 32)
+  - Root cause: jmeter script spawns Java as child process. kill {pid} killed the shell
+    wrapper but Java kept running. Each calibration iteration leaked a JMeter process.
+  - Fix: stop() now uses pkill -P {pid} to kill children before killing parent.
+
+2026-03-12  orchestrator/artifacts/scripts/jmeter_kill.py (NEW)
+  - Python kill script deployed to loadgen alongside JMeter
+  - Reads /proc directly (stdlib only, no psutil dependency)
+  - --stop-pid PID [--jtl-path PATH]: kills wrapper + orphaned Java child by JTL path match
+  - --kill-for-target HOST: kills only JMeter processes matching -Jhost={host} (shared loadgen safe)
+  - Replaces fragile shell pipes (ps | grep | awk | xargs) with proper /proc/{pid}/cmdline reads
+
+2026-03-12  orchestrator/src/orchestrator/infra/jmeter_controller.py
+  - Rewrote stop() and kill_for_target() to call jmeter_kill.py via SSH instead of shell pipes
+  - Removed all ps/grep/awk/xargs one-liners from Linux code paths
+
+2026-03-12  orchestrator/src/orchestrator/core/calibration.py
+  - Updated all stop(pid) calls to pass jtl_path for orphaned Java child cleanup
+  - _run_observation(): stop(pid, jtl_path=f"{cal_prefix}.jtl")
+  - _run_stability_check(): stop(pid, jtl_path=f"{stab_prefix}.jtl")
+  - Exception handler in _run_observation(): also passes jtl_path
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - _do_setup(): deploys jmeter_kill.py to loadgen during JMX deployment
+  - _do_calibration(): changed kill_all() to kill_for_target(server.ip_address)
+    for shared loadgen safety
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_execution.py
+  - Updated stop() call in Phase 5 to pass jtl_path for orphan cleanup
+
+2026-03-12  orchestrator/src/orchestrator/core/baseline_execution.py
+  - BUG FIX: JMeter self-terminated before orchestrator stopped stats collection (Run 36)
+  - Root cause: JMeter was started with duration_sec=lp.duration_sec so it exited on its own.
+    Orchestrator waited ramp_up+duration+margin (159s) but JMeter only ran 121s, leaving ~38s
+    of idle stats (CPU 0.5%, network 0.0%) contaminating the baseline data.
+  - Fix: set JMeter duration_sec=3600 (same pattern as calibration). Orchestrator sleeps for
+    ramp_up+duration then explicitly kills JMeter. Stats and load are perfectly aligned.
+
+2026-03-12  DB: load_profiles (id=1, low profile)
+  - Changed duration_sec from 120 to 900 (15 minutes) to investigate memory growth
+
+--- Run 37 Analysis (15-min new_baseline, server 8, scenario 1004) ---
+
+2026-03-12  Run 37 completed successfully (37m 18s total, test run ID 37)
+  - Memory: JVM heap expands from ~3,774 MB to ~5,836 MB during first ~2 minutes (samples 0-27),
+    then plateaus at ~5,776 MB (75.2%) for remaining 13 minutes. NOT a memory leak — normal G1GC
+    heap expansion behavior. Confirmed stable.
+  - CPU: stable 22-25% after ramp-up (consistent with calibrated thread count)
+  - Disk read: ~0 MB/s (page cache; files cached after first read)
+  - Disk write: avg 6 MB/s, bursty 0-22 MB/s (/file endpoint output writes)
+  - Network: steady ~0.4 MB/s sent, ~0.2 MB/s recv (JMeter HTTP traffic)
+  - All metrics stable over 15 minutes — clean baseline established
+

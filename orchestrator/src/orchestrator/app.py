@@ -1,6 +1,8 @@
 """FastAPI application entry point."""
 
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +12,13 @@ from fastapi.staticfiles import StaticFiles
 from orchestrator.config.credentials import CredentialsStore
 from orchestrator.config.settings import AppConfig, load_config
 from orchestrator.models.database import init_db
+
+# Configure root logger so all orchestrator.* module logs go to stderr (captured by uvicorn)
+logging.basicConfig(
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    stream=sys.stderr,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +59,18 @@ def create_app() -> FastAPI:
     # Mount static files
     static_dir = Path(__file__).resolve().parent / "static"
     application.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # Serve package artifacts so remote targets can download via HTTP
+    artifacts_dir = Path(__file__).resolve().parents[2] / "artifacts" / "packages"
+    if artifacts_dir.exists():
+        application.mount("/packages", StaticFiles(directory=str(artifacts_dir)), name="packages")
+        logger.info("Serving packages from %s", artifacts_dir)
+
+    # Serve prerequisite scripts so remote targets can download via HTTP
+    prereq_dir = Path(__file__).resolve().parents[2] / "prerequisites"
+    if prereq_dir.exists():
+        application.mount("/prerequisites", StaticFiles(directory=str(prereq_dir)), name="prerequisites")
+        logger.info("Serving prerequisites from %s", prereq_dir)
 
     # Register API routers
     from orchestrator.api.auth import router as auth_router

@@ -15,6 +15,7 @@ real-time status during calibration.
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -54,6 +55,8 @@ class CalibrationContext:
     ops_sequence_path: str
     emulator_port: int
     test_run_id: Optional[int] = None  # For unique temp paths on shared loadgen
+    results_dir: Optional[str] = None  # Base dir for saving logs
+    extra_properties: Optional[dict] = None  # Extra -J flags for JMeter (e.g. pool_gb for server_steady)
 
 
 class CalibrationEngine:
@@ -210,6 +213,8 @@ class CalibrationEngine:
         high = self._config.max_thread_count
         best_thread_count = None
         iteration = 0
+        consecutive_failures = 0
+        max_consecutive_failures = 3
 
         while iteration < self._config.max_calibration_iterations and low <= high:
             iteration += 1
@@ -230,17 +235,31 @@ class CalibrationEngine:
                         iteration, candidate, low, high)
 
             avg_cpu = self._run_observation(ctx, candidate, ramp_up_sec)
-            self._cleanup_iteration(ctx)
+            self._cleanup_iteration(ctx, iteration=iteration, phase="binary_search")
 
             if avg_cpu is None:
+                consecutive_failures += 1
                 cal_record.message = (
                     f"Binary search iter {iteration}: failed to read CPU at "
-                    f"{candidate} threads, retrying"
+                    f"{candidate} threads ({consecutive_failures}/{max_consecutive_failures} "
+                    f"consecutive failures)"
                 )
                 cal_record.updated_at = datetime.utcnow()
                 session.commit()
-                logger.warning("Failed to get CPU reading, retrying with same count")
+                logger.warning(
+                    "Failed to get CPU reading (%d/%d consecutive failures)",
+                    consecutive_failures, max_consecutive_failures,
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    raise CalibrationError(
+                        f"Emulator unreachable: {max_consecutive_failures} consecutive "
+                        f"observation failures on {ctx.server.hostname}:{ctx.emulator_port}. "
+                        f"The emulator may have crashed or the target VM is down."
+                    )
                 continue
+
+            # Successful observation — reset failure counter
+            consecutive_failures = 0
 
             # Update observed CPU
             cal_record.last_observed_cpu = round(avg_cpu, 1)
@@ -339,7 +358,7 @@ class CalibrationEngine:
                     ctx, thread_count, ramp_up_sec, stability_duration,
                     target_min, target_max,
                 )
-                self._cleanup_iteration(ctx)
+                self._cleanup_iteration(ctx, iteration=check_num, phase=f"stability_attempt{attempt+1}")
 
                 # Update result of this check
                 cal_record.stability_pct_in_range = pct_in_range
@@ -412,7 +431,12 @@ class CalibrationEngine:
         thread_count: int,
         ramp_up_sec: int,
     ) -> Optional[float]:
-        """Run a single observation cycle: start JMeter, wait, read CPU, stop."""
+        """Run a single observation cycle: start JMeter, wait, read CPU, stop.
+
+        Returns avg CPU %, or None if the observation failed (emulator may be down).
+        """
+        test_id = None
+        pid = None
         try:
             # Start emulator stats collection
             test_resp = ctx.emulator_client.start_test(
@@ -433,10 +457,11 @@ class CalibrationEngine:
                 log_path=f"{cal_prefix}.log",
                 thread_count=thread_count,
                 ramp_up_sec=ramp_up_sec,
-                duration_sec=self._config.observation_duration_sec + ramp_up_sec,
+                duration_sec=3600,  # run indefinitely; orchestrator kills after reading stats
                 target_host=ctx.server.ip_address,
                 target_port=ctx.emulator_port,
                 ops_sequence_path=ctx.ops_sequence_path,
+                extra_properties=ctx.extra_properties,
             )
 
             # Wait for ramp-up + observation
@@ -450,10 +475,16 @@ class CalibrationEngine:
             samples = stats.get("samples", [])
 
             # Stop JMeter and emulator
-            ctx.jmeter_controller.stop(pid)
+            try:
+                ctx.jmeter_controller.stop(pid, jtl_path=f"{cal_prefix}.jtl")
+            except Exception:
+                pass
+            pid = None
             ctx.emulator_client.stop_test(test_id)
+            test_id = None
 
             if not samples:
+                logger.warning("Observation returned 0 samples — emulator may not be collecting")
                 return None
 
             cpu_values = [s.get("cpu_percent", 0) for s in samples]
@@ -492,6 +523,17 @@ class CalibrationEngine:
 
         except Exception as e:
             logger.error("Observation failed: %s", e)
+            # Try to clean up JMeter if it was started
+            if pid is not None:
+                try:
+                    ctx.jmeter_controller.stop(pid, jtl_path=f"{cal_prefix}.jtl")
+                except Exception:
+                    pass
+            if test_id is not None:
+                try:
+                    ctx.emulator_client.stop_test(test_id)
+                except Exception:
+                    pass
             return None
 
     def _run_stability_check(
@@ -525,10 +567,11 @@ class CalibrationEngine:
                 log_path=f"{stab_prefix}.log",
                 thread_count=thread_count,
                 ramp_up_sec=ramp_up_sec,
-                duration_sec=duration_sec + ramp_up_sec,
+                duration_sec=3600,  # run indefinitely; orchestrator kills after reading stats
                 target_host=ctx.server.ip_address,
                 target_port=ctx.emulator_port,
                 ops_sequence_path=ctx.ops_sequence_path,
+                extra_properties=ctx.extra_properties,
             )
 
             time.sleep(ramp_up_sec)
@@ -537,7 +580,7 @@ class CalibrationEngine:
             stats = ctx.emulator_client.get_recent_stats(count=min(duration_sec, 1000))
             samples = stats.get("samples", [])
 
-            ctx.jmeter_controller.stop(pid)
+            ctx.jmeter_controller.stop(pid, jtl_path=f"{stab_prefix}.jtl")
             ctx.emulator_client.stop_test(test_id)
 
             if not samples:
@@ -626,15 +669,51 @@ class CalibrationEngine:
             )
             return True, round(pct_in_range, 1), round(avg_cpu, 1), round(pct_below_min, 1)
 
+        except (ConnectionError, OSError, TimeoutError) as e:
+            # Connectivity failures should not be silently swallowed
+            logger.error("Stability check failed (connectivity): %s", e)
+            raise CalibrationError(
+                f"Emulator unreachable during stability check on "
+                f"{ctx.server.hostname}:{ctx.emulator_port}: {e}"
+            ) from e
         except Exception as e:
             logger.error("Stability check failed: %s", e)
             return False, 0.0, 0.0, 0.0
 
-    def _cleanup_iteration(self, ctx: CalibrationContext) -> None:
-        """Clean up temp files created during calibration iterations."""
+    def _cleanup_iteration(self, ctx: CalibrationContext, iteration: int = 0, phase: str = "binary_search") -> None:
+        """Collect logs then clean up temp files created during calibration iterations."""
         run_tag = f"r{ctx.test_run_id}_s{ctx.server.id}_lp{ctx.load_profile.id}"
         cal_prefix = f"/tmp/calibration_{run_tag}"
         stab_prefix = f"/tmp/calibration-stability_{run_tag}"
+
+        # Collect logs before cleanup
+        if ctx.results_dir:
+            logs_dir = os.path.join(
+                ctx.results_dir, str(ctx.test_run_id),
+                f"server_{ctx.server.id}", "logs",
+                f"calibration_{phase}_iter{iteration}",
+            )
+            os.makedirs(logs_dir, exist_ok=True)
+
+            # JMeter logs (jtl + log for both cal and stability prefixes)
+            for prefix_name, prefix in [("cal", cal_prefix), ("stability", stab_prefix)]:
+                for ext in [".jtl", ".log"]:
+                    remote = f"{prefix}{ext}"
+                    local = os.path.join(logs_dir, f"jmeter_{prefix_name}{ext}")
+                    try:
+                        ctx.jmeter_controller._executor.download(remote, local)
+                        logger.info("Collected %s -> %s", remote, local)
+                    except Exception:
+                        pass  # File may not exist for this phase
+
+            # Emulator logs
+            try:
+                emulator_log = os.path.join(logs_dir, "emulator_logs.tar.gz")
+                ctx.emulator_client.download_logs(emulator_log)
+            except Exception as e:
+                logger.debug("Emulator log download failed (non-fatal): %s", e)
+
+        # Clean up remote temp files
         try:
             ctx.jmeter_controller._executor.execute(
                 f"rm -f {cal_prefix}.jtl {cal_prefix}.log "

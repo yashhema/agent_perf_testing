@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+import threading
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -98,7 +99,7 @@ class StatsCollector:
 
     # Background collection state
     _is_collecting: bool = False
-    _collect_task: Optional[asyncio.Task] = None
+    _collect_thread: Optional[threading.Thread] = None
     _collect_interval_sec: float = 1.0
     _max_samples: int = 10000
     _stats_output_dir: str = "./stats"
@@ -116,6 +117,9 @@ class StatsCollector:
     _last_net_recv: int = 0
     _last_sample_time: Optional[float] = None
     _start_time: Optional[float] = None
+
+    # For /proc/stat CPU calculation
+    _prev_cpu_times: Optional[tuple] = None
 
     # Per-process monitoring
     _service_monitor_patterns: List[str] = field(default_factory=list)
@@ -188,8 +192,12 @@ class StatsCollector:
         self._collect_interval_sec = interval_sec
         self._is_collecting = True
 
-        # Start background collection task
-        self._collect_task = asyncio.create_task(self._collection_loop())
+        # Start background collection thread (separate from event loop)
+        self._prev_cpu_times = None  # reset CPU baseline
+        self._collect_thread = threading.Thread(
+            target=self._collection_loop, daemon=True
+        )
+        self._collect_thread.start()
 
     async def stop_collection(self) -> Optional[str]:
         """Stop background stats collection and save to file.
@@ -202,14 +210,10 @@ class StatsCollector:
 
         self._is_collecting = False
 
-        # Cancel collection task
-        if self._collect_task:
-            self._collect_task.cancel()
-            try:
-                await self._collect_task
-            except asyncio.CancelledError:
-                pass
-            self._collect_task = None
+        # Wait for collection thread to finish
+        if self._collect_thread:
+            self._collect_thread.join(timeout=5)
+            self._collect_thread = None
 
         # Update metadata
         if self._metadata:
@@ -222,23 +226,44 @@ class StatsCollector:
 
         return stats_file
 
-    async def _collection_loop(self) -> None:
-        """Background loop that collects stats at regular intervals."""
+    def _collection_loop(self) -> None:
+        """Background loop that collects stats at regular intervals (runs in thread)."""
         while self._is_collecting:
             try:
-                sample = await self._collect_sample()
+                sample = self._collect_sample_sync()
                 if sample:
                     self._samples.append(sample)
 
-                await asyncio.sleep(self._collect_interval_sec)
-            except asyncio.CancelledError:
-                break
+                time.sleep(self._collect_interval_sec)
             except Exception as e:
-                # Log error but continue collecting
                 print(f"Stats collection error: {e}")
-                await asyncio.sleep(self._collect_interval_sec)
+                time.sleep(self._collect_interval_sec)
 
-    async def _collect_sample(self) -> Optional[StatsSample]:
+    def _read_cpu_percent(self) -> float:
+        """Read system CPU% from /proc/stat (Linux) or psutil (Windows)."""
+        try:
+            with open("/proc/stat", "r") as f:
+                line = f.readline()  # "cpu  user nice system idle iowait irq softirq steal ..."
+            parts = line.split()
+            # user, nice, system, idle, iowait, irq, softirq, steal
+            times = tuple(int(x) for x in parts[1:9])
+            if self._prev_cpu_times is None:
+                self._prev_cpu_times = times
+                return 0.0
+            prev = self._prev_cpu_times
+            self._prev_cpu_times = times
+            deltas = tuple(t - p for t, p in zip(times, prev))
+            idle = deltas[3] + deltas[4]  # idle + iowait
+            total = sum(deltas)
+            if total == 0:
+                return 0.0
+            return round((1.0 - idle / total) * 100, 1)
+        except FileNotFoundError:
+            # Windows — fall back to psutil
+            import psutil
+            return psutil.cpu_percent(interval=None)
+
+    def _collect_sample_sync(self) -> Optional[StatsSample]:
         """Collect a single stats sample with rate calculations."""
         try:
             import psutil
@@ -249,7 +274,7 @@ class StatsCollector:
             if time_delta <= 0:
                 time_delta = 1.0  # Avoid division by zero
 
-            cpu_percent = psutil.cpu_percent(interval=None)
+            cpu_percent = self._read_cpu_percent()
             memory = psutil.virtual_memory()
             disk_io = psutil.disk_io_counters()
             net_io = psutil.net_io_counters()

@@ -288,6 +288,7 @@ class TestRunTargetORM(Base):
     db_ready_base_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=True)
     db_ready_initial_snapshot_id = Column(Integer, ForeignKey("baselines.id"), nullable=True)
     service_monitor_patterns = Column(JSON, nullable=True)
+    output_folders = Column(String(2000), nullable=True)  # comma-separated folder paths for emulator file output
 
     # Discovered OS kind (shared — derived from the machine's distro family)
     os_kind = Column(String(100), nullable=True)
@@ -690,6 +691,7 @@ class BaselineTestRunTargetORM(Base):
     test_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=False)
     compare_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
     service_monitor_patterns = Column(JSON, nullable=True)
+    output_folders = Column(String(2000), nullable=True)  # comma-separated folder paths for emulator file output
 
     # Discovery results (written during setting_up)
     os_kind = Column(String(100), nullable=True)

@@ -41,7 +41,6 @@ class EmulatorClient:
 
     def set_config(
         self,
-        input_folders: Dict[str, str],
         output_folders: List[str],
         partner: Dict[str, Any],
         stats: Optional[Dict[str, Any]] = None,
@@ -50,14 +49,12 @@ class EmulatorClient:
         """POST /api/v1/config
 
         Args:
-            input_folders: {"normal": path, "confidential": path}
             output_folders: list of output directory paths
             partner: {"fqdn": hostname, "port": port}
             stats: {"output_dir", "max_memory_samples", "default_interval_sec"}
             service_monitor_patterns: regex patterns for agent process monitoring
         """
         body: Dict[str, Any] = {
-            "input_folders": input_folders,
             "output_folders": output_folders,
             "partner": partner,
         }
@@ -150,3 +147,58 @@ class EmulatorClient:
         resp = self._client.get("/api/v1/stats/system")
         resp.raise_for_status()
         return resp.json()
+
+    # --- Memory Pool ---
+
+    def allocate_pool(self, size_gb: float) -> Dict[str, Any]:
+        """POST /api/v1/config/pool with size_gb
+
+        Allocates the memory pool on the emulator. Used by server_steady template.
+        The emulator splits into chunked byte[][] arrays internally.
+        """
+        resp = self._client.post(
+            "/api/v1/config/pool",
+            json={"size_gb": size_gb},
+            timeout=120,  # large pools take time to touch all pages
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def allocate_pool_by_heap_percent(self, heap_percent: float) -> Dict[str, Any]:
+        """POST /api/v1/config/pool with heap_percent
+
+        Tells the emulator to allocate a pool as a fraction of its JVM max heap.
+        The emulator calculates the actual size — no need for the orchestrator
+        to know the target's RAM or JVM settings.
+        """
+        resp = self._client.post(
+            "/api/v1/config/pool",
+            json={"heap_percent": heap_percent},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def destroy_pool(self) -> Dict[str, Any]:
+        """DELETE /api/v1/config/pool"""
+        resp = self._client.delete("/api/v1/config/pool")
+        resp.raise_for_status()
+        return resp.json()
+
+    # --- Logs ---
+
+    def download_logs(self, local_path: str) -> str:
+        """GET /api/v1/logs/download
+
+        Downloads emulator log files as a tar.gz archive.
+        Returns: local_path where the archive was saved.
+        """
+        resp = self._client.get("/api/v1/logs/download", timeout=60)
+        if resp.status_code == 204:
+            logger.info("No emulator logs available")
+            return ""
+        resp.raise_for_status()
+        with open(local_path, "wb") as f:
+            f.write(resp.content)
+        logger.info("Downloaded emulator logs to %s (%d bytes)", local_path, len(resp.content))
+        return local_path

@@ -3,6 +3,16 @@
 # Idempotent — skips if java is already available.
 set -e
 
+# Ensure tar is available (minimal Rocky installs may lack it)
+if ! command -v tar &>/dev/null; then
+    echo "tar not found - installing..."
+    if command -v dnf &>/dev/null; then
+        dnf install -y -q tar
+    else
+        yum install -y -q tar
+    fi
+fi
+
 if command -v java &>/dev/null; then
     JAVA_VER=$(java -version 2>&1 | head -1)
     echo "Java already installed: $JAVA_VER"

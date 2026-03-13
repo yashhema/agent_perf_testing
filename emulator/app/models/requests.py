@@ -85,6 +85,25 @@ class FileOperationRequest(BaseModel):
     )
 
 
+class WorkOperationRequest(BaseModel):
+    """Combined CPU-burn + memory-pool-touch request.
+
+    Produces steady load without per-request allocation spikes.
+    Requires the memory pool to be initialised via POST /api/v1/config/pool.
+    """
+
+    cpu_ms: int = Field(default=10, gt=0, description="CPU burn duration (ms)")
+    intensity: float = Field(
+        default=0.8, ge=0.0, le=1.0, description="CPU intensity (0.0 to 1.0)"
+    )
+    touch_mb: float = Field(
+        default=1.0, ge=0.0, description="Pool region to touch (MB). 0 = skip."
+    )
+    touch_pattern: Literal["sequential", "random"] = Field(
+        default="random", description="Memory access pattern"
+    )
+
+
 class SuspiciousOperationRequest(BaseModel):
     """Request model for suspicious system-level activity.
 

@@ -10,6 +10,7 @@ from ..models.requests import (
     NETOperationRequest,
     FileOperationRequest,
     SuspiciousOperationRequest,
+    WorkOperationRequest,
 )
 from ..models.responses import OperationResult, FileOperationResult
 from ..operations.cpu import CPUOperation, CPUOperationParams
@@ -18,6 +19,9 @@ from ..operations.disk import DISKOperation, DISKOperationParams
 from ..operations.network import NETOperation, NETOperationParams
 from ..operations.file import FileOperation, FileOperationParams
 from ..operations.suspicious import SuspiciousOperation, SuspiciousOperationParams
+from ..operations import work as work_op
+from ..operations.work import WorkParams
+from ..operations import mem_pool
 
 
 router = APIRouter(prefix="/operations")
@@ -230,5 +234,41 @@ async def execute_suspicious_operation(request: SuspiciousOperationRequest) -> O
                 "error_message": result.error_message,
             },
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/work", response_model=OperationResult)
+async def execute_work_operation(request: WorkOperationRequest) -> OperationResult:
+    """Combined CPU-burn + memory-pool-touch.
+
+    Produces steady, spike-free load.  Requires the memory pool to be
+    initialised first via POST /api/v1/config/pool.
+    """
+    if not mem_pool.pool_allocated():
+        raise HTTPException(
+            status_code=400,
+            detail="Memory pool not initialised. POST /api/v1/config/pool first.",
+        )
+    try:
+        params = WorkParams(
+            cpu_ms=request.cpu_ms,
+            intensity=request.intensity,
+            touch_mb=request.touch_mb,
+            touch_pattern=request.touch_pattern,
+        )
+        result = await work_op.execute(params)
+
+        return OperationResult(
+            operation=result.operation,
+            status=result.status,
+            duration_ms=result.wall_ms,
+            details={
+                "cpu_ms_actual": result.cpu_ms_actual,
+                "pages_touched": result.pages_touched,
+            },
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

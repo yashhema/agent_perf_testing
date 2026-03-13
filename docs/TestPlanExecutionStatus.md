@@ -26,11 +26,11 @@
 
 | Step | Description | Status | Notes |
 |------|-------------|--------|-------|
-| 1.1 | Infrastructure reachability | NOT STARTED | |
-| 1.2 | Snapshot existence on Proxmox | NOT STARTED | |
-| 1.3 | API smoke test | NOT STARTED | |
-| 1.4 | Regression — migrated runs | NOT STARTED | |
-| 1.5 | API validation errors | NOT STARTED | |
+| 1.1 | Infrastructure reachability | DONE | All 3 servers reachable: Linux target (10.0.0.92), Windows target (10.0.0.91), Loadgen (10.0.0.83). SSH and WinRM verified. |
+| 1.2 | Snapshot existence on Proxmox | DONE | Snapshots 3 (clean-rocky-baseline, srv8) and 4 (clean-win-baseline, srv9) exist and are baseline-flagged. Loadgen snapshot 2 (clean-loadgen, srv7) exists. |
+| 1.3 | API smoke test | DONE | Orchestrator FastAPI starts, JWT auth works (admin/admin), health endpoint responds. |
+| 1.4 | Deployment pipeline verified | DONE | All 3 deployment phases pass end-to-end: emulator-linux (srv8), emulator-windows (srv9), jmeter (srv7). Package deploy order fixed (upload→extract→prereq→install). WinRM start.ps1 uses WMI fire-and-forget. |
+| 1.5 | DB structure verified | DONE | All 13 baseline-compare tables exist. Scenario 3, lab 4, servers 7/8/9, snapshots 2/3/4, package groups 3/4, load profiles 1/2/3 all configured correctly. output_folders columns added to target tables. |
 
 ## Phase 2: Run 1 — New Baseline (2 targets)
 

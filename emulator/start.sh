@@ -7,19 +7,9 @@ set -e
 EMULATOR_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$EMULATOR_DIR"
 
-# Create required directories
-mkdir -p /opt/emulator/data/normal
-mkdir -p /opt/emulator/data/confidential
+# Create output and stats directories
 mkdir -p /opt/emulator/output
 mkdir -p /opt/emulator/stats
-
-# Create sample input files if they don't exist
-if [ ! -f /opt/emulator/data/normal/sample.txt ]; then
-    dd if=/dev/urandom bs=1024 count=10 2>/dev/null | base64 > /opt/emulator/data/normal/sample.txt
-fi
-if [ ! -f /opt/emulator/data/confidential/secret.txt ]; then
-    dd if=/dev/urandom bs=1024 count=5 2>/dev/null | base64 > /opt/emulator/data/confidential/secret.txt
-fi
 
 # Open firewall port 8080 (idempotent — no-op if already open)
 if command -v ufw &>/dev/null; then

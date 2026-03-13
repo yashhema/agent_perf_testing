@@ -121,6 +121,52 @@ class ServerNormalOpsGenerator(OpsSequenceGenerator):
         return output_path
 
 
+class ServerSteadyOpsGenerator(OpsSequenceGenerator):
+    """Generate operation sequence for server-steady.jmx.
+
+    CSV columns: seq_id, op_type
+    Distribution: 100% work (single combined CPU burn + memory pool touch)
+    """
+
+    OP_POOL = ['work']
+
+    FIELDNAMES = ['seq_id', 'op_type']
+
+    def generate(self, count: int) -> List[Dict]:
+        """Generate deterministic operation sequence.
+
+        Args:
+            count: Number of operations to generate
+
+        Returns:
+            List of dicts with seq_id and op_type
+        """
+        operations = []
+        for seq_id in range(1, count + 1):
+            operations.append({
+                'seq_id': seq_id,
+                'op_type': 'work',
+            })
+        return operations
+
+    def write_csv(self, operations: List[Dict], output_path: str) -> str:
+        """Write operations to CSV file.
+
+        Args:
+            operations: List from generate()
+            output_path: Filesystem path for the CSV
+
+        Returns:
+            The output_path written to
+        """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(operations)
+        return output_path
+
+
 class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
     """Generate operation sequence for server-file-heavy.jmx.
 

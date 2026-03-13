@@ -3,6 +3,16 @@
 # Idempotent — skips packages that are already installed.
 set -e
 
+# Ensure tar is available (minimal Rocky installs may lack it)
+if ! command -v tar &>/dev/null; then
+    echo "tar not found - installing..."
+    if command -v dnf &>/dev/null; then
+        dnf install -y -q tar
+    else
+        yum install -y -q tar
+    fi
+fi
+
 if ! command -v python3 &>/dev/null; then
     echo "Python3 not found — installing..."
     if command -v dnf &>/dev/null; then

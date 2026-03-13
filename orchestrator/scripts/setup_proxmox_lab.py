@@ -109,11 +109,23 @@ def run_seeds(session: Session):
 
 
 def _ensure_package_member(session: Session, group: PackageGroupORM, os_regex: str, fields: dict):
-    """Create a PackageGroupMemberORM if it doesn't already exist for this group+os."""
+    """Create or update a PackageGroupMemberORM for this group+os."""
     existing = session.query(PackageGroupMemberORM).filter_by(
         package_group_id=group.id, os_match_regex=os_regex,
     ).first()
     if existing:
+        # Update all fields to match current definition
+        changed = False
+        for attr in ("path", "root_install_path", "extraction_command",
+                     "install_command", "run_command", "status_command",
+                     "uninstall_command", "prereq_script"):
+            new_val = fields.get(attr)
+            if getattr(existing, attr) != new_val:
+                setattr(existing, attr, new_val)
+                changed = True
+        if changed:
+            session.flush()
+            print("      Updated package member: %s [%s]" % (group.name, os_regex))
         return existing
     member = PackageGroupMemberORM(
         package_group_id=group.id,
@@ -203,7 +215,14 @@ def insert_proxmox_lab(session: Session):
         print("      Created baseline: Rocky 9.7 LoadGen")
 
     # --- Package Groups + Members ---
-    pg_jmeter = session.query(PackageGroupORM).filter_by(name="jmeter-5.6.3").first()
+    # Reuse existing groups if present (seed or earlier setup may have created them
+    # under slightly different names). Only create if nothing exists at all.
+    pg_jmeter = (
+        session.query(PackageGroupORM).filter_by(name="jmeter-5.6.3").first()
+        or session.query(PackageGroupORM).filter(
+            PackageGroupORM.name.ilike("%jmeter%5.6%")
+        ).first()
+    )
     if not pg_jmeter:
         pg_jmeter = PackageGroupORM(
             name="jmeter-5.6.3",
@@ -212,8 +231,15 @@ def insert_proxmox_lab(session: Session):
         session.add(pg_jmeter)
         session.flush()
         print("      Created package group: jmeter-5.6.3")
+    else:
+        print("      Reusing package group: %s (id=%d)" % (pg_jmeter.name, pg_jmeter.id))
 
-    pg_emulator = session.query(PackageGroupORM).filter_by(name="emulator-1.0").first()
+    pg_emulator = (
+        session.query(PackageGroupORM).filter_by(name="emulator-1.0").first()
+        or session.query(PackageGroupORM).filter(
+            PackageGroupORM.name.ilike("%emulator%")
+        ).first()
+    )
     if not pg_emulator:
         pg_emulator = PackageGroupORM(
             name="emulator-1.0",
@@ -222,32 +248,68 @@ def insert_proxmox_lab(session: Session):
         session.add(pg_emulator)
         session.flush()
         print("      Created package group: emulator-1.0")
+    else:
+        print("      Reusing package group: %s (id=%d)" % (pg_emulator.name, pg_emulator.id))
 
     # --- Package Group Members (OS-specific install instructions) ---
     _ensure_package_member(session, pg_jmeter, "rhel/9/.*", {
         "path": "artifacts/packages/jmeter-5.6.3-linux.tar.gz",
-        "root_install_path": "/opt/jmeter-pkg",
-        "extraction_command": "tar -xzf /opt/jmeter-pkg/jmeter-5.6.3-linux.tar.gz -C /opt && ln -sfn /opt/apache-jmeter-5.6.3 /opt/jmeter",
+        "root_install_path": "/opt/jmeter-pkg/jmeter-5.6.3-linux.tar.gz",
+        "extraction_command": "dnf install -y tar gzip >/dev/null 2>&1; tar -xzf /opt/jmeter-pkg/jmeter-5.6.3-linux.tar.gz -C /opt && ln -sfn /opt/apache-jmeter-5.6.3 /opt/jmeter",
         "status_command": "test -x /opt/jmeter/bin/jmeter",
         "prereq_script": "rhel/java_jre.sh",
     })
     _ensure_package_member(session, pg_emulator, "rhel/9/.*", {
         "path": "artifacts/packages/emulator-linux.tar.gz",
-        "root_install_path": "/opt/emulator-pkg",
-        "extraction_command": "tar -xzf /opt/emulator-pkg/emulator-linux.tar.gz -C /opt/emulator",
-        "install_command": "cd /opt/emulator && pip3 install -r requirements.txt",
-        "run_command": "cd /opt/emulator && nohup python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080 > /var/log/emulator.log 2>&1 &",
+        "root_install_path": "/opt/emulator-pkg/emulator-linux.tar.gz",
+        "extraction_command": "dnf install -y tar gzip >/dev/null 2>&1; mkdir -p /opt/emulator && tar -xzf /opt/emulator-pkg/emulator-linux.tar.gz -C /opt/emulator --strip-components=1",
+        "install_command": None,
+        "run_command": "bash /opt/emulator/start.sh",
         "status_command": "curl -sf http://localhost:8080/health",
         "prereq_script": "rhel/python_emulator.sh",
     })
     _ensure_package_member(session, pg_emulator, "windows/2022", {
         "path": "artifacts/packages/emulator-windows.tar.gz",
-        "root_install_path": "C:\\emulator-pkg",
-        "extraction_command": "powershell -Command \"Expand-Archive -Path 'C:\\emulator-pkg\\emulator-windows.tar.gz' -DestinationPath 'C:\\emulator' -Force\"",
-        "install_command": "cd C:\\emulator && pip install -r requirements.txt",
-        "run_command": "powershell -Command \"Start-Process python -ArgumentList '-m uvicorn app.main:app --host 0.0.0.0 --port 8080' -WorkingDirectory 'C:\\emulator' -NoNewWindow\"",
+        "root_install_path": "C:\\emulator-pkg\\emulator-windows.tar.gz",
+        "extraction_command": "mkdir C:\\emulator 2>nul & tar -xzf C:\\emulator-pkg\\emulator-windows.tar.gz -C C:\\emulator",
+        "install_command": None,
+        "run_command": "powershell -ExecutionPolicy Bypass -File C:\\emulator\\start.ps1",
         "status_command": "powershell -Command \"(Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing).StatusCode\"",
         "prereq_script": "windows_server/python_emulator.ps1",
+    })
+
+    # --- Java Emulator Package Group (replaces Python emulator — solves GIL problem) ---
+    pg_emulator_java = (
+        session.query(PackageGroupORM).filter_by(name="emulator-java-1.0").first()
+    )
+    if not pg_emulator_java:
+        pg_emulator_java = PackageGroupORM(
+            name="emulator-java-1.0",
+            description="Java emulator v1.0 — Spring Boot, real OS threads (replaces Python)",
+        )
+        session.add(pg_emulator_java)
+        session.flush()
+        print("      Created package group: emulator-java-1.0")
+    else:
+        print("      Reusing package group: %s (id=%d)" % (pg_emulator_java.name, pg_emulator_java.id))
+
+    _ensure_package_member(session, pg_emulator_java, "rhel/9/.*", {
+        "path": "artifacts/packages/emulator-java-linux.tar.gz",
+        "root_install_path": "/opt/emulator-pkg/emulator-java-linux.tar.gz",
+        "extraction_command": "dnf install -y tar gzip >/dev/null 2>&1; mkdir -p /opt/emulator && tar -xzf /opt/emulator-pkg/emulator-java-linux.tar.gz -C /opt/emulator --strip-components=1",
+        "install_command": None,
+        "run_command": "bash /opt/emulator/start.sh",
+        "status_command": "curl -sf http://localhost:8080/health",
+        "prereq_script": "rhel/java_emulator.sh",
+    })
+    _ensure_package_member(session, pg_emulator_java, "windows/2022", {
+        "path": "artifacts/packages/emulator-java-windows.tar.gz",
+        "root_install_path": "C:\\emulator-pkg\\emulator-java-windows.tar.gz",
+        "extraction_command": "mkdir C:\\emulator 2>nul & tar -xzf C:\\emulator-pkg\\emulator-java-windows.tar.gz -C C:\\emulator --strip-components=1",
+        "install_command": None,
+        "run_command": "powershell -ExecutionPolicy Bypass -File C:\\emulator\\start.ps1",
+        "status_command": "powershell -Command \"(Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing).StatusCode\"",
+        "prereq_script": "windows_server/java_emulator.ps1",
     })
 
     # --- Lab ---
@@ -257,7 +319,7 @@ def insert_proxmox_lab(session: Session):
             name="Proxmox Lab",
             description="Proxmox VE lab on 10.0.0.72 — 3 Rocky + 1 Windows targets",
             jmeter_package_grpid=pg_jmeter.id,
-            emulator_package_grp_id=pg_emulator.id,
+            emulator_package_grp_id=pg_emulator_java.id,  # Java emulator (was pg_emulator for Python)
             loadgen_snapshot_id=bl_loadgen.id,
             hypervisor_type=HypervisorType.proxmox,
             hypervisor_manager_url="10.0.0.72",
@@ -267,6 +329,15 @@ def insert_proxmox_lab(session: Session):
         session.add(lab)
         session.flush()
         print("      Created lab: Proxmox Lab (id=%d)" % lab.id)
+    else:
+        # Update existing lab to use Java emulator
+        if lab.emulator_package_grp_id != pg_emulator_java.id:
+            old_id = lab.emulator_package_grp_id
+            lab.emulator_package_grp_id = pg_emulator_java.id
+            session.flush()
+            print("      Updated lab emulator_package_grp_id: %s -> %d (Java emulator)" % (old_id, pg_emulator_java.id))
+        else:
+            print("      Lab already using Java emulator (id=%d)" % lab.id)
 
     # --- Servers ---
     servers_data = [

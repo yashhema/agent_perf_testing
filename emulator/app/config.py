@@ -1,9 +1,23 @@
 """Configuration model and state management for emulator."""
 
+import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional
 from threading import Lock
+
+
+# Auto-detect emulator root directory (where this package is installed)
+_EMULATOR_ROOT = str(Path(__file__).resolve().parent.parent)
+
+
+def _default_input_normal() -> str:
+    return os.path.join(_EMULATOR_ROOT, "data", "normal")
+
+
+def _default_input_confidential() -> str:
+    return os.path.join(_EMULATOR_ROOT, "data", "confidential")
 
 
 @dataclass
@@ -15,9 +29,9 @@ class PartnerConfig:
 
 @dataclass
 class InputFoldersConfig:
-    """Input folders configuration."""
-    normal: str = ""
-    confidential: str = ""
+    """Input folders configuration — auto-detected from emulator install path."""
+    normal: str = field(default_factory=_default_input_normal)
+    confidential: str = field(default_factory=_default_input_confidential)
 
 
 @dataclass
@@ -40,8 +54,7 @@ class EmulatorConfig:
     def is_configured(self) -> bool:
         """Check if emulator is properly configured."""
         return bool(
-            self.input_folders.normal
-            and self.output_folders
+            self.output_folders
             and self.partner.fqdn
         )
 
@@ -68,10 +81,6 @@ class EmulatorConfig:
     @classmethod
     def from_dict(cls, data: dict) -> "EmulatorConfig":
         """Create configuration from dictionary."""
-        input_folders = InputFoldersConfig(
-            normal=data.get("input_folders", {}).get("normal", ""),
-            confidential=data.get("input_folders", {}).get("confidential", ""),
-        )
         partner = PartnerConfig(
             fqdn=data.get("partner", {}).get("fqdn", ""),
             port=data.get("partner", {}).get("port", 8080),
@@ -83,7 +92,6 @@ class EmulatorConfig:
             service_monitor_patterns=data.get("stats", {}).get("service_monitor_patterns", []),
         )
         return cls(
-            input_folders=input_folders,
             output_folders=data.get("output_folders", []),
             partner=partner,
             stats=stats,

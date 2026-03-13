@@ -44,6 +44,7 @@ class TemplateType(str, Enum):
     server_normal = "server-normal"
     server_file_heavy = "server-file-heavy"
     db_load = "db-load"
+    server_steady = "server-steady"
 
 
 class FunctionalTestPhase(str, Enum):

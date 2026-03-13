@@ -30,7 +30,7 @@ from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.hypervisor import create_hypervisor_provider
 from orchestrator.infra.jmeter_controller import JMeterController
 from orchestrator.infra.remote_executor import create_executor
-from orchestrator.models.enums import BaselineTestState, BaselineTestType, Verdict
+from orchestrator.models.enums import BaselineTestState, BaselineTestType, TemplateType, Verdict
 from orchestrator.models.orm import (
     BaselineTestRunLoadProfileORM,
     BaselineTestRunORM,
@@ -107,7 +107,15 @@ class BaselineOrchestrator:
 
         except Exception as e:
             logger.exception("Baseline test run %d failed: %s", test_run.id, e)
+            # Session may be in a rolled-back state after a DB error (e.g.
+            # IntegrityError).  Roll back so sm.fail() can use the session.
+            try:
+                session.rollback()
+            except Exception:
+                pass
             sm.fail(session, test_run, str(e))
+        finally:
+            self._cleanup_pools(session, test_run)
 
     # ------------------------------------------------------------------
     # Helper: load common entities
@@ -166,11 +174,28 @@ class BaselineOrchestrator:
     # ------------------------------------------------------------------
     # State: SETTING_UP (all targets)
     # ------------------------------------------------------------------
+    def _get_orchestrator_url(self) -> str:
+        """Build the orchestrator's own HTTP URL for WinRM file pulls.
+
+        The FastAPI app mounts package artifacts at /packages/ and prereqs
+        at /prerequisites/.  WinRMExecutor.upload() uses this URL as a base
+        for HTTP-pull transfers of files > 4 KB.
+        """
+        import socket
+        host = socket.gethostname()
+        try:
+            ip = socket.gethostbyname(host)
+        except socket.gaierror:
+            ip = "127.0.0.1"
+        # Default FastAPI port — matches cli.py serve default
+        return f"http://{ip}:8000"
+
     def _do_setup(self, session: Session, test_run: BaselineTestRunORM) -> None:
         lab, scenario, targets, load_profiles = self._load_context(session, test_run)
 
         resolver = PackageResolver()
         deployer = PackageDeployer()
+        orchestrator_url = self._get_orchestrator_url()
 
         hyp_cred = self._credentials.get_hypervisor_credential(
             lab.hypervisor_type.value,
@@ -183,6 +208,7 @@ class BaselineOrchestrator:
         )
 
         # --- Loadgen setup (deduplicated — shared loadgen only set up once) ---
+        needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
         seen_loadgens = set()
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
             if loadgen.id not in seen_loadgens:
@@ -208,6 +234,31 @@ class BaselineOrchestrator:
                                 continue
                         deployer.deploy(loadgen_exec, pkg)
                         logger.info("Deployed JMeter to %s", loadgen.hostname)
+
+                    # Deploy emulator on loadgen too (needed as /networkclient partner)
+                    if needs_pool and lab.emulator_package_grp_id:
+                        emu_packages = resolver.resolve(
+                            session, [lab.emulator_package_grp_id], loadgen,
+                        )
+                        emu_installed = deployer.check_status_any(
+                            session, loadgen_exec, [lab.emulator_package_grp_id], loadgen,
+                        )
+                        if emu_installed:
+                            logger.info("Emulator already installed on loadgen %s", loadgen.hostname)
+                        else:
+                            deployer.deploy_all(loadgen_exec, emu_packages)
+                            logger.info("Deployed emulator to loadgen %s", loadgen.hostname)
+
+                        # Start emulator on loadgen (for /networkserver endpoint)
+                        for pkg in emu_packages:
+                            if pkg.run_command:
+                                logger.info("Starting emulator on loadgen %s: %s", loadgen.hostname, pkg.run_command)
+                                result = loadgen_exec.execute(pkg.run_command, timeout_sec=60)
+                                if not result.success:
+                                    logger.warning(
+                                        "Emulator start on loadgen %s failed (non-fatal): %s",
+                                        loadgen.hostname, result.stderr,
+                                    )
                 finally:
                     loadgen_exec.close()
 
@@ -230,6 +281,11 @@ class BaselineOrchestrator:
                 artifacts_dir = Path(self._config.artifacts_dir)
                 local_jmx = str(artifacts_dir / "jmx" / jmx_template_name)
                 loadgen_exec.upload(local_jmx, f"{run_dir}/test.jmx")
+
+                # Deploy kill script (once — shared location for all targets)
+                local_kill_script = str(artifacts_dir / "scripts" / "jmeter_kill.py")
+                loadgen_exec.upload(local_kill_script, "/opt/jmeter/bin/jmeter_kill.py")
+                loadgen_exec.execute("chmod +x /opt/jmeter/bin/jmeter_kill.py")
 
                 # For new_baseline / compare_with_new_calibration: deploy calibration CSV
                 if test_run.test_type in (
@@ -269,6 +325,7 @@ class BaselineOrchestrator:
                 host=server.ip_address,
                 username=target_cred.username,
                 password=target_cred.password,
+                orchestrator_url=orchestrator_url,
             )
             try:
                 if lab.emulator_package_grp_id:
@@ -277,7 +334,26 @@ class BaselineOrchestrator:
                     )
                     deployer.deploy_all(target_exec, emu_packages)
 
-                target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
+                    # Start the emulator on each target
+                    for pkg in emu_packages:
+                        if pkg.run_command:
+                            logger.info("Starting emulator on %s: %s", server.hostname, pkg.run_command)
+                            result = target_exec.execute(pkg.run_command, timeout_sec=60)
+                            if not result.success:
+                                raise RuntimeError(
+                                    f"Emulator start failed on {server.hostname}: {result.stderr}"
+                                )
+
+                # Clean emulator output/stats dirs (OS-aware)
+                if server.os_family.value == "windows":
+                    target_exec.execute(
+                        'powershell -Command "'
+                        "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
+                        "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
+                        '"'
+                    )
+                else:
+                    target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
 
                 # Run discovery -> write to target ORM
                 discovery_dir = Path(__file__).resolve().parent.parent.parent.parent / "discovery"
@@ -350,6 +426,67 @@ class BaselineOrchestrator:
                 )
 
     # ------------------------------------------------------------------
+    # Helper: build extra_properties for server_steady template
+    # ------------------------------------------------------------------
+    # Pool percentages per template type (as fraction of JVM heap).
+    # The emulator calculates the actual size from its own Runtime.maxMemory().
+    _POOL_HEAP_PERCENT = {
+        TemplateType.server_steady: 0.5,       # 50% of heap
+        TemplateType.server_file_heavy: 0.3,   # 30% of heap
+    }
+
+    @staticmethod
+    def _setup_pool(em_client: 'EmulatorClient', template_type: 'TemplateType') -> None:
+        """Tell the emulator to allocate a memory pool as a % of its JVM heap.
+
+        The emulator knows its own heap size — the orchestrator just sends
+        the percentage. This avoids coupling to the target's RAM or JVM config.
+        """
+        pct = BaselineOrchestrator._POOL_HEAP_PERCENT.get(template_type, 0.5)
+
+        logger.info("%s: requesting pool allocation at %.0f%% of JVM heap",
+                    template_type.value, pct * 100)
+        result = em_client.allocate_pool_by_heap_percent(pct)
+        logger.info("%s: pool allocated — %s", template_type.value, result)
+
+    @staticmethod
+    def _destroy_pool(em_client: 'EmulatorClient') -> None:
+        """Release the memory pool on the emulator."""
+        try:
+            result = em_client.destroy_pool()
+            logger.info("Pool destroyed — %s", result)
+        except Exception as e:
+            logger.warning("Pool destroy failed (non-fatal): %s", e)
+
+    def _cleanup_pools(self, session: Session, test_run: 'BaselineTestRunORM') -> None:
+        """Destroy memory pools on all targets. Called from finally block in run()."""
+        try:
+            lab, scenario, targets, _ = self._load_context(session, test_run)
+            if scenario.template_type not in self._POOL_HEAP_PERCENT:
+                return
+            emulator_port = self._config.emulator.emulator_api_port
+            for _, server, _, _, _ in targets:
+                try:
+                    em_client = EmulatorClient(host=server.ip_address, port=emulator_port)
+                    self._destroy_pool(em_client)
+                except Exception as e:
+                    logger.debug("Pool cleanup for %s skipped: %s", server.hostname, e)
+        except Exception as e:
+            logger.debug("Pool cleanup skipped (context unavailable): %s", e)
+
+    @staticmethod
+    def _build_work_extra_properties() -> Dict:
+        """Build JMeter extra_properties for templates that use /work endpoint.
+
+        Pool allocation is handled separately via _setup_pool().
+        """
+        return {
+            "cpu_ms": "10",
+            "intensity": "0.8",
+            "touch_mb": "1.0",
+        }
+
+    # ------------------------------------------------------------------
     # State: CALIBRATING (all targets, all profiles)
     # ------------------------------------------------------------------
     def _do_calibration(self, session: Session, test_run: BaselineTestRunORM) -> None:
@@ -357,6 +494,7 @@ class BaselineOrchestrator:
 
         emulator_port = self._config.emulator.emulator_api_port
         calibration_engine = CalibrationEngine(self._config.calibration)
+        needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
 
         for target_orm, server, loadgen, test_snapshot, _ in targets:
             for lp in load_profiles:
@@ -383,11 +521,42 @@ class BaselineOrchestrator:
 
                 try:
                     em_client = EmulatorClient(host=server.ip_address, port=emulator_port)
+
+                    # Configure emulator with partner + output_folders before calibration
+                    # (required for /networkclient and /file endpoints in mixed-load JMX)
+                    partner_fqdn = "localhost"
+                    if target_orm.partner_id and target_orm.partner_id != server.id:
+                        partner_server = session.get(ServerORM, target_orm.partner_id)
+                        partner_fqdn = partner_server.ip_address
+                    if target_orm.output_folders:
+                        out_folders = [f.strip() for f in target_orm.output_folders.split(",") if f.strip()]
+                    elif server.os_family.value == "windows":
+                        out_folders = ["C:\\emulator\\output"]
+                    else:
+                        out_folders = ["/opt/emulator/output"]
+                    em_client.set_config(
+                        output_folders=out_folders,
+                        partner={"fqdn": partner_fqdn, "port": emulator_port},
+                        stats={
+                            "default_interval_sec": self._config.stats.collect_interval_sec,
+                        },
+                        service_monitor_patterns=target_orm.service_monitor_patterns,
+                    )
+
                     jmeter_ctrl = JMeterController(
                         executor=loadgen_exec,
                         jmeter_bin="/opt/jmeter/bin/jmeter",
                         os_family=loadgen.os_family.value,
                     )
+
+                    # Kill stale JMeter from previous failed runs before calibrating
+                    jmeter_ctrl.kill_for_target(server.ip_address)
+
+                    # For templates using /work: allocate pool on emulator, build extra JMeter props
+                    extra_props = None
+                    if needs_pool:
+                        self._setup_pool(em_client, scenario.template_type)
+                        extra_props = self._build_work_extra_properties()
 
                     run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
                     ctx = CalibrationContext(
@@ -399,6 +568,8 @@ class BaselineOrchestrator:
                         ops_sequence_path=f"{run_dir}/calibration_ops.csv",
                         emulator_port=emulator_port,
                         test_run_id=test_run.id,
+                        results_dir=self._config.results_dir,
+                        extra_properties=extra_props,
                     )
 
                     thread_count = calibration_engine.calibrate(session, test_run, ctx)
@@ -424,7 +595,7 @@ class BaselineOrchestrator:
         lab, scenario, targets, load_profiles = self._load_context(session, test_run)
 
         import sys
-        gen_root = str(Path(__file__).resolve().parents[3] / "db-assets")
+        gen_root = str(Path(__file__).resolve().parents[4] / "db-assets")
         if gen_root not in sys.path:
             sys.path.insert(0, gen_root)
         from generator.generators.ops_sequence_generator import OpsSequenceGenerator
@@ -491,6 +662,7 @@ class BaselineOrchestrator:
     # ------------------------------------------------------------------
     def _do_execution(self, session: Session, test_run: BaselineTestRunORM) -> None:
         lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
 
         # Build per-target thread_counts and jmx_data_paths
         target_configs = []
@@ -534,6 +706,8 @@ class BaselineOrchestrator:
                 "compare_snapshot": compare_snapshot,
                 "thread_counts": thread_counts,
                 "jmx_data_paths": jmx_data_paths,
+                "needs_pool": needs_pool,
+                "template_type": scenario.template_type,
             })
 
         # Create hypervisor provider
@@ -754,7 +928,7 @@ class BaselineOrchestrator:
     ):
         """Instantiate the correct ops sequence generator based on template_type."""
         import sys
-        gen_root = str(Path(__file__).resolve().parents[3] / "db-assets")
+        gen_root = str(Path(__file__).resolve().parents[4] / "db-assets")
         if gen_root not in sys.path:
             sys.path.insert(0, gen_root)
         from generator.generators.ops_sequence_generator import (

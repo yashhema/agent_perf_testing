@@ -15,13 +15,14 @@ from orchestrator.config.credentials import CredentialsStore
 from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.hypervisor import create_hypervisor_provider
 from orchestrator.infra.remote_executor import create_executor
-from orchestrator.models.enums import BaselineTestType
+from orchestrator.models.enums import BaselineTestType, TemplateType
 from orchestrator.models.orm import (
     BaselineTestRunLoadProfileORM,
     BaselineTestRunORM,
     BaselineTestRunTargetORM,
     LabORM,
     LoadProfileORM,
+    ScenarioORM,
     ServerORM,
     SnapshotORM,
     SnapshotProfileDataORM,
@@ -151,6 +152,18 @@ class BaselinePreFlightValidator:
                 else:
                     errors.extend(self._check_stored_data(
                         session, compare_snapshot, load_profile_ids,
+                    ))
+
+        # Check: output_folders required for file-heavy scenarios
+        scenario = session.get(ScenarioORM, test_run.scenario_id)
+        if scenario and scenario.template_type == TemplateType.server_file_heavy:
+            for target in targets:
+                srv = session.get(ServerORM, target.target_id)
+                label = f"[server {srv.hostname}]"
+                if not target.output_folders or not target.output_folders.strip():
+                    errors.append(ValidationError(
+                        check="output_folders_required",
+                        message=f"{label} output_folders is required for server-file-heavy scenario",
                     ))
 
         return ValidationResult(passed=len(errors) == 0, errors=errors)

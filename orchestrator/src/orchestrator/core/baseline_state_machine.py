@@ -127,8 +127,11 @@ def fail(
     error_message: str,
 ) -> None:
     """Transition to failed state with error message."""
-    test_run.error_message = error_message
+    # Must set error_message after transition() calls session.refresh(),
+    # otherwise refresh wipes the uncommitted in-memory change.
     transition(session, test_run, BaselineTestState.failed)
+    test_run.error_message = error_message
+    session.commit()
 
 
 def update_current_profile(

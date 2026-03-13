@@ -173,19 +173,16 @@ class PackageDeployer:
         """Deploy a single resolved package to a target server.
 
         Steps:
-          0. Run prerequisite script (prereq_script) if defined
           1. Upload package from orchestrator path to target root_install_path
           2. Extract (extraction_command) if defined
-          3. Install (install_command) if defined
+          3. Run prerequisite script (prereq_script) if defined
+             (runs after extract so bundled installers are available)
+          4. Install (install_command) if defined
         """
         logger.info(
             "Deploying package '%s' (member %d) to %s",
             package.group_name, package.member_id, package.root_install_path,
         )
-
-        # Step 0: Run prerequisite script
-        if package.prereq_script:
-            self._run_prereq_script(executor, package)
 
         # Step 1: Ensure parent directory exists, then upload
         rip = package.root_install_path
@@ -206,7 +203,11 @@ class PackageDeployer:
                     f"Package extraction failed for '{package.group_name}': {result.stderr}"
                 )
 
-        # Step 3: Install
+        # Step 3: Run prerequisite script (after extract so bundled deps are available)
+        if package.prereq_script:
+            self._run_prereq_script(executor, package)
+
+        # Step 4: Install
         if package.install_command:
             logger.info("Installing: %s", package.install_command)
             result = executor.execute(package.install_command)

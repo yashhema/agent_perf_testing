@@ -1,5 +1,5 @@
 # Install Java JRE on Windows Server if not present.
-# Idempotent — skips if java is already on PATH.
+# Idempotent - skips if java is already on PATH.
 $ErrorActionPreference = "Stop"
 
 $javaCmd = Get-Command java -ErrorAction SilentlyContinue
@@ -9,7 +9,7 @@ if ($javaCmd) {
     exit 0
 }
 
-Write-Host "Java not found — installing Adoptium JRE 11..."
+Write-Host "Java not found - installing Adoptium JRE 11..."
 
 $jreUrl = "https://api.adoptium.net/v3/binary/latest/11/ga/windows/x64/jre/hotspot/normal/eclipse"
 $tempMsi = "$env:TEMP\adoptium-jre11.msi"

@@ -47,6 +47,8 @@ class ExecutionResult:
     jtl_path: str
     stats_summary: dict
     jmx_test_case_data_path: str
+    jmeter_log_path: str = ""
+    emulator_log_path: str = ""
 
 
 def wait_for_ssh(host: str, os_family: str = "linux", timeout_sec: int = 120, poll_sec: int = 5) -> None:
@@ -79,8 +81,20 @@ class BaselineExecutionEngine:
         self._resolver = PackageResolver()
         self._deployer = PackageDeployer()
         self._stats_parser = StatsParser()
+        self._orchestrator_url = self._build_orchestrator_url()
         self._trim_start_sec = config.stats.stats_trim_start_sec
         self._trim_end_sec = config.stats.stats_trim_end_sec
+
+    @staticmethod
+    def _build_orchestrator_url() -> str:
+        """Build orchestrator's own HTTP URL for WinRM file pulls."""
+        import socket as _socket
+        host = _socket.gethostname()
+        try:
+            ip = _socket.gethostbyname(host)
+        except _socket.gaierror:
+            ip = "127.0.0.1"
+        return f"http://{ip}:8000"
 
     def execute(
         self,
@@ -138,6 +152,9 @@ class BaselineExecutionEngine:
             # ── BARRIER: all targets restored ──
 
             # ── Phase 2: Deploy + configure + start stats on all targets ──
+            # Import helper for server_steady extra_properties
+            from orchestrator.core.baseline_orchestrator import BaselineOrchestrator
+
             # Track per-target resources for later phases
             target_resources = []
             for tc in target_configs:
@@ -153,6 +170,7 @@ class BaselineExecutionEngine:
                     host=server.ip_address,
                     username=target_cred.username,
                     password=target_cred.password,
+                    orchestrator_url=self._orchestrator_url,
                 )
 
                 # Deploy emulator if needed
@@ -170,12 +188,16 @@ class BaselineExecutionEngine:
                     partner_server = session.get(ServerORM, target_orm.partner_id)
                     partner_fqdn = partner_server.ip_address
 
+                # Output folders from target config (comma-separated)
+                if target_orm.output_folders:
+                    out_folders = [f.strip() for f in target_orm.output_folders.split(",") if f.strip()]
+                elif server.os_family.value == "windows":
+                    out_folders = ["C:\\emulator\\output"]
+                else:
+                    out_folders = ["/opt/emulator/output"]
+
                 em_client.set_config(
-                    input_folders={
-                        "normal": "/opt/emulator/data/normal",
-                        "confidential": "/opt/emulator/data/confidential",
-                    },
-                    output_folders=["/opt/emulator/output"],
+                    output_folders=out_folders,
                     partner={"fqdn": partner_fqdn, "port": emulator_port},
                     stats={
                         "default_interval_sec": self._config.stats.collect_interval_sec,
@@ -230,25 +252,34 @@ class BaselineExecutionEngine:
                     f"/opt/jmeter/runs/baseline_{baseline_test.id}"
                     f"/lg_{loadgen.id}/target_{server.id}"
                 )
+
+                # For templates using /work: allocate pool on emulator, build extra JMeter props
+                extra_props = None
+                if tc.get("needs_pool"):
+                    BaselineOrchestrator._setup_pool(tr["em_client"], tc["template_type"])
+                    extra_props = BaselineOrchestrator._build_work_extra_properties()
+
                 pid = tr["jmeter_ctrl"].start(
                     jmx_path=f"{run_dir}/test.jmx",
                     jtl_path=f"{run_dir}/results_{lp.name}.jtl",
                     log_path=f"{run_dir}/jmeter_{lp.name}.log",
                     thread_count=tc["thread_counts"][lp.id],
                     ramp_up_sec=lp.ramp_up_sec,
-                    duration_sec=lp.duration_sec,
+                    duration_sec=3600,  # orchestrator controls end, not JMeter
                     target_host=server.ip_address,
                     target_port=emulator_port,
                     ops_sequence_path=tc["jmx_data_paths"][lp.id],
+                    extra_properties=extra_props,
                 )
                 jmeter_pids.append(pid)
                 logger.info("Started JMeter for %s (pid=%s)", server.hostname, pid)
             # ── BARRIER: all JMeter instances running ──
 
             # ── Phase 4: Single wait for all ──
-            margin = int(lp.duration_sec * self._config.barrier.barrier_timeout_margin_percent)
-            total_wait = lp.duration_sec + lp.ramp_up_sec + margin
-            logger.info("Waiting %ds for test completion (all targets)", total_wait)
+            # JMeter runs indefinitely (duration_sec=3600); orchestrator controls the end.
+            total_wait = lp.ramp_up_sec + lp.duration_sec
+            logger.info("Waiting %ds for test (ramp_up=%d + duration=%d), then stopping JMeter",
+                        total_wait, lp.ramp_up_sec, lp.duration_sec)
             time.sleep(total_wait)
 
             # ── Phase 5: Stop + collect from all targets ──
@@ -259,7 +290,12 @@ class BaselineExecutionEngine:
 
                 try:
                     # Stop JMeter
-                    tr["jmeter_ctrl"].stop(jmeter_pids[i])
+                    run_dir = (
+                        f"/opt/jmeter/runs/baseline_{baseline_test.id}"
+                        f"/lg_{tc['loadgen'].id}/target_{server.id}"
+                    )
+                    jtl_path = f"{run_dir}/results_{lp.name}.jtl"
+                    tr["jmeter_ctrl"].stop(jmeter_pids[i], jtl_path=jtl_path)
 
                     # Stop emulator and collect stats
                     tr["em_client"].stop_test(tr["test_id"])
@@ -287,6 +323,27 @@ class BaselineExecutionEngine:
                     remote_jtl = f"{run_dir}/results_{lp.name}.jtl"
                     tr["loadgen_executor"].download(remote_jtl, local_jtl)
 
+                    # Download JMeter log from loadgen
+                    logs_dir = results_base / "logs"
+                    logs_dir.mkdir(parents=True, exist_ok=True)
+                    local_jmeter_log = str(logs_dir / f"lp{lp.id}_jmeter.log")
+                    remote_jmeter_log = f"{run_dir}/jmeter_{lp.name}.log"
+                    try:
+                        tr["loadgen_executor"].download(remote_jmeter_log, local_jmeter_log)
+                        logger.info("Downloaded JMeter log: %s", local_jmeter_log)
+                    except Exception as e:
+                        logger.warning("Failed to download JMeter log (non-fatal): %s", e)
+                        local_jmeter_log = ""
+
+                    # Download emulator logs from target
+                    local_emulator_log = str(logs_dir / f"lp{lp.id}_emulator_logs.tar.gz")
+                    try:
+                        tr["em_client"].download_logs(local_emulator_log)
+                        logger.info("Downloaded emulator logs: %s", local_emulator_log)
+                    except Exception as e:
+                        logger.warning("Failed to download emulator logs (non-fatal): %s", e)
+                        local_emulator_log = ""
+
                     # Compute stats summary
                     samples = stats_json.get("samples", [])
                     trimmed = self._stats_parser.trim_samples(
@@ -306,6 +363,8 @@ class BaselineExecutionEngine:
                         jtl_path=local_jtl,
                         stats_summary=stats_summary,
                         jmx_test_case_data_path=local_jmx,
+                        jmeter_log_path=local_jmeter_log,
+                        emulator_log_path=local_emulator_log,
                     )
 
                     logger.info(
@@ -349,15 +408,30 @@ class BaselineExecutionEngine:
         self._deployer.deploy_all(executor, emu_packages)
         logger.info("Deployed emulator to %s", server.hostname)
 
+        # Start the emulator after deployment
+        for pkg in emu_packages:
+            if pkg.run_command:
+                logger.info("Starting emulator on %s: %s", server.hostname, pkg.run_command)
+                result = executor.execute(pkg.run_command, timeout_sec=60)
+                if not result.success:
+                    raise RuntimeError(
+                        f"Emulator start failed on {server.hostname}: {result.stderr}"
+                    )
+
     def _clean_emulator_dirs(
         self, executor: RemoteExecutor, server: ServerORM,
     ) -> None:
         """Clean emulator output/stats directories for a fresh run."""
-        commands = [
-            "rm -rf /opt/emulator/output/* /opt/emulator/stats/*",
-        ]
-        for cmd in commands:
-            try:
-                executor.execute(cmd)
-            except Exception as e:
-                logger.warning("Clean command failed on %s: %s", server.hostname, e)
+        if server.os_family.value == "windows":
+            cmd = (
+                'powershell -Command "'
+                "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
+                "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
+                '"'
+            )
+        else:
+            cmd = "rm -rf /opt/emulator/output/* /opt/emulator/stats/*"
+        try:
+            executor.execute(cmd)
+        except Exception as e:
+            logger.warning("Clean command failed on %s: %s", server.hostname, e)

@@ -259,6 +259,21 @@ class ComparisonEngine:
         samples = stats_data.get("samples", [])
         return self._parser.trim_samples(samples, self._trim_start, self._trim_end)
 
+    # Minimum absolute delta thresholds: Cohen's d alone is too sensitive for
+    # metrics with low intra-run variance (e.g. memory barely fluctuates within
+    # a run, so even normal OS variance between boots triggers "large" effect).
+    # A metric is only flagged if Cohen's d is significant AND the absolute
+    # difference exceeds these practical minimums.
+    _MIN_DELTA_THRESHOLDS = {
+        "memory_percent": 2.0,       # 2 percentage points
+        "memory_used_mb": 150.0,     # 150 MB
+        "cpu_percent": 2.0,          # 2 percentage points
+        "disk_read_rate_mbps": 0.5,  # 0.5 MB/s
+        "disk_write_rate_mbps": 0.5, # 0.5 MB/s
+        "network_sent_rate_mbps": 0.1,
+        "network_recv_rate_mbps": 0.1,
+    }
+
     def _determine_cohens_d_verdict(
         self,
         system_results: List[CohensDResult],
@@ -267,9 +282,11 @@ class ComparisonEngine:
         """Determine verdict based on Cohen's d effect sizes.
 
         Verdict logic:
-          - Any system metric with "large" effect -> failed
-          - Any system metric with "medium" effect -> warning
-          - All negligible/small -> passed
+          - Cohen's d must be medium/large AND absolute delta must exceed
+            the practical minimum threshold for that metric
+          - Any qualifying system metric with "large" effect -> failed
+          - Any qualifying system metric with "medium" effect -> warning
+          - All negligible/small or below threshold -> passed
         """
         worst_effect = "negligible"
         worst_metric = ""
@@ -277,6 +294,18 @@ class ComparisonEngine:
 
         for cd in system_results:
             abs_d = abs(cd.cohens_d)
+            abs_delta = abs(cd.initial_mean - cd.base_mean)
+            min_delta = self._MIN_DELTA_THRESHOLDS.get(cd.metric, 0.0)
+
+            # Skip if absolute difference is below practical threshold
+            if abs_delta < min_delta:
+                logger.debug(
+                    "Metric %s: Cohen's d=%.2f (%s) but abs_delta=%.2f < min_threshold=%.2f, "
+                    "downgrading to negligible",
+                    cd.metric, cd.cohens_d, cd.effect_size, abs_delta, min_delta,
+                )
+                continue
+
             if abs_d > abs(worst_d):
                 worst_d = cd.cohens_d
                 worst_metric = cd.metric

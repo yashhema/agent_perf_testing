@@ -245,9 +245,14 @@ class ExecutionEngine:
                 em_client = EmulatorClient(host=server.ip_address, port=emulator_port)
                 emulator_clients[server.id] = em_client
 
+                # Output folders from target config (comma-separated)
+                if target_config.output_folders:
+                    out_folders = [f.strip() for f in target_config.output_folders.split(",") if f.strip()]
+                else:
+                    out_folders = ["/opt/emulator/output"]
+
                 em_client.set_config(
-                    input_folders={"normal": "/opt/emulator/data/normal", "confidential": "/opt/emulator/data/confidential"},
-                    output_folders=["/opt/emulator/output"],
+                    output_folders=out_folders,
                     partner={"fqdn": partner_fqdn, "port": emulator_port},
                     stats={"default_interval_sec": self._config.stats.collect_interval_sec},
                     service_monitor_patterns=target_config.service_monitor_patterns,

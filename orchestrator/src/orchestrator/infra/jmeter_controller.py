@@ -11,6 +11,9 @@ from orchestrator.infra.remote_executor import RemoteExecutor
 
 logger = logging.getLogger(__name__)
 
+# Location where jmeter_kill.py is deployed on the loadgen
+_KILL_SCRIPT_REMOTE = "/opt/jmeter/bin/jmeter_kill.py"
+
 
 class JMeterController:
     """Controls JMeter on the load generator via SSH.
@@ -78,13 +81,15 @@ class JMeterController:
 
         if self._os_family == "linux":
             # Run in background, capture PID
-            full_cmd = f"nohup {command} > /dev/null 2>&1 & echo $!"
+            # < /dev/null detaches stdin so the SSH channel closes immediately
+            # (without it, recv_exit_status blocks until JMeter exits or SSH times out)
+            full_cmd = f"nohup {command} > /dev/null 2>&1 < /dev/null & echo $!"
         else:
             # Windows: use start /B and get PID via WMI
             full_cmd = f'start /B {command} & for /F "tokens=2" %i in (\'tasklist /FI "IMAGENAME eq java.exe" /NH\') do @echo %i'
 
         logger.info("Starting JMeter on %s: threads=%d, duration=%ds", target_host, thread_count, duration_sec)
-        result = self._executor.execute(full_cmd)
+        result = self._executor.execute_background(full_cmd)
 
         if not result.success:
             raise RuntimeError(f"JMeter start failed: {result.stderr}")
@@ -102,13 +107,39 @@ class JMeterController:
 
         return "RUNNING" in result.stdout or (self._os_family == "windows" and "java" in result.stdout.lower())
 
-    def stop(self, pid: int) -> None:
-        """Stop JMeter process."""
+    def stop(self, pid: int, jtl_path: Optional[str] = None) -> None:
+        """Stop JMeter process tree.
+
+        Uses jmeter_kill.py on the loadgen to find and kill both the
+        shell wrapper and the orphaned Java child process.
+        """
         if self._os_family == "linux":
-            self._executor.execute(f"kill {pid}")
+            cmd = f"python3 {_KILL_SCRIPT_REMOTE} --stop-pid {pid}"
+            if jtl_path:
+                cmd += f" --jtl-path {jtl_path}"
+            result = self._executor.execute(cmd)
+            logger.info("stop(%d): %s", pid, result.stdout.strip())
         else:
-            self._executor.execute(f"taskkill /PID {pid} /F")
+            self._executor.execute(f"taskkill /PID {pid} /T /F")
         logger.info("JMeter stopped (PID %d)", pid)
+
+    def kill_for_target(self, target_host: str) -> None:
+        """Kill JMeter processes targeting a specific server.
+
+        Uses jmeter_kill.py to match -Jhost={target_host} in command lines.
+        Processes for other targets on a shared loadgen are not affected.
+        """
+        if self._os_family == "linux":
+            result = self._executor.execute(
+                f"python3 {_KILL_SCRIPT_REMOTE} --kill-for-target {target_host}"
+            )
+            logger.info("kill_for_target(%s): %s", target_host, result.stdout.strip())
+        else:
+            self._executor.execute(
+                f'wmic process where "CommandLine like \'%ApacheJMeter%\' '
+                f'and CommandLine like \'%Jhost={target_host}%\'" call terminate 2>NUL'
+            )
+        logger.info("Killed JMeter processes targeting %s", target_host)
 
     def collect_jtl(self, remote_jtl_path: str, local_jtl_path: str) -> str:
         """Download JTL file from load gen via SFTP.
@@ -118,6 +149,15 @@ class JMeterController:
         logger.info("Collecting JTL: %s -> %s", remote_jtl_path, local_jtl_path)
         self._executor.download(remote_jtl_path, local_jtl_path)
         return local_jtl_path
+
+    def collect_log(self, remote_log_path: str, local_log_path: str) -> str:
+        """Download JMeter log file from load gen via SFTP.
+
+        Returns: local_log_path
+        """
+        logger.info("Collecting JMeter log: %s -> %s", remote_log_path, local_log_path)
+        self._executor.download(remote_log_path, local_log_path)
+        return local_log_path
 
     def deploy_files(self, files: Dict[str, str]) -> None:
         """Upload JMX template and CSV files to load gen via SFTP.

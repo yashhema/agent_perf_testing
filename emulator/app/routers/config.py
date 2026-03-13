@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from ..config import get_config_manager, EmulatorConfig
 from ..stats.collector import get_stats_collector
+from ..operations import mem_pool
 
 
 router = APIRouter(prefix="/config")
@@ -16,12 +17,6 @@ class PartnerConfigRequest(BaseModel):
     """Partner configuration in request."""
     fqdn: str = Field(..., description="Partner hostname/FQDN")
     port: int = Field(default=8080, gt=0, le=65535, description="Partner port")
-
-
-class InputFoldersRequest(BaseModel):
-    """Input folders configuration in request."""
-    normal: str = Field(..., description="Path to normal files folder")
-    confidential: str = Field(default="", description="Path to confidential files folder")
 
 
 class StatsConfigRequest(BaseModel):
@@ -37,7 +32,6 @@ class StatsConfigRequest(BaseModel):
 
 class ConfigRequest(BaseModel):
     """Configuration request model."""
-    input_folders: InputFoldersRequest = Field(..., description="Input folder paths")
     output_folders: List[str] = Field(..., min_length=1, description="List of output folder paths")
     partner: PartnerConfigRequest = Field(..., description="Network partner configuration")
     stats: Optional[StatsConfigRequest] = Field(default=None, description="Stats collection configuration")
@@ -80,14 +74,10 @@ async def get_config() -> ConfigResponse:
 
 @router.post("", response_model=ConfigResponse)
 async def set_config(request: ConfigRequest) -> ConfigResponse:
-    """Set emulator configuration."""
+    """Set emulator configuration. Input folders are auto-detected from install path."""
     manager = get_config_manager()
 
     config_data = {
-        "input_folders": {
-            "normal": request.input_folders.normal,
-            "confidential": request.input_folders.confidential,
-        },
         "output_folders": request.output_folders,
         "partner": {
             "fqdn": request.partner.fqdn,
@@ -133,3 +123,43 @@ async def set_config(request: ConfigRequest) -> ConfigResponse:
         },
         is_configured=config.is_configured(),
     )
+
+
+# ── Memory pool management ─────────────────────────────────────────
+
+
+class PoolRequest(BaseModel):
+    """Request to allocate / resize the memory pool."""
+    size_gb: float = Field(..., gt=0, le=64, description="Pool size in GB")
+
+
+class PoolResponse(BaseModel):
+    allocated: bool
+    size_bytes: int
+
+
+@router.post("/pool", response_model=PoolResponse)
+async def init_memory_pool(request: PoolRequest) -> PoolResponse:
+    """Allocate the shared memory pool and touch all pages.
+
+    Call this once during setup, before sending /work requests.
+    Safe to call again to resize.
+    """
+    size_bytes = mem_pool.init_pool(request.size_gb)
+    return PoolResponse(allocated=True, size_bytes=size_bytes)
+
+
+@router.get("/pool", response_model=PoolResponse)
+async def get_pool_status() -> PoolResponse:
+    """Check whether the memory pool is allocated."""
+    return PoolResponse(
+        allocated=mem_pool.pool_allocated(),
+        size_bytes=mem_pool.pool_size_bytes(),
+    )
+
+
+@router.delete("/pool", response_model=PoolResponse)
+async def destroy_memory_pool() -> PoolResponse:
+    """Release the memory pool."""
+    mem_pool.destroy_pool()
+    return PoolResponse(allocated=False, size_bytes=0)

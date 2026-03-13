@@ -70,19 +70,19 @@ class FileBuilder:
         self._load_file_lists()
 
     def _load_file_lists(self) -> None:
-        """Load list of available files from input folders."""
+        """Load list of available files from input folders (recursive)."""
         if self.normal_folder and os.path.isdir(self.normal_folder):
             self._normal_files = [
-                os.path.join(self.normal_folder, f)
-                for f in os.listdir(self.normal_folder)
-                if os.path.isfile(os.path.join(self.normal_folder, f))
+                os.path.join(dirpath, f)
+                for dirpath, _, filenames in os.walk(self.normal_folder)
+                for f in filenames
             ]
 
         if self.confidential_folder and os.path.isdir(self.confidential_folder):
             self._confidential_files = [
-                os.path.join(self.confidential_folder, f)
-                for f in os.listdir(self.confidential_folder)
-                if os.path.isfile(os.path.join(self.confidential_folder, f))
+                os.path.join(dirpath, f)
+                for dirpath, _, filenames in os.walk(self.confidential_folder)
+                for f in filenames
             ]
 
     def _read_file_content(self, file_path: str, max_bytes: int = 0) -> str:

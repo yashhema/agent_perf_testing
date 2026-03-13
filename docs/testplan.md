@@ -1,5 +1,18 @@
 # Test Plan — Baseline-Compare Multi-Server
 
+## Hard Rule — No Mid-Run Fixes
+
+**All test execution steps (Phase 2 onward) are fully automatic. If a run fails at any point:**
+1. Let it fail completely — do NOT attempt to fix mid-run or restart from a middle state
+2. Analyze the failure (logs, DB state, orchestrator output)
+3. Fix the root cause in source code
+4. Document all src code changes in `docs/workfile.txt`
+5. Rerun the entire test from scratch (create new test run)
+
+This applies to every automated phase. No partial retries, no state manipulation, no manual intervention during execution.
+
+---
+
 ## Prerequisites & Environment
 
 ### Codebase
