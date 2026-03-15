@@ -41,6 +41,7 @@ Test case YAML format:
     targets:
       - hostname: rhel8-tgt-01         # target server hostname (from servers table)
         loadgen: rhel8-lg-01           # loadgen server hostname (from servers table)
+        snapshot: "clean-rhel8"        # VM snapshot name (from snapshots table, optional)
 """
 
 import argparse
@@ -166,11 +167,17 @@ def _init_db():
     return SessionLocal()
 
 
-def resolve_servers(session, test_case: dict, only_filter: list = None) -> list[dict]:
-    """Resolve target hostnames + loadgen hostnames to DB IDs.
+def resolve_servers(session, test_case: dict, only_filter: list = None,
+                    snapshot_override: str = None) -> list[dict]:
+    """Resolve target hostnames, loadgen hostnames, and snapshots to DB IDs.
+
+    Snapshot resolution priority (per target):
+      1. --snapshot CLI override (applied to all targets)
+      2. 'snapshot' field in test case YAML target entry
+      3. Latest snapshot for the server in DB
 
     Returns list of dicts: {hostname, server_id, loadgen_id, loadgen_hostname,
-                            snapshot_id, os_family, ip}
+                            snapshot_id, snapshot_name, os_family, ip}
     """
     from orchestrator.models.orm import Server as ServerORM, Snapshot as SnapshotORM
 
@@ -198,16 +205,33 @@ def resolve_servers(session, test_case: dict, only_filter: list = None) -> list[
             die(f"Loadgen server '{lg_hostname}' not found in DB. "
                 f"Available: {', '.join(sorted(all_servers.keys()))}")
 
-        # Resolve snapshot: find latest snapshot for this server
-        snapshot = (
-            session.query(SnapshotORM)
-            .filter_by(server_id=srv.id)
-            .order_by(SnapshotORM.created_at.desc())
-            .first()
-        )
-        if not snapshot:
-            die(f"No snapshot found for server '{hostname}' (id={srv.id}). "
-                f"Create a snapshot first via the orchestrator API or DB.")
+        # Resolve snapshot: CLI override > YAML per-target > latest in DB
+        snap_name = snapshot_override or entry.get("snapshot")
+
+        if snap_name:
+            # Look up by name for this server
+            snapshot = (
+                session.query(SnapshotORM)
+                .filter_by(server_id=srv.id, name=snap_name)
+                .first()
+            )
+            if not snapshot:
+                # Show available snapshots for this server
+                avail = session.query(SnapshotORM).filter_by(server_id=srv.id).all()
+                avail_names = [f"'{s.name}' (id={s.id})" for s in avail]
+                die(f"Snapshot '{snap_name}' not found for server '{hostname}'. "
+                    f"Available: {', '.join(avail_names) or 'none'}")
+        else:
+            # Fallback: latest snapshot for this server
+            snapshot = (
+                session.query(SnapshotORM)
+                .filter_by(server_id=srv.id)
+                .order_by(SnapshotORM.created_at.desc())
+                .first()
+            )
+            if not snapshot:
+                die(f"No snapshot found for server '{hostname}' (id={srv.id}). "
+                    f"Create a snapshot first or specify 'snapshot' in the test case.")
 
         resolved.append({
             "hostname": srv.hostname,
@@ -607,6 +631,9 @@ def main():
     parser.add_argument("--template", default=None,
                         help="Override template type (e.g. server-steady, server-normal). "
                              "Uses test case value if omitted.")
+    parser.add_argument("--snapshot", "-s", default=None,
+                        help="Override snapshot name for all targets (e.g. 'clean-os-baseline'). "
+                             "Uses per-target YAML value or latest in DB if omitted.")
     parser.add_argument("--only", default=None,
                         help="Run only these targets (comma-separated hostnames)")
     parser.add_argument("--skip-orchestrator", action="store_true",
@@ -662,7 +689,7 @@ def main():
         banner("Resolving test case from database")
         session = _init_db()
 
-        resolved_targets = resolve_servers(session, tc, only_filter)
+        resolved_targets = resolve_servers(session, tc, only_filter, args.snapshot)
         scenario_id = resolve_scenario(session, template)
         profile_ids = resolve_profiles(session, profile_names, duration_override)
 

@@ -28,18 +28,28 @@ duration_sec: 3600
 # Targets: each entry maps a target server to its loadgen.
 # All hostnames are resolved to server IDs from the servers table.
 # Snapshots are auto-resolved (latest snapshot for each server).
+# Targets: each entry maps a target server to its loadgen and snapshot.
+# - hostname: looked up in servers table
+# - loadgen:  looked up in servers table
+# - snapshot: VM snapshot name to revert to before testing (looked up in snapshots table).
+#             Omit to use the latest snapshot for that server.
 targets:
   - hostname: rhel8-tgt-01
     loadgen: rhel8-lg-01
+    snapshot: "clean-rhel8-baseline"
 
   - hostname: rhel9-tgt-01
     loadgen: rhel9-lg-01
+    snapshot: "clean-rhel9-baseline"
 
   - hostname: win2019-tgt-01
     loadgen: rhel8-lg-02
+    snapshot: "clean-win2019-baseline"
 
   - hostname: win2022-tgt-01
     loadgen: rhel9-lg-02
+    snapshot: "clean-win2022-baseline"
 
   - hostname: win2022-tgt-02
     loadgen: rhel8-lg-01
+    snapshot: "clean-win2022-baseline"
