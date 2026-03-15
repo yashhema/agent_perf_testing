@@ -29,10 +29,9 @@ lab:
   name: "vsphere_lab"
   description: "vSphere-based performance testing lab"
 
-# Service account to create on all machines
+# Service account (already exists in AD, must match 'serviceaccount' entry in mycred.txt)
 service_account:
-  # Name of the account (must match 'serviceaccount' entry in mycred.txt)
-  create_ssh_key: true
+  domain: "MYDOMAIN"    # AD domain name (used as DOMAIN\user for Windows, DOMAIN\\user for sudoers)
 
 # Load profiles (standard defaults)
 load_profiles:

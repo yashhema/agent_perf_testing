@@ -87,7 +87,7 @@ class SetupConfig:
     load_profiles: list
     discovery_file: str
     credentials_json_path: str
-    create_ssh_key: bool
+    ad_domain: str  # AD domain name (e.g. MYDOMAIN)
     base_dir: str  # directory where setup_config.yaml lives
 
 
@@ -124,7 +124,7 @@ def load_config(config_path: str) -> SetupConfig:
         load_profiles=raw.get("load_profiles", []),
         discovery_file=resolve(raw["output"]["discovery_file"]),
         credentials_json_path=resolve(raw["output"]["credentials_json"]),
-        create_ssh_key=raw.get("service_account", {}).get("create_ssh_key", False),
+        ad_domain=raw.get("service_account", {}).get("domain", ""),
         base_dir=base_dir,
     )
 
