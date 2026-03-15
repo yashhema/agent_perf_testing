@@ -1,0 +1,41 @@
+# =============================================================================
+# Test Case: 5-Server Steady Load Baseline
+# =============================================================================
+# Defines WHAT to test (servers, loadgens, scenario, profiles).
+# HOW to test (new_baseline vs compare) is specified at runtime via CLI.
+#
+# Usage:
+#   python run_test.py --test-case test_cases/example_5server_steady.yaml --type new_baseline
+#   python run_test.py --test-case test_cases/example_5server_steady.yaml --type compare
+#   python run_test.py --test-case test_cases/example_5server_steady.yaml --type compare --baseline-run 12
+
+name: "5-server-steady"
+description: "Baseline test across 5 targets (2 RHEL + 3 Windows) using server-steady template"
+
+# Scenario: looked up by name in the scenarios table.
+# If not found by name, falls back to lookup by template_type.
+scenario: "server-steady"
+
+# Load profiles to test (looked up by name in load_profiles table)
+profiles:
+  - low
+  - high
+
+# Targets: each entry maps a target server to its loadgen.
+# All hostnames are resolved to server IDs from the servers table.
+# Snapshots are auto-resolved (latest snapshot for each server).
+targets:
+  - hostname: rhel8-tgt-01
+    loadgen: rhel8-lg-01
+
+  - hostname: rhel9-tgt-01
+    loadgen: rhel9-lg-01
+
+  - hostname: win2019-tgt-01
+    loadgen: rhel8-lg-02
+
+  - hostname: win2022-tgt-01
+    loadgen: rhel9-lg-02
+
+  - hostname: win2022-tgt-02
+    loadgen: rhel8-lg-01
