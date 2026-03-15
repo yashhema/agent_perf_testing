@@ -2,6 +2,7 @@
 
 import csv
 import os
+import socket
 import sys
 import time
 import logging
@@ -23,9 +24,16 @@ logger = logging.getLogger("setup")
 @dataclass
 class ServerEntry:
     hostname: str
-    ip: str
     os: str  # rhel8, rhel9, win2016, win2019, win2022
     role: str  # orchestrator, loadgen, target, unassigned
+    ip: str = ""  # optional — resolved from hostname via DNS if empty
+
+    def __post_init__(self):
+        if not self.ip:
+            try:
+                self.ip = socket.gethostbyname(self.hostname)
+            except socket.gaierror:
+                self.ip = self.hostname  # fallback: use hostname directly
 
     @property
     def is_linux(self) -> bool:
@@ -122,7 +130,11 @@ def load_config(config_path: str) -> SetupConfig:
 
 
 def load_servers(servers_file: str) -> list[ServerEntry]:
-    """Load servers.csv, skip comment lines starting with #."""
+    """Load servers.csv, skip comment lines starting with #.
+
+    CSV columns: hostname, os, role [, ip]
+    If 'ip' column is missing or empty, it's resolved from hostname via DNS.
+    """
     servers = []
     with open(servers_file) as f:
         # Filter out comment lines
@@ -131,9 +143,9 @@ def load_servers(servers_file: str) -> list[ServerEntry]:
         for row in reader:
             servers.append(ServerEntry(
                 hostname=row["hostname"].strip(),
-                ip=row["ip"].strip(),
                 os=row["os"].strip().lower(),
                 role=row["role"].strip().lower(),
+                ip=row.get("ip", "").strip(),
             ))
     return servers
 

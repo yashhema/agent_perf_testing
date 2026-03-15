@@ -1,24 +1,23 @@
 # Server list for Agent Performance Testing setup
-# Columns: hostname, ip, os, role
+# Columns: hostname, os, role
 #
 # os values:     rhel8, rhel9, win2016, win2019, win2022
 # role values:   orchestrator, loadgen, target, unassigned
 #
-# Rules:
-#   - Exactly 1 orchestrator (RHEL only)
-#   - At least 1 loadgen (RHEL only, JMeter needs Linux)
-#   - Test targets: any OS, ideally all distinct
-#   - orchestrator also hosts PostgreSQL
+# IP is resolved from hostname via DNS automatically.
+# Add an optional 4th column 'ip' if DNS doesn't resolve your hostnames:
+#   hostname,os,role,ip
+#   myserver,rhel9,orchestrator,10.0.1.1
 #
-hostname,ip,os,role
-rhel9-orch-01,10.0.1.1,rhel9,orchestrator
-rhel8-lg-01,10.0.1.2,rhel8,loadgen
-rhel9-lg-01,10.0.1.3,rhel9,loadgen
-rhel8-lg-02,10.0.1.4,rhel8,loadgen
-rhel9-lg-02,10.0.1.5,rhel9,loadgen
-rhel8-tgt-01,10.0.1.6,rhel8,target
-rhel9-tgt-01,10.0.1.7,rhel9,target
-win2019-tgt-01,10.0.1.8,win2019,target
-win2022-tgt-01,10.0.1.9,win2022,target
-win2022-tgt-02,10.0.1.10,win2022,target
-win2019-spare,10.0.1.11,win2019,unassigned
+hostname,os,role
+rhel9-orch-01,rhel9,orchestrator
+rhel8-lg-01,rhel8,loadgen
+rhel9-lg-01,rhel9,loadgen
+rhel8-lg-02,rhel8,loadgen
+rhel9-lg-02,rhel9,loadgen
+rhel8-tgt-01,rhel8,target
+rhel9-tgt-01,rhel9,target
+win2019-tgt-01,win2019,target
+win2022-tgt-01,win2022,target
+win2022-tgt-02,win2022,target
+win2019-spare,win2019,unassigned
