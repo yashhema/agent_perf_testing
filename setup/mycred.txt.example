@@ -1,0 +1,12 @@
+# Credentials file for setup tasks
+# Columns: entity, username, password
+#
+# entity values:
+#   firsttime      - existing admin creds to initially access machines (root/Administrator)
+#   vsphere        - vSphere/vCenter admin credentials
+#   serviceaccount - the new service account to create on all machines
+#
+entity,username,password
+firsttime,root,InitialPass123!
+vsphere,administrator@vsphere.local,VspherePass!
+serviceaccount,svc_perftest,SvcPass123!
