@@ -33,15 +33,19 @@ def _elevate_linux(server: ServerEntry, creds: Credentials, config: SetupConfig)
     # Use a safe filename for sudoers.d (no backslashes)
     sudoers_file = svc_user.replace("\\", "_").replace("@", "_")
 
+    sudo_pass = creds.firsttime_pass
+    # echo password | sudo -S runs sudo reading password from stdin
+    SUDO = f"echo '{sudo_pass}' | sudo -S"
+
     commands = [
         # Check if user resolves via AD/SSSD
         f"id '{display_user}' 2>/dev/null && echo 'USER_OK' || "
         f"(id '{svc_user}' 2>/dev/null && echo 'USER_OK_SHORT' || echo 'USER_NOT_FOUND')",
-        # Add sudoers entry
-        f"echo '{sudoers_user} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{sudoers_file} && "
-        f"chmod 440 /etc/sudoers.d/{sudoers_file} && echo 'SUDOERS_OK'",
+        # Add sudoers entry (needs root via sudo)
+        f"{SUDO} bash -c \"echo '{sudoers_user} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{sudoers_file}\" && "
+        f"{SUDO} chmod 440 /etc/sudoers.d/{sudoers_file} && echo 'SUDOERS_OK'",
         # Verify sudoers file is valid
-        f"visudo -cf /etc/sudoers.d/{sudoers_file} && echo 'SUDOERS_VALID'",
+        f"{SUDO} visudo -cf /etc/sudoers.d/{sudoers_file} && echo 'SUDOERS_VALID'",
     ]
 
     logger.info("Elevating on Linux: %s — user '%s'", server.hostname, display_user)
