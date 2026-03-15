@@ -12,14 +12,18 @@
 name: "5-server-steady"
 description: "Baseline test across 5 targets (2 RHEL + 3 Windows) using server-steady template"
 
-# Scenario: looked up by name in the scenarios table.
-# If not found by name, falls back to lookup by template_type.
-scenario: "server-steady"
+# Template type: server-steady, server-normal, server-file-heavy, db-load
+# Used to find or create a matching scenario in the DB.
+template: "server-steady"
 
 # Load profiles to test (looked up by name in load_profiles table)
 profiles:
   - low
   - high
+
+# Test duration in seconds (overrides the load_profile.duration_sec in DB for this run).
+# Omit to use whatever is stored in the DB for each profile.
+duration_sec: 3600
 
 # Targets: each entry maps a target server to its loadgen.
 # All hostnames are resolved to server IDs from the servers table.

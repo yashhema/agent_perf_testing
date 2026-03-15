@@ -21,19 +21,23 @@ Usage:
     # Override profiles at runtime
     python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline -p low
 
+    # Override duration (30 min test)
+    python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline -d 1800
+
+    # Override template type
+    python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline --template server-normal
+
     # Run only specific targets from the test case
     python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline --only rhel8-tgt-01,win2022-tgt-01
 
-    # Skip orchestrator start (already running)
-    python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline --skip-orchestrator
-
-    # Skip emulator build
-    python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline --skip-build
+    # Skip orchestrator start + emulator build
+    python run_test.py -tc test_cases/5server_steady.yaml -t new_baseline --skip-orchestrator --skip-build
 
 Test case YAML format:
     name: "my-test"
-    scenario: "server-steady"          # scenario name or template_type
+    template: "server-steady"          # server-steady, server-normal, server-file-heavy, db-load
     profiles: [low, high]              # load profile names
+    duration_sec: 3600                 # optional — override test duration (seconds)
     targets:
       - hostname: rhel8-tgt-01         # target server hostname (from servers table)
         loadgen: rhel8-lg-01           # loadgen server hostname (from servers table)
@@ -128,7 +132,7 @@ def load_test_case(path: str) -> dict:
         tc = yaml.safe_load(f)
 
     # Validate required fields
-    for field in ("name", "scenario", "profiles", "targets"):
+    for field in ("name", "template", "profiles", "targets"):
         if field not in tc:
             die(f"Test case missing required field: '{field}'")
 
@@ -222,36 +226,52 @@ def resolve_servers(session, test_case: dict, only_filter: list = None) -> list[
     return resolved
 
 
-def resolve_scenario(session, scenario_name: str) -> int:
-    """Resolve scenario name to scenario_id."""
+def resolve_scenario(session, template_type: str) -> int:
+    """Resolve template type to scenario_id.
+
+    Looks up by template_type first, then by scenario name.
+    If not found, lists available options.
+    """
     from orchestrator.models.orm import Scenario as ScenarioORM
 
-    # Try exact name match first
-    scenario = session.query(ScenarioORM).filter_by(name=scenario_name).first()
+    # Try template_type match first (primary lookup)
+    scenario = session.query(ScenarioORM).filter_by(template_type=template_type).first()
     if scenario:
         return scenario.id
 
-    # Try template_type match
-    scenario = session.query(ScenarioORM).filter_by(template_type=scenario_name).first()
+    # Try exact name match as fallback
+    scenario = session.query(ScenarioORM).filter_by(name=template_type).first()
     if scenario:
         return scenario.id
 
     # List available
     all_scenarios = session.query(ScenarioORM).all()
     available = [f"{s.name} (template={s.template_type}, id={s.id})" for s in all_scenarios]
-    die(f"Scenario '{scenario_name}' not found.\nAvailable:\n  " + "\n  ".join(available))
+    die(f"Template '{template_type}' not found.\nAvailable:\n  " + "\n  ".join(available))
 
 
-def resolve_profiles(session, profile_names: list[str]) -> list[int]:
-    """Resolve profile names to profile IDs."""
+def resolve_profiles(session, profile_names: list[str], duration_override: int = None) -> list[int]:
+    """Resolve profile names to profile IDs.
+
+    If duration_override is set, updates duration_sec in the DB for each profile
+    before the test starts (so calibration and execution use the new duration).
+    """
     from orchestrator.models.orm import LoadProfile as LoadProfileORM
 
-    name_to_id = {p.name: p.id for p in session.query(LoadProfileORM).all()}
+    all_profiles = {p.name: p for p in session.query(LoadProfileORM).all()}
     ids = []
     for name in profile_names:
-        if name not in name_to_id:
-            die(f"Load profile '{name}' not found. Available: {list(name_to_id.keys())}")
-        ids.append(name_to_id[name])
+        if name not in all_profiles:
+            die(f"Load profile '{name}' not found. Available: {list(all_profiles.keys())}")
+        profile = all_profiles[name]
+
+        if duration_override and profile.duration_sec != duration_override:
+            old = profile.duration_sec
+            profile.duration_sec = duration_override
+            session.commit()
+            info(f"  Profile '{name}': duration_sec {old}s -> {duration_override}s")
+
+        ids.append(profile.id)
     return ids
 
 
@@ -581,6 +601,12 @@ def main():
                              "If omitted, auto-detects from stored snapshot data.")
     parser.add_argument("--profiles", "-p", default=None,
                         help="Override profiles (comma-separated). Uses test case profiles if omitted.")
+    parser.add_argument("--duration", "-d", type=int, default=None,
+                        help="Override test duration in seconds (e.g. 3600 for 1 hour). "
+                             "Overrides both test case YAML and DB values.")
+    parser.add_argument("--template", default=None,
+                        help="Override template type (e.g. server-steady, server-normal). "
+                             "Uses test case value if omitted.")
     parser.add_argument("--only", default=None,
                         help="Run only these targets (comma-separated hostnames)")
     parser.add_argument("--skip-orchestrator", action="store_true",
@@ -595,14 +621,22 @@ def main():
     # Override profiles if specified
     profile_names = [p.strip() for p in args.profiles.split(",")] if args.profiles else tc["profiles"]
 
+    # Resolve template: CLI > test case YAML
+    template = args.template or tc["template"]
+
+    # Resolve duration: CLI > test case YAML > DB (None = use DB value)
+    duration_override = args.duration or tc.get("duration_sec")
+
     # Parse --only filter
     only_filter = [h.strip() for h in args.only.split(",")] if args.only else None
 
     banner(f"TEST: {tc['name']}")
     info(f"Test case:  {args.test_case}")
     info(f"Type:       {args.test_type}")
-    info(f"Scenario:   {tc['scenario']}")
+    info(f"Template:   {template}")
     info(f"Profiles:   {', '.join(profile_names)}")
+    if duration_override:
+        info(f"Duration:   {duration_override}s ({duration_override // 60}m)")
     info(f"Targets:    {len(tc['targets'])} defined" +
          (f", filtered to {len(only_filter)}" if only_filter else ""))
 
@@ -629,10 +663,10 @@ def main():
         session = _init_db()
 
         resolved_targets = resolve_servers(session, tc, only_filter)
-        scenario_id = resolve_scenario(session, tc["scenario"])
-        profile_ids = resolve_profiles(session, profile_names)
+        scenario_id = resolve_scenario(session, template)
+        profile_ids = resolve_profiles(session, profile_names, duration_override)
 
-        info(f"Scenario: '{tc['scenario']}' -> id={scenario_id}")
+        info(f"Template: '{template}' -> scenario id={scenario_id}")
         for name, pid in zip(profile_names, profile_ids):
             info(f"Profile: '{name}' -> id={pid}")
         for rt in resolved_targets:
