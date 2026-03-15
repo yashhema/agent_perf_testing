@@ -44,3 +44,21 @@ orchestrator/logs/
 orchestrator/results/
 orchestrator/run*_stdout.log
 orchestrator/run*_stderr.log
+orchestrator/cookies.txt
+
+# Large data (downloaded separately)
+NonConfidentialData/
+
+# Emulator runtime data
+emulator/data/
+emulator/installers/
+emulator/output/
+emulator/stats/
+
+# Java emulator build output
+emulator_java/target/
+emulator_java/stats/
+
+# Logs
+logs/
+*.log

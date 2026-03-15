@@ -9,12 +9,13 @@ calibration:
   # Upper bound for binary search. Previous value of 200 wasted iterations —
   # on a 4-core VM, anything above ~6 threads already maxes CPU.
   max_thread_count: 30
+  first_observation_settle_sec: 300  # 5-min JVM settle before first calibration reading
   # Stability check pass criteria:
   #   min_in_range_pct: minimum % of samples that must fall within target CPU range
   #   max_below_pct: maximum % of samples allowed below the target minimum
   #   (above-max spikes are tolerable — means we're generating enough load)
   stability_min_in_range_pct: 55.0
-  stability_max_below_pct: 10.0
+  stability_max_below_pct: 25.0
 
 infrastructure:
   snapshot_restore_timeout_sec: 600
@@ -26,8 +27,9 @@ infrastructure:
 
 stats:
   collect_interval_sec: 5
-  stats_trim_start_sec: 30
+  stats_trim_start_sec: 300  # 5-min trim: skip JVM warmup (heap alloc, JIT, GC)
   stats_trim_end_sec: 10
+  jtl_min_success_rate_pct: 95.0  # Fail the run if JMeter success rate drops below this
 
 barrier:
   barrier_timeout_margin_percent: 0.20
@@ -40,7 +42,7 @@ emulator:
 # SQL Server:        mssql+pyodbc://user:pass@host/orchestrator?driver=ODBC+Driver+17+for+SQL+Server
 # SQL Server (trusted): mssql+pyodbc://@localhost/orchestrator?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes
 database:
-  url: "mssql+pyodbc://@localhost/orchestrator?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
+  url: "postgresql://orchestrator:orchestrator@localhost:5432/orchestrator"
   echo: false
 
 credentials_path: "config/credentials.json"

@@ -34,6 +34,7 @@ from orchestrator.models.orm import (
     ServerORM,
     SnapshotORM,
 )
+from orchestrator.services.jtl_parser import JtlParser
 from orchestrator.services.package_manager import PackageDeployer, PackageResolver
 from orchestrator.services.stats_parser import StatsParser
 
@@ -49,6 +50,9 @@ class ExecutionResult:
     jmx_test_case_data_path: str
     jmeter_log_path: str = ""
     emulator_log_path: str = ""
+    jtl_total_requests: int = 0
+    jtl_total_errors: int = 0
+    jtl_success_rate_pct: float = 0.0
 
 
 def wait_for_ssh(host: str, os_family: str = "linux", timeout_sec: int = 120, poll_sec: int = 5) -> None:
@@ -81,9 +85,11 @@ class BaselineExecutionEngine:
         self._resolver = PackageResolver()
         self._deployer = PackageDeployer()
         self._stats_parser = StatsParser()
+        self._jtl_parser = JtlParser()
         self._orchestrator_url = self._build_orchestrator_url()
         self._trim_start_sec = config.stats.stats_trim_start_sec
         self._trim_end_sec = config.stats.stats_trim_end_sec
+        self._jtl_min_success_rate = config.stats.jtl_min_success_rate_pct
 
     @staticmethod
     def _build_orchestrator_url() -> str:
@@ -265,7 +271,7 @@ class BaselineExecutionEngine:
                     log_path=f"{run_dir}/jmeter_{lp.name}.log",
                     thread_count=tc["thread_counts"][lp.id],
                     ramp_up_sec=lp.ramp_up_sec,
-                    duration_sec=3600,  # orchestrator controls end, not JMeter
+                    duration_sec=86400,  # 24h — orchestrator controls end, not JMeter
                     target_host=server.ip_address,
                     target_port=emulator_port,
                     ops_sequence_path=tc["jmx_data_paths"][lp.id],
@@ -323,6 +329,39 @@ class BaselineExecutionEngine:
                     remote_jtl = f"{run_dir}/results_{lp.name}.jtl"
                     tr["loadgen_executor"].download(remote_jtl, local_jtl)
 
+                    # Validate JTL: check that enough requests succeeded
+                    jtl_result = self._jtl_parser.parse(local_jtl)
+                    success_rate = 100.0 - jtl_result.error_rate_percent
+                    logger.info(
+                        "JTL validation for %s / profile '%s': "
+                        "%d total requests, %d errors, "
+                        "success rate=%.2f%% (threshold=%.1f%%)",
+                        server.hostname, lp.name,
+                        jtl_result.total_requests, jtl_result.total_errors,
+                        success_rate, self._jtl_min_success_rate,
+                    )
+                    if jtl_result.total_requests == 0:
+                        raise RuntimeError(
+                            f"JTL validation FAILED for {server.hostname} / "
+                            f"profile '{lp.name}': JTL file contains 0 requests. "
+                            f"JMeter may not have started or emulator was unreachable."
+                        )
+                    if success_rate < self._jtl_min_success_rate:
+                        # Log per-label breakdown for diagnostics
+                        for label, lr in jtl_result.per_label.items():
+                            if lr.errors > 0:
+                                logger.error(
+                                    "  label '%s': %d/%d failed (%.1f%% error rate)",
+                                    label, lr.errors, lr.count, lr.error_rate_percent,
+                                )
+                        raise RuntimeError(
+                            f"JTL validation FAILED for {server.hostname} / "
+                            f"profile '{lp.name}': success rate {success_rate:.2f}% "
+                            f"is below threshold {self._jtl_min_success_rate:.1f}%. "
+                            f"({jtl_result.total_errors}/{jtl_result.total_requests} "
+                            f"requests failed). Stats data from this run is unreliable."
+                        )
+
                     # Download JMeter log from loadgen
                     logs_dir = results_base / "logs"
                     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -365,6 +404,9 @@ class BaselineExecutionEngine:
                         jmx_test_case_data_path=local_jmx,
                         jmeter_log_path=local_jmeter_log,
                         emulator_log_path=local_emulator_log,
+                        jtl_total_requests=jtl_result.total_requests,
+                        jtl_total_errors=jtl_result.total_errors,
+                        jtl_success_rate_pct=round(success_rate, 2),
                     )
 
                     logger.info(

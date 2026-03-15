@@ -204,45 +204,66 @@ class CalibrationEngine:
         target_min: float,
         target_max: float,
     ) -> int:
-        """Binary search for thread_count that produces target CPU.
+        """Intelligent ascending search for thread_count that produces target CPU.
+
+        Uses data-driven prediction instead of blind exponential doubling:
+        1. Start at 1 thread (with JVM settle), observe CPU
+        2. Use observed CPU-per-thread ratio to predict the thread count
+           needed for the target midpoint
+        3. Observe at predicted count, refine using linear interpolation
+           between the two closest data points
+        4. Fall back to binary search when bracketed (last_below, first_over)
 
         Updates cal_record at each iteration.
         Returns the best thread_count found.
         """
-        low = 1
-        high = self._config.max_thread_count
+        max_threads = self._config.max_thread_count
+        target_mid = (target_min + target_max) / 2
         best_thread_count = None
         iteration = 0
         consecutive_failures = 0
         max_consecutive_failures = 3
 
-        while iteration < self._config.max_calibration_iterations and low <= high:
+        # Observation history: list of (thread_count, avg_cpu) tuples
+        observations = []
+
+        # Bounds for binary search fallback
+        last_below = None       # highest thread count still below target_min
+        last_below_cpu = None
+        first_over = None       # lowest thread count above target_max
+        first_over_cpu = None
+
+        candidate = 1
+
+        while iteration < self._config.max_calibration_iterations and candidate <= max_threads:
             iteration += 1
-            candidate = (low + high) // 2
+
+            # First iteration gets extra settle time for JVM warmup
+            settle = self._config.first_observation_settle_sec if iteration == 1 else 0
 
             # Update progress
-            cal_record.phase = "binary_search"
+            cal_record.phase = "ramp_up"
             cal_record.current_iteration = iteration
             cal_record.current_thread_count = candidate
+            settle_msg = f" (+{settle}s settle)" if settle else ""
             cal_record.message = (
-                f"Binary search iter {iteration}: trying {candidate} threads "
-                f"(range {low}-{high})"
+                f"Iter {iteration}: trying {candidate} threads{settle_msg}"
             )
             cal_record.updated_at = datetime.utcnow()
             session.commit()
 
-            logger.info("Calibration iteration %d: trying thread_count=%d (range %d-%d)",
-                        iteration, candidate, low, high)
+            logger.info("Calibration iteration %d: trying thread_count=%d%s",
+                        iteration, candidate,
+                        f" (settle {settle}s)" if settle else "")
 
-            avg_cpu = self._run_observation(ctx, candidate, ramp_up_sec)
-            self._cleanup_iteration(ctx, iteration=iteration, phase="binary_search")
+            avg_cpu = self._run_observation(ctx, candidate, ramp_up_sec, extra_settle_sec=settle)
+            self._cleanup_iteration(ctx, iteration=iteration, phase="ramp_up")
 
             if avg_cpu is None:
                 consecutive_failures += 1
                 cal_record.message = (
-                    f"Binary search iter {iteration}: failed to read CPU at "
-                    f"{candidate} threads ({consecutive_failures}/{max_consecutive_failures} "
-                    f"consecutive failures)"
+                    f"Iter {iteration}: failed to read CPU at "
+                    f"{candidate} threads ({consecutive_failures}/{max_consecutive_failures})"
                 )
                 cal_record.updated_at = datetime.utcnow()
                 session.commit()
@@ -258,13 +279,12 @@ class CalibrationEngine:
                     )
                 continue
 
-            # Successful observation — reset failure counter
             consecutive_failures = 0
+            observations.append((candidate, avg_cpu))
 
-            # Update observed CPU
             cal_record.last_observed_cpu = round(avg_cpu, 1)
             cal_record.message = (
-                f"Binary search iter {iteration}: {candidate} threads → "
+                f"Iter {iteration}: {candidate} threads → "
                 f"{avg_cpu:.1f}% CPU (target {target_min:.0f}-{target_max:.0f}%)"
             )
             cal_record.updated_at = datetime.utcnow()
@@ -273,39 +293,177 @@ class CalibrationEngine:
             logger.info("Observed avg CPU: %.1f%% (target: %.0f-%.0f%%)",
                         avg_cpu, target_min, target_max)
 
+            # Classify the observation
             if avg_cpu < target_min:
-                low = candidate + 1
+                if last_below is None or candidate > last_below:
+                    last_below = candidate
+                    last_below_cpu = avg_cpu
             elif avg_cpu > target_max:
-                high = candidate - 1
+                if first_over is None or candidate < first_over:
+                    first_over = candidate
+                    first_over_cpu = avg_cpu
             else:
+                # In range — done
                 best_thread_count = candidate
                 break
 
+            # ── Decide next candidate ──
+            if best_thread_count is not None:
+                break
+
+            # If we have both bounds, switch to binary search refinement
+            if last_below is not None and first_over is not None:
+                candidate = self._interpolate_candidate(
+                    last_below, last_below_cpu, first_over, first_over_cpu,
+                    target_mid, max_threads,
+                )
+                # Safety: binary search fallback if interpolation keeps repeating
+                if candidate == last_below or candidate == first_over:
+                    candidate = (last_below + first_over) // 2
+                if candidate <= last_below or candidate >= first_over:
+                    # Gap is too small — no integer thread count fits
+                    candidate = max(1, (last_below + first_over) // 2)
+                    if candidate == last_below or candidate == first_over:
+                        # Truly adjacent, nothing to try
+                        break
+                logger.info(
+                    "Bracketed [%d(%.1f%%), %d(%.1f%%)] → interpolated candidate=%d",
+                    last_below, last_below_cpu, first_over, first_over_cpu, candidate,
+                )
+                continue
+
+            # Only have observations on one side — predict using linear model
+            next_candidate = self._predict_next_candidate(
+                observations, target_mid, max_threads,
+            )
+
+            if next_candidate is not None:
+                candidate = next_candidate
+            else:
+                # Fallback: double the last tried count
+                candidate = min(candidate * 2, max_threads)
+
+        # ── Fallback: pick closest candidate if no exact match ──
         if best_thread_count is None:
-            if low > high:
-                best_thread_count = max(1, (low + high) // 2)
+            if first_over is not None and last_below is not None:
+                best_thread_count = max(1, (last_below + first_over) // 2)
                 cal_record.message = (
-                    f"Binary search gap: no integer thread count lands in "
+                    f"Search gap: no integer thread count lands in "
                     f"{target_min:.0f}-{target_max:.0f}%. "
-                    f"Trying {best_thread_count} threads in stability."
+                    f"Using {best_thread_count} threads (midpoint of "
+                    f"{last_below}@{last_below_cpu:.0f}% and {first_over}@{first_over_cpu:.0f}%)."
                 )
                 logger.warning(
-                    "Binary search gap (low=%d > high=%d) — trying thread_count=%d",
-                    low, high, best_thread_count,
+                    "Search gap (last_below=%d@%.1f%%, first_over=%d@%.1f%%) — using %d",
+                    last_below, last_below_cpu, first_over, first_over_cpu, best_thread_count,
                 )
-            else:
-                best_thread_count = (low + high) // 2
+            elif first_over is not None:
+                best_thread_count = 1
                 cal_record.message = (
-                    f"Binary search didn't converge, using {best_thread_count} threads"
+                    f"Even 1 thread exceeds target ({target_max:.0f}%), using 1 thread"
                 )
-                logger.warning("Binary search didn't converge; using thread_count=%d",
-                               best_thread_count)
+                logger.warning("Even 1 thread exceeds target_max; using 1")
+            elif last_below is not None:
+                best_thread_count = max_threads
+                cal_record.message = (
+                    f"Max threads ({max_threads}) still below target "
+                    f"({target_min:.0f}%), using {max_threads}"
+                )
+                logger.warning("Max threads %d still below target_min; using max",
+                               max_threads)
+            else:
+                best_thread_count = 1
+                cal_record.message = "No observations succeeded; defaulting to 1 thread"
+                logger.warning("No observations succeeded; defaulting to 1 thread")
 
             cal_record.current_thread_count = best_thread_count
             cal_record.updated_at = datetime.utcnow()
             session.commit()
 
         return best_thread_count
+
+    @staticmethod
+    def _interpolate_candidate(
+        low_tc: int, low_cpu: float,
+        high_tc: int, high_cpu: float,
+        target_cpu: float,
+        max_threads: int,
+    ) -> int:
+        """Linear interpolation between two bracketing observations.
+
+        Given (low_tc → low_cpu) and (high_tc → high_cpu), predict which
+        thread count would produce target_cpu.
+        """
+        if high_tc <= low_tc or high_cpu <= low_cpu:
+            return (low_tc + high_tc) // 2
+
+        # Linear: target_cpu = low_cpu + slope * (tc - low_tc)
+        # tc = low_tc + (target_cpu - low_cpu) / slope
+        slope = (high_cpu - low_cpu) / (high_tc - low_tc)
+        predicted = low_tc + (target_cpu - low_cpu) / slope
+        clamped = max(low_tc + 1, min(int(round(predicted)), high_tc - 1))
+        return min(clamped, max_threads)
+
+    @staticmethod
+    def _predict_next_candidate(
+        observations: list,
+        target_cpu: float,
+        max_threads: int,
+    ) -> Optional[int]:
+        """Predict next thread count using observed data points.
+
+        With 1 observation: assumes CPU scales linearly from 0 threads = 0% CPU.
+        With 2+ observations: uses the last two data points for slope estimation.
+
+        Returns predicted thread count, or None if prediction is not useful.
+        """
+        if not observations:
+            return None
+
+        if len(observations) == 1:
+            tc, cpu = observations[0]
+            if cpu <= 0:
+                return None
+            # Assume roughly linear: cpu_per_thread ≈ cpu / tc
+            cpu_per_thread = cpu / tc
+            predicted = target_cpu / cpu_per_thread
+            # Ensure we move forward (at least tc + 1)
+            predicted = max(tc + 1, int(round(predicted)))
+            predicted = min(predicted, max_threads)
+            logger.info(
+                "Prediction (1 point): %d threads→%.1f%% CPU, "
+                "cpu/thread=%.1f%%, predict %d threads for %.1f%% target",
+                tc, cpu, cpu_per_thread, predicted, target_cpu,
+            )
+            return predicted
+
+        # Use last two observations for slope
+        tc1, cpu1 = observations[-2]
+        tc2, cpu2 = observations[-1]
+        if tc2 == tc1:
+            return None
+
+        slope = (cpu2 - cpu1) / (tc2 - tc1)
+        if slope <= 0:
+            # CPU decreased with more threads (unlikely but handle it)
+            # Fall back to doubling
+            return min(tc2 * 2, max_threads)
+
+        # Extrapolate: target_cpu = cpu2 + slope * (predicted - tc2)
+        predicted = tc2 + (target_cpu - cpu2) / slope
+        # Ensure we move in the right direction
+        if cpu2 < target_cpu:
+            predicted = max(tc2 + 1, int(round(predicted)))
+        else:
+            predicted = min(tc2 - 1, int(round(predicted)))
+        predicted = max(1, min(predicted, max_threads))
+
+        logger.info(
+            "Prediction (2 points): [%d→%.1f%%, %d→%.1f%%], "
+            "slope=%.2f%%/thread, predict %d threads for %.1f%% target",
+            tc1, cpu1, tc2, cpu2, slope, predicted, target_cpu,
+        )
+        return predicted
 
     def _run_stability_loop(
         self,
@@ -324,7 +482,10 @@ class CalibrationEngine:
         Returns the final verified thread_count.
         Raises CalibrationError if stability cannot be achieved.
         """
-        stability_duration = int(duration_sec * self._config.calibration_stability_ratio)
+        stability_duration = min(
+            int(duration_sec * self._config.calibration_stability_ratio),
+            900,  # cap at 15 minutes
+        )
         max_decrements = 5
         confirmation_count = self._config.calibration_confirmation_count
 
@@ -430,8 +591,13 @@ class CalibrationEngine:
         ctx: CalibrationContext,
         thread_count: int,
         ramp_up_sec: int,
+        extra_settle_sec: int = 0,
     ) -> Optional[float]:
         """Run a single observation cycle: start JMeter, wait, read CPU, stop.
+
+        Args:
+            extra_settle_sec: additional wait before reading stats (e.g. JVM warmup
+                on the first observation).
 
         Returns avg CPU %, or None if the observation failed (emulator may be down).
         """
@@ -464,8 +630,11 @@ class CalibrationEngine:
                 extra_properties=ctx.extra_properties,
             )
 
-            # Wait for ramp-up + observation
+            # Wait for ramp-up + optional settle + observation
             time.sleep(ramp_up_sec)
+            if extra_settle_sec > 0:
+                logger.info("Settling %ds before observation (JVM warmup)", extra_settle_sec)
+                time.sleep(extra_settle_sec)
             time.sleep(self._config.observation_duration_sec)
 
             # Get recent stats

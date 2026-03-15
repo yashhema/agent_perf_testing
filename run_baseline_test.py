@@ -4,14 +4,63 @@ End-to-end baseline test runner.
 Starts the orchestrator, creates a baseline test via the API, monitors progress
 by polling state + checking DB, and reports results.
 
-Usage:
-    python run_baseline_test.py                          # Linux target only, low profile
-    python run_baseline_test.py --target linux           # Linux target only
-    python run_baseline_test.py --target windows         # Windows target only
-    python run_baseline_test.py --target both            # Both targets
-    python run_baseline_test.py --profile low            # Single profile
-    python run_baseline_test.py --profile low,medium     # Multiple profiles
-    python run_baseline_test.py --skip-orchestrator      # Don't start/stop orchestrator (already running)
+Supports three test types:
+  - new_baseline:  Establish baseline performance metrics for one or more servers.
+                   Runs: validating -> setting_up -> calibrating -> generating
+                         -> executing -> storing -> completed
+                   The "storing" phase saves calibrated thread counts, stats, JTL,
+                   and ops-sequence CSV into snapshot_profile_data for each target's
+                   snapshot. These stored results become the reference for future
+                   compare runs.
+
+  - compare:       Re-run load test using the SAME thread count and ops-sequence
+                   from a previous baseline, then compare metrics to detect
+                   performance regressions (e.g. after installing a security agent).
+                   Runs: validating -> setting_up -> executing -> comparing
+                         -> storing -> completed
+                   Skips calibration/generation — reuses stored data from
+                   compare_snapshot_id.
+
+  - compare_with_new_calibration:
+                   Like compare, but re-calibrates thread counts first (useful when
+                   the agent changes CPU baseline). Still compares against the
+                   original baseline's stats.
+                   Runs: validating -> setting_up -> calibrating -> generating
+                         -> executing -> comparing -> storing -> completed
+
+Multi-server support:
+  Use --target both to run Linux and Windows servers in a single test run.
+  All phases (setup, calibration, generation, execution) run in PARALLEL across
+  targets, with barriers between phases (all targets must complete phase N before
+  phase N+1 begins). Errors are tracked per-target per-state for easy debugging.
+
+  Each target has its own snapshot (test_snapshot_id) and optionally its own
+  compare snapshot (baseline_snapshot_id in TARGETS dict). The TARGETS dict below
+  defines the mapping — add new servers there.
+
+How to run a baseline + compare cycle:
+  1. Create baseline:
+       python run_baseline_test.py --target both --profile low --skip-build
+     This calibrates, runs, and stores results into each target's snapshot.
+
+  2. Install security agent on the target VMs (manual step or via orchestrator).
+
+  3. Run compare against the baseline:
+       python run_baseline_test.py --target both --profile low --test-type compare --skip-build
+     Each target automatically uses its own baseline_snapshot_id from the TARGETS
+     dict. The orchestrator loads stored thread counts + ops CSVs from those
+     snapshots, re-runs the exact same load, and compares stats.
+
+  4. (Optional) Override compare snapshot for all targets:
+       python run_baseline_test.py --target linux --test-type compare --compare-snapshot-id 5
+
+Usage examples:
+    python run_baseline_test.py                          # Linux only, low profile, new baseline
+    python run_baseline_test.py --target both            # Both servers, new baseline
+    python run_baseline_test.py --target both --profile low,medium  # Multiple profiles
+    python run_baseline_test.py --target both --test-type compare --skip-build  # Compare run
+    python run_baseline_test.py --skip-orchestrator      # Don't start/stop orchestrator
+    python run_baseline_test.py --skip-build             # Skip Maven emulator build
 """
 
 import argparse
@@ -36,7 +85,8 @@ EMULATOR_DATA_DIR = os.path.join(SCRIPT_DIR, "emulator", "data")
 ARTIFACTS_DIR = os.path.join(ORCH_DIR, "artifacts", "packages")
 JDK17_HOME = r"C:\jdk-17.0.18.8-hotspot"
 ORCH_LOG_FILE = os.path.join(ORCH_DIR, "logs", "orchestrator_run.log")
-ORCH_HOST = "127.0.0.1"
+ORCH_BIND = "0.0.0.0"       # uvicorn listens on all interfaces (WinRM targets need it)
+ORCH_HOST = "127.0.0.1"    # local API calls use localhost
 ORCH_PORT = 8000
 ORCH_BASE = f"http://{ORCH_HOST}:{ORCH_PORT}"
 API = f"{ORCH_BASE}/api"
@@ -46,30 +96,45 @@ USERNAME = "admin"
 PASSWORD = "admin"
 
 # DB IDs (from setup_proxmox_lab.py output)
+# To add a new server: add an entry here with the correct DB IDs, then use
+# --target <name> or --target both. The orchestrator will include it in
+# parallel execution alongside other targets.
+#
+# Fields:
+#   server_id           - servers.id in DB (from setup_proxmox_lab.py)
+#   snapshot_id          - snapshots.id used as test_snapshot (VM reverted to this before each run)
+#   baseline_snapshot_id - snapshots.id holding stored baseline profile data (thread counts,
+#                          stats, JTL, ops CSV). Used as compare_snapshot_id in compare runs.
+#                          After a new_baseline run, the storing phase writes profile data
+#                          into this snapshot's snapshot_profile_data rows.
+#   hostname / ip        - for pre-flight health checks only (actual values come from DB)
 TARGETS = {
     "linux": {
         "server_id": 8,
-        "snapshot_id": 3,      # clean-rocky-baseline (exists on Proxmox)
+        "snapshot_id": 3,              # clean-rocky-baseline (Proxmox snapshot)
+        "baseline_snapshot_id": 3,     # same snapshot — stores baseline profile data
         "hostname": "target-rky-01",
         "ip": "10.0.0.92",
     },
     "windows": {
         "server_id": 9,
-        "snapshot_id": 4,      # clean-win-baseline (exists on Proxmox)
+        "snapshot_id": 4,              # clean-win-baseline (Proxmox snapshot)
+        "baseline_snapshot_id": 4,     # same snapshot — stores baseline profile data
         "hostname": "TARGET-WIN-01",
         "ip": "10.0.0.91",
     },
 }
 
+# Scenario determines which JMX template is used (server-steady, server-normal, etc.)
 SCENARIO_ID = 1004  # Proxmox Baseline Steady (server-steady: /work endpoint)
 LAB_ID = 4
 
-# Load profile name -> DB id mapping (queried at runtime)
+# Available load profile names — resolved to DB IDs at runtime via load_profiles table
 PROFILE_NAMES = ["low", "medium", "high"]
 
 # Poll interval
 POLL_SEC = 15
-MAX_WAIT_SEC = 7200  # 2 hours max
+MAX_WAIT_SEC = 21600  # 6 hours max (supports 4-hour load tests + calibration overhead)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -335,7 +400,7 @@ def start_orchestrator():
     env["LOG_LEVEL"] = "INFO"
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "orchestrator.app:app",
-         "--host", ORCH_HOST, "--port", str(ORCH_PORT),
+         "--host", ORCH_BIND, "--port", str(ORCH_PORT),
          "--log-level", "info"],
         cwd=ORCH_DIR,
         env=env,
@@ -492,10 +557,12 @@ def main():
                 "test_snapshot_id": cfg["snapshot_id"],
             }
             if args.test_type != "new_baseline":
-                if not args.compare_snapshot_id:
-                    fail(f"--compare-snapshot-id required for test_type={args.test_type}")
+                # Use per-target baseline_snapshot_id, falling back to --compare-snapshot-id
+                compare_snap = args.compare_snapshot_id or cfg.get("baseline_snapshot_id")
+                if not compare_snap:
+                    fail(f"No compare snapshot for {name}: set baseline_snapshot_id in TARGETS or use --compare-snapshot-id")
                     sys.exit(1)
-                target_entry["compare_snapshot_id"] = args.compare_snapshot_id
+                target_entry["compare_snapshot_id"] = compare_snap
             targets_payload.append(target_entry)
 
         create_payload = {

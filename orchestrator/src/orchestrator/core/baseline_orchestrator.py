@@ -14,6 +14,8 @@ Supports multiple targets per test run with barriers between phases.
 
 import dataclasses
 import logging
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -43,6 +45,7 @@ from orchestrator.models.orm import (
     SnapshotORM,
     SnapshotProfileDataORM,
 )
+from orchestrator.models.database import SessionLocal
 from orchestrator.services.discovery import DiscoveryService
 from orchestrator.services.package_manager import PackageDeployer, PackageResolver
 
@@ -304,78 +307,140 @@ class BaselineOrchestrator:
             finally:
                 loadgen_exec.close()
 
-        # --- Target setup (all targets) ---
-        for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
-            # Revert VM to test_snapshot
-            new_ip = provider.restore_snapshot(
-                server.server_infra_ref, test_snapshot.provider_ref,
-            )
-            provider.wait_for_vm_ready(server.server_infra_ref)
-            if new_ip and new_ip != server.ip_address:
-                server.ip_address = new_ip
-                session.commit()
-            wait_for_ssh(server.ip_address, os_family=server.os_family.value)
+        # --- Target setup (all targets — PARALLEL) ---
+        def _setup_one_target(target_tuple):
+            """Set up one target: restore snapshot, deploy emulator, run discovery.
 
-            # Deploy emulator
-            target_cred = self._credentials.get_server_credential(
-                server.id, server.os_family.value,
-            )
-            target_exec = create_executor(
-                os_family=server.os_family.value,
-                host=server.ip_address,
-                username=target_cred.username,
-                password=target_cred.password,
-                orchestrator_url=orchestrator_url,
-            )
+            Runs in its own thread with its own DB session.
+            Returns (server_hostname, None) on success or (server_hostname, error_str) on failure.
+            """
+            target_orm_id, server_id, server_hostname, server_ip, server_os_family, \
+                server_infra_ref, test_snapshot_provider_ref, scenario_id = target_tuple
+
+            thread_session = SessionLocal()
             try:
-                if lab.emulator_package_grp_id:
-                    emu_packages = resolver.resolve(
-                        session, [lab.emulator_package_grp_id], server,
-                    )
-                    deployer.deploy_all(target_exec, emu_packages)
+                # Revert VM to test_snapshot
+                new_ip = provider.restore_snapshot(
+                    server_infra_ref, test_snapshot_provider_ref,
+                )
+                provider.wait_for_vm_ready(server_infra_ref)
 
-                    # Start the emulator on each target
-                    for pkg in emu_packages:
-                        if pkg.run_command:
-                            logger.info("Starting emulator on %s: %s", server.hostname, pkg.run_command)
-                            result = target_exec.execute(pkg.run_command, timeout_sec=60)
-                            if not result.success:
-                                raise RuntimeError(
-                                    f"Emulator start failed on {server.hostname}: {result.stderr}"
-                                )
+                actual_ip = server_ip
+                if new_ip and new_ip != server_ip:
+                    actual_ip = new_ip
+                    srv = thread_session.get(ServerORM, server_id)
+                    srv.ip_address = new_ip
+                    thread_session.commit()
 
-                # Clean emulator output/stats dirs (OS-aware)
-                if server.os_family.value == "windows":
-                    target_exec.execute(
-                        'powershell -Command "'
-                        "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
-                        "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
-                        '"'
-                    )
-                else:
-                    target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
+                wait_for_ssh(actual_ip, os_family=server_os_family)
 
-                # Run discovery -> write to target ORM
-                discovery_dir = Path(__file__).resolve().parent.parent.parent.parent / "discovery"
-                discovery = DiscoveryService(self._credentials, discovery_dir)
+                # Deploy emulator
+                target_cred = self._credentials.get_server_credential(
+                    server_id, server_os_family,
+                )
+                target_exec = create_executor(
+                    os_family=server_os_family,
+                    host=actual_ip,
+                    username=target_cred.username,
+                    password=target_cred.password,
+                    orchestrator_url=orchestrator_url,
+                )
                 try:
-                    scenario_obj = session.get(ScenarioORM, test_run.scenario_id)
-                    agents = list(scenario_obj.agents) if scenario_obj else []
-                    disc_result = discovery._discover_target(server, agents)
-                    if disc_result.os_discovery:
-                        target_orm.os_kind = disc_result.os_discovery.os_kind
-                        target_orm.os_major_ver = disc_result.os_discovery.os_major_ver
-                        target_orm.os_minor_ver = disc_result.os_discovery.os_minor_ver
-                    if disc_result.agent_discoveries:
-                        target_orm.agent_versions = {
-                            d.agent_name: d.discovered_version
-                            for d in disc_result.agent_discoveries
-                        }
-                except Exception as e:
-                    logger.warning("Discovery failed for %s (non-fatal): %s", server.hostname, e)
-                session.commit()
+                    if lab.emulator_package_grp_id:
+                        srv = thread_session.get(ServerORM, server_id)
+                        emu_packages = resolver.resolve(
+                            thread_session, [lab.emulator_package_grp_id], srv,
+                        )
+                        deployer.deploy_all(target_exec, emu_packages)
+
+                        # Start the emulator on each target
+                        for pkg in emu_packages:
+                            if pkg.run_command:
+                                logger.info("Starting emulator on %s: %s", server_hostname, pkg.run_command)
+                                result = target_exec.execute(pkg.run_command, timeout_sec=60)
+                                if not result.success:
+                                    raise RuntimeError(
+                                        f"Emulator start failed on {server_hostname}: {result.stderr}"
+                                    )
+
+                    # Clean emulator output/stats dirs (OS-aware)
+                    if server_os_family == "windows":
+                        target_exec.execute(
+                            'powershell -Command "'
+                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
+                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
+                            '"'
+                        )
+                    else:
+                        target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
+
+                    # Run discovery -> write to target ORM
+                    discovery_dir = Path(__file__).resolve().parent.parent.parent.parent / "discovery"
+                    discovery = DiscoveryService(self._credentials, discovery_dir)
+                    try:
+                        scenario_obj = thread_session.get(ScenarioORM, scenario_id)
+                        agents = list(scenario_obj.agents) if scenario_obj else []
+                        srv = thread_session.get(ServerORM, server_id)
+                        disc_result = discovery._discover_target(srv, agents)
+                        t_orm = thread_session.get(BaselineTestRunTargetORM, target_orm_id)
+                        if disc_result.os_discovery:
+                            t_orm.os_kind = disc_result.os_discovery.os_kind
+                            t_orm.os_major_ver = disc_result.os_discovery.os_major_ver
+                            t_orm.os_minor_ver = disc_result.os_discovery.os_minor_ver
+                        if disc_result.agent_discoveries:
+                            t_orm.agent_versions = {
+                                d.agent_name: d.discovered_version
+                                for d in disc_result.agent_discoveries
+                            }
+                    except Exception as e:
+                        logger.warning("Discovery failed for %s (non-fatal): %s", server_hostname, e)
+                    thread_session.commit()
+                finally:
+                    target_exec.close()
+
+                return (server_hostname, None)
+            except Exception as e:
+                logger.error(
+                    "Setup failed for %s: %s\n%s",
+                    server_hostname, e, traceback.format_exc(),
+                )
+                return (server_hostname, str(e))
             finally:
-                target_exec.close()
+                thread_session.close()
+
+        # Prepare plain data tuples (no ORM objects across threads)
+        setup_tasks = []
+        for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            setup_tasks.append((
+                target_orm.id,
+                server.id,
+                server.hostname,
+                server.ip_address,
+                server.os_family.value,
+                server.server_infra_ref,
+                test_snapshot.provider_ref,
+                test_run.scenario_id,
+            ))
+
+        # Run all target setups in parallel
+        errors = []
+        with ThreadPoolExecutor(max_workers=len(setup_tasks)) as pool:
+            futures = {pool.submit(_setup_one_target, t): t for t in setup_tasks}
+            for future in as_completed(futures):
+                hostname, err = future.result()
+                if err:
+                    errors.append(f"[{hostname}] {err}")
+                else:
+                    logger.info("Setup complete for %s", hostname)
+
+        if errors:
+            raise RuntimeError(
+                f"Setup failed for {len(errors)}/{len(setup_tasks)} target(s):\n"
+                + "\n".join(errors)
+            )
+
+        # Refresh ORM objects after parallel threads committed changes
+        session.expire_all()
 
         # ── BARRIER: all targets set up ──
 
@@ -487,109 +552,174 @@ class BaselineOrchestrator:
         }
 
     # ------------------------------------------------------------------
-    # State: CALIBRATING (all targets, all profiles)
+    # State: CALIBRATING (all targets, all profiles — PARALLEL per target)
     # ------------------------------------------------------------------
     def _do_calibration(self, session: Session, test_run: BaselineTestRunORM) -> None:
         lab, scenario, targets, load_profiles = self._load_context(session, test_run)
 
         emulator_port = self._config.emulator.emulator_api_port
-        calibration_engine = CalibrationEngine(self._config.calibration)
         needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
+        cal_config = self._config.calibration
+        stats_interval = self._config.stats.collect_interval_sec
+        results_dir = self._config.results_dir
+        test_run_id = test_run.id
+        scenario_template = scenario.template_type
 
-        for target_orm, server, loadgen, test_snapshot, _ in targets:
-            for lp in load_profiles:
-                sm.update_current_profile(session, test_run, lp.id)
+        def _calibrate_one_target(target_info):
+            """Calibrate all load profiles for one target.
 
+            Runs in its own thread with its own DB session.
+            Returns (server_hostname, None) on success or (server_hostname, error_str) on failure.
+            """
+            (target_orm_id, server_id, server_hostname, server_ip,
+             server_os_family, loadgen_id, loadgen_ip, loadgen_os_family,
+             partner_id, output_folders, service_monitor_patterns,
+             lp_ids_names) = target_info
+
+            thread_session = SessionLocal()
+            calibration_engine = CalibrationEngine(cal_config)
+            try:
                 target_cred = self._credentials.get_server_credential(
-                    server.id, server.os_family.value,
-                )
-                target_exec = create_executor(
-                    os_family=server.os_family.value,
-                    host=server.ip_address,
-                    username=target_cred.username,
-                    password=target_cred.password,
+                    server_id, server_os_family,
                 )
                 loadgen_cred = self._credentials.get_server_credential(
-                    loadgen.id, loadgen.os_family.value,
+                    loadgen_id, loadgen_os_family,
                 )
                 loadgen_exec = create_executor(
-                    os_family=loadgen.os_family.value,
-                    host=loadgen.ip_address,
+                    os_family=loadgen_os_family,
+                    host=loadgen_ip,
                     username=loadgen_cred.username,
                     password=loadgen_cred.password,
                 )
 
                 try:
-                    em_client = EmulatorClient(host=server.ip_address, port=emulator_port)
+                    em_client = EmulatorClient(host=server_ip, port=emulator_port)
 
-                    # Configure emulator with partner + output_folders before calibration
-                    # (required for /networkclient and /file endpoints in mixed-load JMX)
+                    # Configure emulator
                     partner_fqdn = "localhost"
-                    if target_orm.partner_id and target_orm.partner_id != server.id:
-                        partner_server = session.get(ServerORM, target_orm.partner_id)
+                    if partner_id and partner_id != server_id:
+                        partner_server = thread_session.get(ServerORM, partner_id)
                         partner_fqdn = partner_server.ip_address
-                    if target_orm.output_folders:
-                        out_folders = [f.strip() for f in target_orm.output_folders.split(",") if f.strip()]
-                    elif server.os_family.value == "windows":
+                    if output_folders:
+                        out_folders = [f.strip() for f in output_folders.split(",") if f.strip()]
+                    elif server_os_family == "windows":
                         out_folders = ["C:\\emulator\\output"]
                     else:
                         out_folders = ["/opt/emulator/output"]
                     em_client.set_config(
                         output_folders=out_folders,
                         partner={"fqdn": partner_fqdn, "port": emulator_port},
-                        stats={
-                            "default_interval_sec": self._config.stats.collect_interval_sec,
-                        },
-                        service_monitor_patterns=target_orm.service_monitor_patterns,
+                        stats={"default_interval_sec": stats_interval},
+                        service_monitor_patterns=service_monitor_patterns,
                     )
 
                     jmeter_ctrl = JMeterController(
                         executor=loadgen_exec,
                         jmeter_bin="/opt/jmeter/bin/jmeter",
-                        os_family=loadgen.os_family.value,
+                        os_family=loadgen_os_family,
                     )
 
-                    # Kill stale JMeter from previous failed runs before calibrating
-                    jmeter_ctrl.kill_for_target(server.ip_address)
+                    # Kill stale JMeter from previous failed runs
+                    jmeter_ctrl.kill_for_target(server_ip)
 
-                    # For templates using /work: allocate pool on emulator, build extra JMeter props
+                    # Pool setup for /work templates
                     extra_props = None
                     if needs_pool:
-                        self._setup_pool(em_client, scenario.template_type)
+                        self._setup_pool(em_client, scenario_template)
                         extra_props = self._build_work_extra_properties()
 
-                    run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
-                    ctx = CalibrationContext(
-                        server=server,
-                        load_profile=lp,
-                        emulator_client=em_client,
-                        jmeter_controller=jmeter_ctrl,
-                        jmx_path=f"{run_dir}/test.jmx",
-                        ops_sequence_path=f"{run_dir}/calibration_ops.csv",
-                        emulator_port=emulator_port,
-                        test_run_id=test_run.id,
-                        results_dir=self._config.results_dir,
-                        extra_properties=extra_props,
-                    )
+                    run_dir = f"/opt/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
 
-                    thread_count = calibration_engine.calibrate(session, test_run, ctx)
-                    logger.info(
-                        "Calibrated: server=%s, profile='%s', thread_count=%d",
-                        server.hostname, lp.name, thread_count,
-                    )
+                    for lp_id, lp_name, lp_cpu_min, lp_cpu_max, lp_ramp, lp_duration in lp_ids_names:
+                        lp = thread_session.get(LoadProfileORM, lp_id)
+                        server_orm = thread_session.get(ServerORM, server_id)
+                        test_run_orm = thread_session.get(BaselineTestRunORM, test_run_id)
+
+                        ctx = CalibrationContext(
+                            server=server_orm,
+                            load_profile=lp,
+                            emulator_client=em_client,
+                            jmeter_controller=jmeter_ctrl,
+                            jmx_path=f"{run_dir}/test.jmx",
+                            ops_sequence_path=f"{run_dir}/calibration_ops.csv",
+                            emulator_port=emulator_port,
+                            test_run_id=test_run_id,
+                            results_dir=results_dir,
+                            extra_properties=extra_props,
+                        )
+
+                        thread_count = calibration_engine.calibrate(
+                            thread_session, test_run_orm, ctx,
+                        )
+                        logger.info(
+                            "Calibrated: server=%s, profile='%s', thread_count=%d",
+                            server_hostname, lp_name, thread_count,
+                        )
                 finally:
-                    target_exec.close()
                     loadgen_exec.close()
                     try:
                         em_client.close()
                     except Exception:
                         pass
 
+                return (server_hostname, None)
+            except Exception as e:
+                logger.error(
+                    "Calibration failed for %s: %s\n%s",
+                    server_hostname, e, traceback.format_exc(),
+                )
+                return (server_hostname, str(e))
+            finally:
+                thread_session.close()
+
+        # Prepare plain data tuples for each target
+        cal_tasks = []
+        for target_orm, server, loadgen, test_snapshot, _ in targets:
+            lp_data = [
+                (lp.id, lp.name, lp.target_cpu_range_min, lp.target_cpu_range_max,
+                 lp.ramp_up_sec, lp.duration_sec)
+                for lp in load_profiles
+            ]
+            cal_tasks.append((
+                target_orm.id,
+                server.id,
+                server.hostname,
+                server.ip_address,
+                server.os_family.value,
+                loadgen.id,
+                loadgen.ip_address,
+                loadgen.os_family.value,
+                target_orm.partner_id,
+                target_orm.output_folders,
+                target_orm.service_monitor_patterns,
+                lp_data,
+            ))
+
+        # Run calibration for all targets in parallel
+        errors = []
+        with ThreadPoolExecutor(max_workers=len(cal_tasks)) as pool:
+            futures = {pool.submit(_calibrate_one_target, t): t for t in cal_tasks}
+            for future in as_completed(futures):
+                hostname, err = future.result()
+                if err:
+                    errors.append(f"[{hostname}] {err}")
+                else:
+                    logger.info("Calibration complete for %s", hostname)
+
+        if errors:
+            raise RuntimeError(
+                f"Calibration failed for {len(errors)}/{len(cal_tasks)} target(s):\n"
+                + "\n".join(errors)
+            )
+
+        # Refresh main session after parallel threads committed
+        session.expire_all()
+
         # ── BARRIER: all targets calibrated for all profiles ──
         sm.transition(session, test_run, BaselineTestState.generating)
 
     # ------------------------------------------------------------------
-    # State: GENERATING (JMX Test Case Data — all targets)
+    # State: GENERATING (JMX Test Case Data — all targets — PARALLEL)
     # ------------------------------------------------------------------
     def _do_generation(self, session: Session, test_run: BaselineTestRunORM) -> None:
         lab, scenario, targets, load_profiles = self._load_context(session, test_run)
@@ -600,59 +730,113 @@ class BaselineOrchestrator:
             sys.path.insert(0, gen_root)
         from generator.generators.ops_sequence_generator import OpsSequenceGenerator
 
-        for target_orm, server, loadgen, test_snapshot, _ in targets:
-            loadgen_cred = self._credentials.get_server_credential(
-                loadgen.id, loadgen.os_family.value,
-            )
-            loadgen_exec = create_executor(
-                os_family=loadgen.os_family.value,
-                host=loadgen.ip_address,
-                username=loadgen_cred.username,
-                password=loadgen_cred.password,
-            )
+        test_run_id = test_run.id
+        generated_dir = self._config.generated_dir
 
+        def _generate_one_target(target_info):
+            """Generate and upload ops sequences for one target.
+
+            Returns (server_hostname, None) on success or (server_hostname, error_str) on failure.
+            """
+            (server_id, server_hostname, loadgen_id, loadgen_ip,
+             loadgen_os_family, lp_data) = target_info
+
+            thread_session = SessionLocal()
             try:
-                run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
+                loadgen_cred = self._credentials.get_server_credential(
+                    loadgen_id, loadgen_os_family,
+                )
+                loadgen_exec = create_executor(
+                    os_family=loadgen_os_family,
+                    host=loadgen_ip,
+                    username=loadgen_cred.username,
+                    password=loadgen_cred.password,
+                )
 
-                for lp in load_profiles:
-                    cal = session.query(CalibrationResultORM).filter(
-                        CalibrationResultORM.baseline_test_run_id == test_run.id,
-                        CalibrationResultORM.server_id == server.id,
-                        CalibrationResultORM.load_profile_id == lp.id,
-                    ).first()
-                    if not cal:
-                        raise RuntimeError(
-                            f"No calibration result for server {server.id} / profile {lp.id}"
+                try:
+                    run_dir = f"/opt/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
+
+                    for lp_id, lp_name, lp_duration in lp_data:
+                        cal = thread_session.query(CalibrationResultORM).filter(
+                            CalibrationResultORM.baseline_test_run_id == test_run_id,
+                            CalibrationResultORM.server_id == server_id,
+                            CalibrationResultORM.load_profile_id == lp_id,
+                        ).first()
+                        if not cal:
+                            raise RuntimeError(
+                                f"No calibration result for server {server_id} / profile {lp_id}"
+                            )
+                        thread_count = cal.thread_count
+
+                        seq_count = OpsSequenceGenerator.calculate_sequence_length(
+                            thread_count=thread_count,
+                            duration_sec=lp_duration,
                         )
-                    thread_count = cal.thread_count
 
-                    seq_count = OpsSequenceGenerator.calculate_sequence_length(
-                        thread_count=thread_count,
-                        duration_sec=lp.duration_sec,
-                    )
+                        gen = self._create_generator_for_template(
+                            scenario, str(test_run_id), lp_name,
+                        )
+                        ops = gen.generate(seq_count)
 
-                    gen = self._create_generator_for_template(scenario, str(test_run.id), lp.name)
-                    ops = gen.generate(seq_count)
+                        local_dir = (
+                            Path(generated_dir)
+                            / str(test_run_id)
+                            / "ops_sequences"
+                            / str(server_id)
+                        )
+                        local_dir.mkdir(parents=True, exist_ok=True)
+                        local_path = str(local_dir / f"ops_sequence_{lp_name}.csv")
+                        gen.write_csv(ops, local_path)
 
-                    local_dir = (
-                        Path(self._config.generated_dir)
-                        / str(test_run.id)
-                        / "ops_sequences"
-                        / str(server.id)
-                    )
-                    local_dir.mkdir(parents=True, exist_ok=True)
-                    local_path = str(local_dir / f"ops_sequence_{lp.name}.csv")
-                    gen.write_csv(ops, local_path)
+                        remote_path = f"{run_dir}/ops_sequence_{lp_name}.csv"
+                        loadgen_exec.upload(local_path, remote_path)
 
-                    remote_path = f"{run_dir}/ops_sequence_{lp.name}.csv"
-                    loadgen_exec.upload(local_path, remote_path)
+                        logger.info(
+                            "Generated ops sequence for server %s: %s (%d rows, threads=%d) profile '%s'",
+                            server_hostname, local_path, seq_count, thread_count, lp_name,
+                        )
+                finally:
+                    loadgen_exec.close()
 
-                    logger.info(
-                        "Generated ops sequence for server %s: %s (%d rows, threads=%d) profile '%s'",
-                        server.hostname, local_path, seq_count, thread_count, lp.name,
-                    )
+                return (server_hostname, None)
+            except Exception as e:
+                logger.error(
+                    "Generation failed for %s: %s\n%s",
+                    server_hostname, e, traceback.format_exc(),
+                )
+                return (server_hostname, str(e))
             finally:
-                loadgen_exec.close()
+                thread_session.close()
+
+        # Prepare plain data tuples
+        gen_tasks = []
+        for target_orm, server, loadgen, test_snapshot, _ in targets:
+            lp_data = [(lp.id, lp.name, lp.duration_sec) for lp in load_profiles]
+            gen_tasks.append((
+                server.id,
+                server.hostname,
+                loadgen.id,
+                loadgen.ip_address,
+                loadgen.os_family.value,
+                lp_data,
+            ))
+
+        # Run generation for all targets in parallel
+        errors = []
+        with ThreadPoolExecutor(max_workers=len(gen_tasks)) as pool:
+            futures = {pool.submit(_generate_one_target, t): t for t in gen_tasks}
+            for future in as_completed(futures):
+                hostname, err = future.result()
+                if err:
+                    errors.append(f"[{hostname}] {err}")
+                else:
+                    logger.info("Generation complete for %s", hostname)
+
+        if errors:
+            raise RuntimeError(
+                f"Generation failed for {len(errors)}/{len(gen_tasks)} target(s):\n"
+                + "\n".join(errors)
+            )
 
         # ── BARRIER: all sequences generated and uploaded ──
         sm.transition(session, test_run, BaselineTestState.executing)
@@ -972,6 +1156,9 @@ class BaselineOrchestrator:
                     else er.stats_summary
                 ),
                 "jmx_test_case_data_path": er.jmx_test_case_data_path,
+                "jtl_total_requests": er.jtl_total_requests,
+                "jtl_total_errors": er.jtl_total_errors,
+                "jtl_success_rate_pct": er.jtl_success_rate_pct,
             }
 
         with open(manifest_path, "w", encoding="utf-8") as f:
@@ -999,5 +1186,8 @@ class BaselineOrchestrator:
                 jtl_path=data["jtl_path"],
                 stats_summary=data["stats_summary"],
                 jmx_test_case_data_path=data["jmx_test_case_data_path"],
+                jtl_total_requests=data.get("jtl_total_requests", 0),
+                jtl_total_errors=data.get("jtl_total_errors", 0),
+                jtl_success_rate_pct=data.get("jtl_success_rate_pct", 0.0),
             )
         return results

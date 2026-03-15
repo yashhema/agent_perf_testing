@@ -19,7 +19,8 @@ class CalibrationConfig:
     max_calibration_iterations: int = 50
     max_thread_count: int = 30
     stability_min_in_range_pct: float = 55.0
-    stability_max_below_pct: float = 10.0
+    stability_max_below_pct: float = 25.0
+    first_observation_settle_sec: int = 300  # extra settle time for first observation (JVM warmup)
 
 
 @dataclass
@@ -38,6 +39,7 @@ class StatsConfig:
     collect_interval_sec: int = 5
     stats_trim_start_sec: int = 30
     stats_trim_end_sec: int = 10
+    jtl_min_success_rate_pct: float = 95.0  # Minimum JTL pass rate to consider a run valid
 
 
 @dataclass

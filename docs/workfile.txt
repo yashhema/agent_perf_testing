@@ -319,3 +319,40 @@ All changes to src/ code are documented here with date, file, and summary.
   - Network: steady ~0.4 MB/s sent, ~0.2 MB/s recv (JMeter HTTP traffic)
   - All metrics stable over 15 minutes — clean baseline established
 
+2026-03-13  run_baseline_test.py
+  - Changed ORCH_HOST binding from 127.0.0.1 to 0.0.0.0 (ORCH_BIND) so Windows
+    targets can download emulator packages via HTTP from the orchestrator.
+    Local API calls still use 127.0.0.1.
+
+2026-03-13  orchestrator/config/orchestrator.yaml
+  - Changed stats_trim_start_sec from 30 to 300
+  - Reason: Windows run 41 showed bimodal CPU — ~50% for first 5 min (JVM warmup:
+    heap alloc 4.9→6.6 GB, JIT compilation, GC), then steady ~24%. The 30s trim
+    was insufficient; inflated warmup samples polluted baseline stats (stddev 12.7
+    vs expected ~2-3).
+
+2026-03-13  orchestrator/src/orchestrator/core/calibration.py
+  - Replaced top-down binary search with ascending search (low-to-high).
+  - Phase 1 "ramp_up": exponential ramp (1, 2, 4, 8, ...) until CPU exceeds
+    target_max. JVM warms up naturally as load increases — no separate warmup
+    phase needed.
+  - Phase 2 "binary_search": refines between last_below and first_over if the
+    exponential ramp overshot.
+  - Removed _run_warmup() method and warmup_duration_sec config.
+  - Reason: run 42 showed that high-thread warmup (15 threads) bloated JVM heap
+    to 93% memory, causing 49% CPU at 1 thread (vs 24% in steady state). Going
+    low-to-high avoids this — JVM memory grows proportionally to actual load.
+
+2026-03-13  orchestrator/src/orchestrator/core/calibration.py
+  - Replaced blind exponential doubling (1→2→4→8) with intelligent interpolation.
+  - After each observation, uses linear model (CPU-per-thread) to predict the
+    thread count needed for target midpoint, instead of blindly doubling.
+  - With 1 data point: cpu_per_thread = observed/threads, predict target_mid/cpu_per_thread.
+  - With 2+ data points: uses slope between last two observations.
+  - When bracketed (last_below, first_over): uses linear interpolation between bounds.
+  - Added _interpolate_candidate() and _predict_next_candidate() static methods.
+  - Tracks full observation history: list of (thread_count, avg_cpu) tuples.
+  - Reason: user requested data-driven approach. Exponential doubling is too coarse —
+    e.g. 1→2 threads could overshoot from 25% to 60% on a 4-core VM. Intelligent
+    prediction minimizes wasted calibration iterations.
+

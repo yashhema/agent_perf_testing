@@ -1,0 +1,12 @@
+server:
+  port: 8080
+
+spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: always
+
+emulator:
+  version: "1.0.0"
+  data-dir: "./data"
