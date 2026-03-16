@@ -54,44 +54,16 @@ def _create_postgres_db(config: SetupConfig):
     raise RuntimeError(f"Cannot connect to PostgreSQL: {config.postgres_db}")
 
 
-def _run_migrations(config: SetupConfig):
-    """Run alembic migrations from the orchestrator directory."""
-    orchestrator_dir = os.path.join(config.repo_path, "orchestrator")
-    alembic_ini = os.path.join(orchestrator_dir, "alembic.ini")
-
-    if not os.path.exists(alembic_ini):
-        logger.warning("alembic.ini not found at %s — creating tables directly", alembic_ini)
-        _create_tables_direct(config)
-        return
-
-    db_url = _build_db_url(config)
-
-    logger.info("Running alembic migrations ...")
-    env = os.environ.copy()
-    env["SQLALCHEMY_URL"] = db_url
-
-    result = subprocess.run(
-        ["alembic", "-x", f"db_url={db_url}", "upgrade", "head"],
-        cwd=orchestrator_dir,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-    if result.returncode != 0:
-        logger.warning("Alembic failed (rc=%d): %s", result.returncode, result.stderr)
-        logger.info("Falling back to direct table creation ...")
-        _create_tables_direct(config)
-    else:
-        logger.info("  Migrations applied successfully")
-
-
-def _create_tables_direct(config: SetupConfig):
-    """Fallback: import ORM models and create all tables directly."""
-    # Add orchestrator src to path so we can import models
+def _ensure_src_path(config: SetupConfig):
+    """Add orchestrator src to sys.path so ORM models can be imported."""
     src_path = os.path.join(config.repo_path, "orchestrator", "src")
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
+
+
+def _create_tables(config: SetupConfig):
+    """Create all tables from ORM models."""
+    _ensure_src_path(config)
 
     from orchestrator.models.database import Base
     import orchestrator.models.orm  # noqa: F401 — registers all models
@@ -100,7 +72,7 @@ def _create_tables_direct(config: SetupConfig):
     engine = create_engine(db_url)
     Base.metadata.create_all(engine)
     engine.dispose()
-    logger.info("  All tables created via SQLAlchemy metadata")
+    logger.info("  All tables created")
 
 
 def _load_discovery(config: SetupConfig) -> dict:
@@ -114,11 +86,8 @@ def _load_discovery(config: SetupConfig) -> dict:
 
 def _seed_data(config: SetupConfig):
     """Seed the database with lab, servers, load profiles, etc."""
-    src_path = os.path.join(config.repo_path, "orchestrator", "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path(config)
 
-    from orchestrator.models.database import Base
     from orchestrator.models.orm import (
         UserORM, LabORM, LoadProfileORM, HardwareProfileORM, ServerORM,
     )
@@ -287,10 +256,7 @@ def _generate_credentials_json(config: SetupConfig):
 
     # Build per-server credentials using the service account
     by_server_id = {}
-    # We need server IDs from the DB
-    src_path = os.path.join(config.repo_path, "orchestrator", "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path(config)
 
     db_url = _build_db_url(config)
     engine = create_engine(db_url)
@@ -381,9 +347,9 @@ def run(config: SetupConfig):
     logger.info("[Step 1/5] Creating PostgreSQL database ...")
     _create_postgres_db(config)
 
-    # Step 2: Run migrations / create tables
+    # Step 2: Create tables
     logger.info("[Step 2/5] Creating table schema ...")
-    _run_migrations(config)
+    _create_tables(config)
 
     # Step 3: Seed data
     logger.info("[Step 3/5] Seeding database ...")
