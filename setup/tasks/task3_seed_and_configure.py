@@ -145,7 +145,10 @@ def _seed_data(config: SetupConfig):
             loadgen_bl = BaselineORM(
                 name="loadgen-baseline",
                 os_family=OSFamily.linux,
+                os_vendor_family="rhel",
+                os_major_ver="9",
                 baseline_type=BaselineType.vsphere,
+                provider_ref={},
             )
             session.add(loadgen_bl)
             session.flush()
