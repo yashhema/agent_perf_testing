@@ -41,6 +41,7 @@ SETUP_FILES = {
     "setup/tasks/task4_install_orchestrator.py": "setup/tasks/task4_install_orchestrator.py",
     "setup/setup.py": "setup/setup.py",
     "setup/install_postgres.sh": "setup/install_postgres.sh",
+    "setup/manage_snapshots.py": "setup/manage_snapshots.py",
     "setup/requirements.txt": "setup/requirements.txt",
     "setup/servers.csv.example": "setup/servers.csv.example",
     "setup/mycred.txt.example": "setup/mycred.txt.example",
