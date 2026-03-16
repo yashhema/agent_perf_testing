@@ -90,9 +90,10 @@ def _seed_data(config: SetupConfig):
 
     from orchestrator.models.orm import (
         UserORM, LabORM, LoadProfileORM, HardwareProfileORM, ServerORM,
+        PackageGroupORM, BaselineORM,
     )
     from orchestrator.models.enums import (
-        OSFamily, HypervisorType, ServerInfraType, DiskType, ExecutionMode,
+        OSFamily, HypervisorType, ServerInfraType, BaselineType, DiskType, ExecutionMode,
     )
 
     db_url = _build_db_url(config)
@@ -121,12 +122,44 @@ def _seed_data(config: SetupConfig):
         else:
             logger.info("  Admin user already exists")
 
-        # --- 2. Lab ---
+        # --- 2. Prerequisites for Lab (package group + baseline) ---
+        # JMeter package group (required FK for lab)
+        jmeter_pg = session.query(PackageGroupORM).filter_by(name="jmeter-default").first()
+        if not jmeter_pg:
+            jmeter_pg = PackageGroupORM(name="jmeter-default", description="Default JMeter package")
+            session.add(jmeter_pg)
+            session.flush()
+            logger.info("  Seeded package group: jmeter-default (id=%d)", jmeter_pg.id)
+
+        # Emulator package group
+        emu_pg = session.query(PackageGroupORM).filter_by(name="emulator-default").first()
+        if not emu_pg:
+            emu_pg = PackageGroupORM(name="emulator-default", description="Default emulator package")
+            session.add(emu_pg)
+            session.flush()
+            logger.info("  Seeded package group: emulator-default (id=%d)", emu_pg.id)
+
+        # Loadgen baseline/snapshot (required FK for lab)
+        loadgen_bl = session.query(BaselineORM).filter_by(name="loadgen-baseline").first()
+        if not loadgen_bl:
+            loadgen_bl = BaselineORM(
+                name="loadgen-baseline",
+                os_family=OSFamily.linux,
+                baseline_type=BaselineType.vsphere,
+            )
+            session.add(loadgen_bl)
+            session.flush()
+            logger.info("  Seeded baseline: loadgen-baseline (id=%d)", loadgen_bl.id)
+
+        # --- 3. Lab ---
         existing_lab = session.query(LabORM).filter_by(name=config.lab_name).first()
         if not existing_lab:
             lab = LabORM(
                 name=config.lab_name,
                 description=config.lab_description,
+                jmeter_package_grpid=jmeter_pg.id,
+                emulator_package_grp_id=emu_pg.id,
+                loadgen_snapshot_id=loadgen_bl.id,
                 hypervisor_type=HypervisorType.vsphere,
                 hypervisor_manager_url=config.vsphere_host,
                 hypervisor_manager_port=config.vsphere_port,
