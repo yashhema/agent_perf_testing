@@ -119,7 +119,9 @@ def _seed_data(config: SetupConfig):
         sys.path.insert(0, src_path)
 
     from orchestrator.models.database import Base
-    from orchestrator.models import orm
+    from orchestrator.models.orm import (
+        UserORM, LabORM, LoadProfileORM, HardwareProfileORM, ServerORM,
+    )
     from orchestrator.models.enums import (
         OSFamily, HypervisorType, ServerInfraType, DiskType, ExecutionMode,
     )
@@ -135,10 +137,10 @@ def _seed_data(config: SetupConfig):
 
     try:
         # --- 1. Admin user ---
-        existing_user = session.query(orm.User).filter_by(username="admin").first()
+        existing_user = session.query(UserORM).filter_by(username="admin").first()
         if not existing_user:
             from passlib.hash import bcrypt as bcrypt_hash
-            admin = orm.User(
+            admin = UserORM(
                 username="admin",
                 password_hash=bcrypt_hash.hash("admin"),
                 email="admin@orchestrator.local",
@@ -151,9 +153,9 @@ def _seed_data(config: SetupConfig):
             logger.info("  Admin user already exists")
 
         # --- 2. Lab ---
-        existing_lab = session.query(orm.Lab).filter_by(name=config.lab_name).first()
+        existing_lab = session.query(LabORM).filter_by(name=config.lab_name).first()
         if not existing_lab:
-            lab = orm.Lab(
+            lab = LabORM(
                 name=config.lab_name,
                 description=config.lab_description,
                 hypervisor_type=HypervisorType.vsphere,
@@ -171,9 +173,9 @@ def _seed_data(config: SetupConfig):
 
         # --- 3. Load profiles ---
         for lp in config.load_profiles:
-            existing = session.query(orm.LoadProfile).filter_by(name=lp["name"]).first()
+            existing = session.query(LoadProfileORM).filter_by(name=lp["name"]).first()
             if not existing:
-                profile = orm.LoadProfile(
+                profile = LoadProfileORM(
                     name=lp["name"],
                     target_cpu_range_min=lp["target_cpu_min"],
                     target_cpu_range_max=lp["target_cpu_max"],
@@ -199,9 +201,9 @@ def _seed_data(config: SetupConfig):
             hw_key = (cpu_count, memory_gb)
             if hw_key not in hw_cache:
                 hw_name = f"{cpu_count}cpu_{memory_gb}gb"
-                existing_hw = session.query(orm.HardwareProfile).filter_by(name=hw_name).first()
+                existing_hw = session.query(HardwareProfileORM).filter_by(name=hw_name).first()
                 if not existing_hw:
-                    hw = orm.HardwareProfile(
+                    hw = HardwareProfileORM(
                         name=hw_name,
                         cpu_count=cpu_count,
                         memory_gb=memory_gb,
@@ -217,7 +219,7 @@ def _seed_data(config: SetupConfig):
             hw_profile_id = hw_cache[hw_key]
 
             # Server
-            existing_srv = session.query(orm.Server).filter_by(ip_address=server.ip).first()
+            existing_srv = session.query(ServerORM).filter_by(ip_address=server.ip).first()
             if not existing_srv:
                 os_family = OSFamily.linux if server.is_linux else OSFamily.windows
 
@@ -232,7 +234,7 @@ def _seed_data(config: SetupConfig):
                         "datastore": disc.get("datastores", [""])[0] if disc.get("datastores") else "",
                     }
 
-                srv = orm.Server(
+                srv = ServerORM(
                     hostname=server.hostname,
                     ip_address=server.ip,
                     os_family=os_family,
@@ -251,7 +253,7 @@ def _seed_data(config: SetupConfig):
 
         # --- 5. Set default loadgen assignments for targets ---
         session.flush()
-        all_servers = {s.hostname: s for s in session.query(orm.Server).all()}
+        all_servers = {s.hostname: s for s in session.query(ServerORM).all()}
         loadgens = [s for s in servers if s.role == "loadgen"]
 
         if loadgens:
@@ -296,8 +298,8 @@ def _generate_credentials_json(config: SetupConfig):
     session = Session()
 
     try:
-        from orchestrator.models import orm
-        db_servers = {s.hostname: s for s in session.query(orm.Server).all()}
+        from orchestrator.models.orm import ServerORM as SrvORM
+        db_servers = {s.hostname: s for s in session.query(SrvORM).all()}
 
         for server in servers:
             srv_obj = db_servers.get(server.hostname)
