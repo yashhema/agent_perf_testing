@@ -108,10 +108,10 @@ def _seed_data(config: SetupConfig):
         # --- 1. Admin user ---
         existing_user = session.query(UserORM).filter_by(username="admin").first()
         if not existing_user:
-            from passlib.hash import bcrypt as bcrypt_hash
+            import bcrypt
             admin = UserORM(
                 username="admin",
-                password_hash=bcrypt_hash.hash("admin"),
+                password_hash=bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode(),
                 email="admin@orchestrator.local",
                 role="admin",
                 is_active=True,
