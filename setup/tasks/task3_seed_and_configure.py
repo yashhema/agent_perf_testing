@@ -31,49 +31,27 @@ def _build_db_url(config: SetupConfig) -> str:
 
 
 def _create_postgres_db(config: SetupConfig):
-    """Create PostgreSQL user and database if they don't exist."""
+    """Verify PostgreSQL database and user exist and are accessible."""
     logger.info("Checking PostgreSQL database '%s' ...", config.postgres_db)
 
-    # Connect to default 'postgres' DB to create user/db
-    admin_url = f"postgresql://postgres@{config.postgres_host}:{config.postgres_port}/postgres"
+    # Try connecting as the orchestrator user directly
+    db_url = _build_db_url(config)
     try:
-        engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        engine = create_engine(db_url)
         with engine.connect() as conn:
-            # Check/create user
-            result = conn.execute(
-                text("SELECT 1 FROM pg_roles WHERE rolname = :user"),
-                {"user": config.postgres_user},
-            )
-            if not result.fetchone():
-                conn.execute(text(
-                    f"CREATE USER {config.postgres_user} WITH PASSWORD '{config.postgres_password}'"
-                ))
-                logger.info("  Created PostgreSQL user '%s'", config.postgres_user)
-            else:
-                logger.info("  User '%s' already exists", config.postgres_user)
-
-            # Check/create database
-            result = conn.execute(
-                text("SELECT 1 FROM pg_database WHERE datname = :db"),
-                {"db": config.postgres_db},
-            )
-            if not result.fetchone():
-                conn.execute(text(
-                    f"CREATE DATABASE {config.postgres_db} OWNER {config.postgres_user}"
-                ))
-                logger.info("  Created database '%s'", config.postgres_db)
-            else:
-                logger.info("  Database '%s' already exists", config.postgres_db)
-
+            conn.execute(text("SELECT 1"))
         engine.dispose()
-    except Exception as e:
-        logger.warning("Could not auto-create DB (may need manual setup): %s", e)
-        logger.info("If PostgreSQL requires password for 'postgres' user, create DB manually:")
-        logger.info("  sudo -u postgres psql -c \"CREATE USER %s WITH PASSWORD '%s';\"",
-                     config.postgres_user, config.postgres_password)
-        logger.info("  sudo -u postgres psql -c \"CREATE DATABASE %s OWNER %s;\"",
+        logger.info("  Database '%s' is accessible as user '%s'",
                      config.postgres_db, config.postgres_user)
-        raise
+        return
+    except Exception as e:
+        logger.warning("  Cannot connect as '%s': %s", config.postgres_user, e)
+
+    # If direct connect fails, tell user to run install_postgres.sh
+    logger.error("PostgreSQL database not accessible. Run install_postgres.sh first:")
+    logger.error("  bash install_postgres.sh %s %s %s",
+                 config.postgres_db, config.postgres_user, config.postgres_password)
+    raise RuntimeError(f"Cannot connect to PostgreSQL: {config.postgres_db}")
 
 
 def _run_migrations(config: SetupConfig):
