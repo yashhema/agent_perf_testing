@@ -22,13 +22,10 @@ def _elevate_linux(server: ServerEntry, creds: Credentials, config: SetupConfig)
     svc_user = creds.svc_user
     domain = config.ad_domain
 
-    # sudoers needs DOMAIN\\user format (escaped backslash)
-    if domain:
-        sudoers_user = f"{domain}\\\\{svc_user}"
-        display_user = f"{domain}\\{svc_user}"
-    else:
-        sudoers_user = svc_user
-        display_user = svc_user
+    # On RHEL with SSSD/AD, sudoers needs the short username (what 'id' shows)
+    # not DOMAIN\\user format
+    sudoers_user = svc_user
+    display_user = svc_user
 
     # Use a safe filename for sudoers.d (no backslashes)
     sudoers_file = svc_user.replace("\\", "_").replace("@", "_")
@@ -113,9 +110,8 @@ def _verify_access(server: ServerEntry, creds: Credentials, config: SetupConfig)
     try:
         if server.is_linux:
             # SSH with service account, test sudo
-            login_user = f"{svc_user}@{domain}" if domain else svc_user
-            results = ssh_run(server.ip, login_user, svc_pass,
-                              ["sudo whoami"], timeout=15)
+            results = ssh_run(server.ip, svc_user, svc_pass,
+                              ["sudo -n whoami"], timeout=15)
             if results and results[0]["rc"] == 0 and "root" in results[0]["stdout"]:
                 logger.info("  VERIFY OK: %s — SSH + sudo works", server.hostname)
                 return True

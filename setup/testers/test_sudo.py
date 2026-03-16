@@ -35,8 +35,8 @@ def main():
         print("No Linux servers to test.")
         return
 
-    domain = config.ad_domain
-    login_user = f"{creds.svc_user}@{domain}" if domain else creds.svc_user
+    # On RHEL with SSSD/AD, SSH uses short username (what 'id' resolves)
+    login_user = creds.svc_user
 
     print(f"Testing NOPASSWD sudo for '{login_user}' on {len(linux_servers)} Linux servers\n")
 
