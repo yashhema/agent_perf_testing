@@ -25,47 +25,44 @@ else
     sudo dnf install -y postgresql-server postgresql-contrib
 fi
 
-# --- Step 2: Init DB ---
-PG_DATA=""
-for d in /var/lib/pgsql/data /var/lib/pgsql/16/data /var/lib/pgsql/15/data; do
-    if [ -d "$d" ]; then
-        PG_DATA="$d"
-        break
-    fi
-done
-
-if [ -z "$PG_DATA" ] || [ ! -f "$PG_DATA/PG_VERSION" ]; then
+# --- Step 2: Init DB (skip if already running) ---
+if sudo -u postgres psql -c "SELECT 1" &>/dev/null; then
+    echo "[2/6] PostgreSQL already running — skipping initdb"
+else
     echo "[2/6] Initializing database ..."
     sudo postgresql-setup --initdb
-    # Re-find data dir
+fi
+
+# --- Step 3: Find data dir and configure pg_hba.conf ---
+PG_DATA=$(sudo -u postgres psql -tAc "SHOW data_directory" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$PG_DATA" ]; then
+    # Fallback: common paths
     for d in /var/lib/pgsql/data /var/lib/pgsql/16/data /var/lib/pgsql/15/data; do
         if [ -f "$d/PG_VERSION" ]; then
             PG_DATA="$d"
             break
         fi
     done
-else
-    echo "[2/6] Database already initialized at $PG_DATA"
 fi
 
 if [ -z "$PG_DATA" ]; then
-    echo "ERROR: Could not find PostgreSQL data directory"
-    exit 1
+    echo "WARNING: Could not find data directory — skipping pg_hba.conf config"
+    echo "  PostgreSQL may already be configured correctly"
+else
+    echo "  Data directory: $PG_DATA"
 fi
 
-# --- Step 3: Configure pg_hba.conf ---
 HBA="$PG_DATA/pg_hba.conf"
-echo "[3/6] Configuring $HBA for md5 auth ..."
-
-# Backup original
-sudo cp "$HBA" "${HBA}.bak" 2>/dev/null || true
-
-# Replace peer/ident with md5
-sudo sed -i 's/^\(local.*all.*all.*\)peer$/\1md5/' "$HBA"
-sudo sed -i 's/^\(host.*all.*all.*127\.0\.0\.1\/32.*\)ident$/\1md5/' "$HBA"
-sudo sed -i 's/^\(host.*all.*all.*::1\/128.*\)ident$/\1md5/' "$HBA"
-
-echo "  pg_hba.conf updated"
+if [ -n "$PG_DATA" ] && [ -f "$HBA" ]; then
+    echo "[3/6] Configuring $HBA for md5 auth ..."
+    sudo cp "$HBA" "${HBA}.bak" 2>/dev/null || true
+    sudo sed -i 's/^\(local.*all.*all.*\)peer$/\1md5/' "$HBA"
+    sudo sed -i 's/^\(host.*all.*all.*127\.0\.0\.1\/32.*\)ident$/\1md5/' "$HBA"
+    sudo sed -i 's/^\(host.*all.*all.*::1\/128.*\)ident$/\1md5/' "$HBA"
+    echo "  pg_hba.conf updated"
+else
+    echo "[3/6] Skipping pg_hba.conf (not found or already configured)"
+fi
 
 # --- Step 4: Start/restart ---
 echo "[4/6] Starting PostgreSQL ..."
