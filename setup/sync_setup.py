@@ -45,6 +45,10 @@ SETUP_FILES = {
     "setup/mycred.txt.example": "setup/mycred.txt.example",
 }
 
+TESTER_FILES = {
+    "setup/testers/test_sudo.py": "setup/testers/test_sudo.py",
+}
+
 ROOT_FILES = {
     "run_test.py": "run_test.py",
     "test_cases/example_5server_steady.yaml": "test_cases/example_5server_steady.yaml",
@@ -116,17 +120,26 @@ def main():
     parser = argparse.ArgumentParser(description="Sync setup files from GitHub")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be updated")
     parser.add_argument("--file", "-f", default=None,
-                        help="Sync only files matching this keyword (e.g. task1, common, run_test)")
+                        help="Sync only files matching this keyword (e.g. task1, common, run_test, test_sudo)")
+    parser.add_argument("--list", action="store_true", help="List all syncable files")
     args = parser.parse_args()
+
+    all_files = {}
+    all_files.update(SETUP_FILES)
+    all_files.update(TESTER_FILES)
+    all_files.update(ROOT_FILES)
+
+    if args.list:
+        print("Syncable files:")
+        for remote_path, rel_path in sorted(all_files.items()):
+            protected = " (PROTECTED)" if rel_path in PROTECTED else ""
+            print(f"  {remote_path}{protected}")
+        return
 
     repo_path = get_repo_path()
     print(f"Repo path: {repo_path}")
     print(f"Source:    {RAW_BASE}")
     print()
-
-    all_files = {}
-    all_files.update(SETUP_FILES)
-    all_files.update(ROOT_FILES)
 
     updated = 0
     skipped = 0

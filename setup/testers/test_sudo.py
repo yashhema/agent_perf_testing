@@ -10,11 +10,12 @@ Usage:
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+SETUP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, SETUP_DIR)
 
 from tasks.common import load_config, load_servers, load_credentials, ssh_run
 
-CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup_config.yaml")
+CONFIG = os.path.join(SETUP_DIR, "setup_config.yaml")
 
 
 def main():
