@@ -40,6 +40,7 @@ SETUP_FILES = {
     "setup/tasks/task3_seed_and_configure.py": "setup/tasks/task3_seed_and_configure.py",
     "setup/tasks/task4_install_orchestrator.py": "setup/tasks/task4_install_orchestrator.py",
     "setup/setup.py": "setup/setup.py",
+    "setup/install_postgres.sh": "setup/install_postgres.sh",
     "setup/requirements.txt": "setup/requirements.txt",
     "setup/servers.csv.example": "setup/servers.csv.example",
     "setup/mycred.txt.example": "setup/mycred.txt.example",
