@@ -205,8 +205,11 @@ function buildFormHtml(fields, item) {
 
     if (f.type === 'select') {
       const opts = (f.options || []).map(o => {
-        const sel = (String(val) === String(o)) ? ' selected' : '';
-        return '<option value="' + o + '"' + sel + '>' + o + '</option>';
+        // Support both string options and {value, label} objects
+        const optVal = (typeof o === 'object') ? o.value : o;
+        const optLabel = (typeof o === 'object') ? o.label : o;
+        const sel = (String(val) === String(optVal)) ? ' selected' : '';
+        return '<option value="' + optVal + '"' + sel + '>' + escHtml(optLabel) + '</option>';
       }).join('');
       input = '<select class="form-select" id="' + id + '"' + req + '>' +
         '<option value="">-- Select --</option>' + opts + '</select>';

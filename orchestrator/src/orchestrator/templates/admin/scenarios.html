@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} - Orchestrator{% endblock %}
+{% block page_header %}<strong>{{ page_title }}</strong>{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0">{{ page_title }}</h6>
+    <button class="btn btn-sm btn-primary" id="btn-create">
+      <i class="bi bi-plus me-1"></i>Create {{ entity_name }}
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            {% for col in columns %}
+            <th>{{ col.label }}</th>
+            {% endfor %}
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="crud-table-body">
+          <tr><td colspan="{{ columns|length + 1 }}" class="text-center text-muted py-4">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load lookup data first (labs, package groups)
+  const lookups = {};
+  try {
+    const labs = await API.get({{ labs_api_path | tojson }});
+    lookups.labs = {};
+    labs.forEach(l => lookups.labs[l.id] = l.name);
+
+    const pkgs = await API.get({{ packages_api_path | tojson }});
+    lookups.packages = {};
+    pkgs.forEach(p => lookups.packages[p.id] = p.name);
+  } catch(e) {
+    console.warn('Could not load lookups:', e);
+  }
+
+  // Build dynamic select options
+  const columns = {{ columns | tojson }};
+  const fields = {{ fields | tojson }};
+
+  // Add render functions for lookup columns
+  columns.forEach(col => {
+    if (col.lookup && lookups[col.lookup]) {
+      col.render = (val) => lookups[col.lookup][val] || ('ID: ' + val);
+    }
+  });
+
+  // Convert select_dynamic fields to regular selects with options from lookups
+  fields.forEach(f => {
+    if (f.type === 'select_dynamic' && lookups[f.source]) {
+      f.type = 'select';
+      f.options = Object.entries(lookups[f.source]).map(([id, name]) => ({
+        value: id, label: name
+      }));
+    }
+  });
+
+  initCrudPage({
+    entityName: {{ entity_name | tojson }},
+    apiPath: {{ api_path | tojson }},
+    columns: columns,
+    fields: fields,
+  });
+});
+</script>
+{% endblock %}
