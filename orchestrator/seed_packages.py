@@ -65,7 +65,7 @@ MEMBERS = {
             "prereq_script": None,
         },
         {
-            "os_match_regex": "windows_server/.*",
+            "os_match_regex": "windows/.*",
             "path": EMULATOR_WINDOWS_PKG,
             "root_install_path": "C:\\emulator",
             "extraction_command": "powershell -Command \"Expand-Archive -Path '{file}' -DestinationPath 'C:\\emulator' -Force\"",
@@ -110,7 +110,7 @@ def show_servers(session):
                 print(f"    UPDATE servers SET os_vendor_family='rhel', os_major_ver='8' WHERE id={s.id};")
             else:
                 print(f"    -- Server '{s.hostname}' (id={s.id}): set os_vendor_family and os_major_ver")
-                print(f"    UPDATE servers SET os_vendor_family='windows_server', os_major_ver='2019' WHERE id={s.id};")
+                print(f"    UPDATE servers SET os_vendor_family='windows', os_major_ver='2019' WHERE id={s.id};")
         print()
     else:
         print("\n  All servers have os_vendor_family and os_major_ver set.\n")

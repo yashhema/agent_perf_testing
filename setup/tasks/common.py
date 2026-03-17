@@ -57,7 +57,7 @@ class ServerEntry:
     def os_vendor_family(self) -> str:
         if self.is_linux:
             return "rhel"
-        return "windows_server"
+        return "windows"
 
 
 @dataclass
