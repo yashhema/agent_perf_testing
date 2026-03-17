@@ -853,7 +853,7 @@ async function openPickModal() {
         <div>
           ${linked
             ? '<span class="badge bg-secondary">Already linked</span>'
-            : `<button class="btn btn-sm btn-outline-primary" onclick="doPickSnapshot('${escHtml(hs.name)}')"><i class="bi bi-link me-1"></i>Link</button>`
+            : `<button class="btn btn-sm btn-outline-primary" onclick="doPickSnapshot('${escHtml(hs.id)}', '${escHtml(hs.name)}')"><i class="bi bi-link me-1"></i>Link</button>`
           }
         </div>
       `;
@@ -864,13 +864,13 @@ async function openPickModal() {
   }
 }
 
-async function doPickSnapshot(providerSnapshotName) {
+async function doPickSnapshot(providerSnapshotId, providerSnapshotName) {
   try {
     showToast('Syncing and linking...', 'info');
     // Sync to make sure snapshot is in our DB
     await API.post(`/api/servers/${_selectedServerId}/snapshots/sync`);
     _snapshots = await API.get(`/api/servers/${_selectedServerId}/snapshots`);
-    const snap = _snapshots.find(s => s.provider_snapshot_id === providerSnapshotName && !s.is_archived);
+    const snap = _snapshots.find(s => s.provider_snapshot_id === providerSnapshotId && !s.is_archived);
     if (!snap) {
       showToast('Could not find synced snapshot in DB', 'danger');
       return;
@@ -910,7 +910,7 @@ function renderHvPicker(container, hvSnaps, hiddenInputId) {
         showToast('Syncing snapshot to DB...', 'info');
         await API.post(`/api/servers/${_selectedServerId}/snapshots/sync`);
         _snapshots = await API.get(`/api/servers/${_selectedServerId}/snapshots`);
-        const synced = _snapshots.find(s => s.provider_snapshot_id === hs.name && !s.is_archived);
+        const synced = _snapshots.find(s => s.provider_snapshot_id === hs.id && !s.is_archived);
         if (!synced) { showToast('Could not sync snapshot', 'danger'); return; }
         document.getElementById(hiddenInputId).value = synced.id;
       } else {
