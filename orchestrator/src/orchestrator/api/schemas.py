@@ -118,6 +118,9 @@ class ServerCreate(BaseModel):
     hostname: str = Field(max_length=255)
     ip_address: str = Field(max_length=45)
     os_family: OSFamily
+    os_vendor_family: Optional[str] = Field(default=None, max_length=100)
+    os_major_ver: Optional[str] = Field(default=None, max_length=20)
+    os_minor_ver: Optional[str] = Field(default=None, max_length=20)
     lab_id: int
     hardware_profile_id: int
     server_infra_type: ServerInfraType
@@ -134,6 +137,9 @@ class ServerUpdate(BaseModel):
     hostname: Optional[str] = Field(default=None, max_length=255)
     ip_address: Optional[str] = Field(default=None, max_length=45)
     os_family: Optional[OSFamily] = None
+    os_vendor_family: Optional[str] = Field(default=None, max_length=100)
+    os_major_ver: Optional[str] = Field(default=None, max_length=20)
+    os_minor_ver: Optional[str] = Field(default=None, max_length=20)
     lab_id: Optional[int] = None
     hardware_profile_id: Optional[int] = None
     server_infra_type: Optional[ServerInfraType] = None
