@@ -137,3 +137,17 @@ class BaselineTestState(str, Enum):
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
+
+
+class BaselineTargetState(str, Enum):
+    """Per-target progress tracking within a baseline test run."""
+    pending = "pending"
+    setting_up = "setting_up"
+    calibrating = "calibrating"
+    generating = "generating"
+    executing = "executing"
+    storing = "storing"
+    comparing = "comparing"
+    completed = "completed"
+    failed = "failed"
+    skipped = "skipped"

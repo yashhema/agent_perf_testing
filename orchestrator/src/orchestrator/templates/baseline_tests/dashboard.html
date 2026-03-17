@@ -1,10 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Baseline Test #{{ run_id }} - Dashboard{% endblock %}
-{% block page_header %}<strong>Baseline Test #{{ run_id }}</strong> — Live Dashboard{% endblock %}
+{% block page_header %}<strong id="page-header-text">Baseline Test #{{ run_id }}</strong> — Live Dashboard{% endblock %}
 
 {% block content %}
 <!-- Header cards -->
 <div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Name</div>
+        <div id="run-name" class="fw-bold small text-truncate" title="">-</div>
+      </div>
+    </div>
+  </div>
   <div class="col-md-2">
     <div class="card stat-card shadow-sm">
       <div class="card-body">
@@ -26,14 +34,6 @@
       <div class="card-body">
         <div class="text-muted small">Server</div>
         <div id="run-server" class="fw-bold small">-</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-2">
-    <div class="card stat-card shadow-sm">
-      <div class="card-body">
-        <div class="text-muted small">Current LP</div>
-        <div id="run-current-lp" class="fw-bold">-</div>
       </div>
     </div>
   </div>
@@ -79,6 +79,24 @@
 <div class="card shadow-sm mb-4 d-none" id="discovery-panel">
   <div class="card-header"><h6 class="mb-0">Discovered Environment</h6></div>
   <div class="card-body" id="discovery-body"></div>
+</div>
+
+<!-- Target Progress -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><h6 class="mb-0">Target Progress</h6></div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr>
+        <th>Server</th>
+        <th>Target State</th>
+        <th>Current LP</th>
+        <th>Error</th>
+      </tr></thead>
+      <tbody id="target-progress-body">
+        <tr><td colspan="4" class="text-center text-muted py-3">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <!-- Calibration progress (shown during calibrating state) -->
@@ -135,6 +153,7 @@ async function loadAll() {
     renderHeader();
     renderSnapshots();
     renderDiscovery();
+    renderTargetProgress();
     await renderLPProgress();
   } catch (e) { showToast(e.message, 'danger'); }
 }
@@ -150,6 +169,20 @@ function serverName(id) {
 }
 
 function renderHeader() {
+  // Update page header with test name
+  const headerEl = document.getElementById('page-header-text');
+  if (_run.name) {
+    headerEl.textContent = _run.name;
+  } else {
+    headerEl.textContent = 'Baseline Test #' + RUN_ID;
+  }
+
+  // Name card
+  const nameEl = document.getElementById('run-name');
+  const displayName = _run.name || 'Baseline Test #' + RUN_ID;
+  nameEl.textContent = displayName;
+  nameEl.title = _run.description || displayName;
+
   document.getElementById('run-state').innerHTML = stateBadge(_run.state);
   document.getElementById('run-test-type').innerHTML =
     '<span class="badge bg-primary">' + _run.test_type.replace(/_/g, ' ') + '</span>';
@@ -161,8 +194,6 @@ function renderHeader() {
       ? serverName(_t0.target_id) + ' +' + (_targets.length - 1)
       : '-';
   document.getElementById('run-server').textContent = serverLabel;
-  document.getElementById('run-current-lp').textContent =
-    _run.current_load_profile_id ? lpName(_run.current_load_profile_id) : '-';
   document.getElementById('run-verdict').innerHTML =
     _run.verdict ? `<span class="badge bg-${_run.verdict === 'passed' ? 'success' : _run.verdict === 'failed' ? 'danger' : 'warning'}">${_run.verdict}</span>` : '-';
 
@@ -236,6 +267,51 @@ function renderDiscovery() {
       <div class="col-md-2"><strong>Version:</strong> ${escHtml((t.os_major_ver || '') + '.' + (t.os_minor_ver || ''))}</div>
       <div class="col-md-6"><strong>Agents:</strong> <code class="small">${escHtml(JSON.stringify(t.agent_versions || {}))}</code></div>
     </div>`;
+  }).join('');
+}
+
+function targetStateBadge(state) {
+  const spinnerStates = ['setting_up', 'calibrating', 'generating', 'executing'];
+  const colorMap = {
+    pending: 'secondary',
+    setting_up: 'primary',
+    calibrating: 'primary',
+    generating: 'primary',
+    executing: 'primary',
+    storing: 'info',
+    comparing: 'info',
+    completed: 'success',
+    failed: 'danger',
+    skipped: 'warning',
+  };
+  const color = colorMap[state] || 'secondary';
+  const label = (state || 'unknown').replace(/_/g, ' ');
+  if (spinnerStates.includes(state)) {
+    return '<span class="badge bg-' + color + '"><span class="spinner-border spinner-border-sm me-1" style="width:.6rem;height:.6rem"></span>' + label + '</span>';
+  }
+  return '<span class="badge bg-' + color + '">' + label + '</span>';
+}
+
+function renderTargetProgress() {
+  const tbody = document.getElementById('target-progress-body');
+  const targets = _run.targets || [];
+  if (targets.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No targets</td></tr>';
+    return;
+  }
+  tbody.innerHTML = targets.map(t => {
+    const hostname = serverName(t.target_id);
+    const badge = targetStateBadge(t.state);
+    const currentLp = t.current_load_profile_id ? lpName(t.current_load_profile_id) : '-';
+    const errMsg = t.error_message
+      ? '<span class="text-danger" title="' + escHtml(t.error_message) + '">' + escHtml(t.error_message.length > 80 ? t.error_message.substring(0, 80) + '...' : t.error_message) + '</span>'
+      : '-';
+    return `<tr>
+      <td>${escHtml(hostname)}</td>
+      <td>${badge}</td>
+      <td>${escHtml(currentLp)}</td>
+      <td>${errMsg}</td>
+    </tr>`;
   }).join('');
 }
 

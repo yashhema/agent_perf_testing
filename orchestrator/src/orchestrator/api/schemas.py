@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from orchestrator.models.enums import (
     AgentType,
+    BaselineTargetState,
     BaselineTestState,
     BaselineTestType,
     BaselineType,
@@ -849,23 +850,76 @@ class BaselineTestRunTargetResponse(BaseModel):
     test_snapshot_id: int
     compare_snapshot_id: Optional[int]
     service_monitor_patterns: Optional[List[str]]
+    state: BaselineTargetState = BaselineTargetState.pending
+    error_message: Optional[str] = None
+    current_load_profile_id: Optional[int] = None
     os_kind: Optional[str] = None
     os_major_ver: Optional[str] = None
     os_minor_ver: Optional[str] = None
     agent_versions: Optional[Dict[str, Any]] = None
 
 
+class BaselineTestRunLoadProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    baseline_test_run_id: int
+    load_profile_id: int
+    duration_sec: Optional[int] = None
+    ramp_up_sec: Optional[int] = None
+
+
 class BaselineTestRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    name: Optional[str] = None
+    description: Optional[str] = None
     lab_id: int
     scenario_id: int
     test_type: BaselineTestType
+    parent_run_id: Optional[int] = None
     state: BaselineTestState
     current_load_profile_id: Optional[int]
     error_message: Optional[str]
     verdict: Optional[Verdict] = None
     targets: List[BaselineTestRunTargetResponse] = []
+    load_profiles: List[BaselineTestRunLoadProfileResponse] = []
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
+
+
+# ---- Baseline Test Run V2 (test case = test run) ----
+
+class BaselineTestRunLoadProfileEntry(BaseModel):
+    """Load profile entry with optional duration overrides."""
+    load_profile_id: int
+    duration_sec: Optional[int] = Field(default=None, gt=0)
+    ramp_up_sec: Optional[int] = Field(default=None, ge=0)
+
+
+class BaselineTestRunTargetEntryV2(BaseModel):
+    """Target entry for V2 create — simplified (loadgen=partner)."""
+    server_id: int
+    test_snapshot_id: int
+    compare_snapshot_id: Optional[int] = None
+    loadgenerator_id: Optional[int] = None
+    service_monitor_patterns: Optional[List[str]] = None
+
+
+class BaselineTestRunCreateV2(BaseModel):
+    """V2 create request — test run IS the test case. Scenario auto-created."""
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    template_type: TemplateType
+    test_type: BaselineTestType
+    parent_run_id: Optional[int] = None
+    targets: List[BaselineTestRunTargetEntryV2] = Field(min_length=1)
+    load_profiles: List[BaselineTestRunLoadProfileEntry] = Field(min_length=1)
+    stress_test_enabled: bool = False
+    network_degradation_enabled: bool = False
+
+
+class BaselineTestRunUpdate(BaseModel):
+    """Update request — only name/description editable, only when state=created."""
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None

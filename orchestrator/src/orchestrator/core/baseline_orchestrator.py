@@ -32,7 +32,7 @@ from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.hypervisor import create_hypervisor_provider
 from orchestrator.infra.jmeter_controller import JMeterController
 from orchestrator.infra.remote_executor import create_executor
-from orchestrator.models.enums import BaselineTestState, BaselineTestType, TemplateType, Verdict
+from orchestrator.models.enums import BaselineTargetState, BaselineTestState, BaselineTestType, TemplateType, Verdict
 from orchestrator.models.orm import (
     BaselineTestRunLoadProfileORM,
     BaselineTestRunORM,
@@ -127,8 +127,9 @@ class BaselineOrchestrator:
         """Load all related entities for a test run.
 
         Returns:
-            (lab, scenario, targets, load_profiles) where targets is a list of
-            (target_orm, server, loadgen, test_snapshot, compare_snapshot) tuples.
+            (lab, scenario, targets, load_profiles, duration_overrides) where:
+            - targets is a list of (target_orm, server, loadgen, test_snapshot, compare_snapshot) tuples
+            - duration_overrides is Dict[lp_id, (duration_sec, ramp_up_sec)] with resolved values
         """
         lab = session.get(LabORM, test_run.lab_id)
         scenario = session.get(ScenarioORM, test_run.scenario_id)
@@ -155,7 +156,36 @@ class BaselineOrchestrator:
             session.get(LoadProfileORM, lpl.load_profile_id)
             for lpl in lp_links
         ]
-        return lab, scenario, targets, load_profiles
+
+        # Resolve duration overrides: NULL = use LP default
+        duration_overrides: Dict[int, Tuple[int, int]] = {}
+        for lpl in lp_links:
+            lp = session.get(LoadProfileORM, lpl.load_profile_id)
+            duration_overrides[lp.id] = (
+                lpl.duration_sec if lpl.duration_sec is not None else lp.duration_sec,
+                lpl.ramp_up_sec if lpl.ramp_up_sec is not None else lp.ramp_up_sec,
+            )
+
+        return lab, scenario, targets, load_profiles, duration_overrides
+
+    # ------------------------------------------------------------------
+    # Helper: per-target state tracking
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _set_target_state(
+        session: Session,
+        target_orm: BaselineTestRunTargetORM,
+        state: BaselineTargetState,
+        error_message: str = None,
+        load_profile_id: int = None,
+    ) -> None:
+        """Update per-target state, error_message, and current_load_profile_id."""
+        target_orm.state = state
+        if error_message is not None:
+            target_orm.error_message = error_message
+        if load_profile_id is not None:
+            target_orm.current_load_profile_id = load_profile_id
+        session.commit()
 
     # ------------------------------------------------------------------
     # State: VALIDATING
@@ -194,7 +224,7 @@ class BaselineOrchestrator:
         return f"http://{ip}:8000"
 
     def _do_setup(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
 
         resolver = PackageResolver()
         deployer = PackageDeployer()
@@ -306,6 +336,10 @@ class BaselineOrchestrator:
                     )
             finally:
                 loadgen_exec.close()
+
+        # --- Set all target states to setting_up ---
+        for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            self._set_target_state(session, target_orm, BaselineTargetState.setting_up)
 
         # --- Target setup (all targets — PARALLEL) ---
         def _setup_one_target(target_tuple):
@@ -424,19 +458,37 @@ class BaselineOrchestrator:
 
         # Run all target setups in parallel
         errors = []
+        # Build hostname -> target_orm mapping for per-target failure tracking
+        hostname_to_target = {
+            server.hostname: target_orm
+            for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets
+        }
         with ThreadPoolExecutor(max_workers=len(setup_tasks)) as pool:
             futures = {pool.submit(_setup_one_target, t): t for t in setup_tasks}
             for future in as_completed(futures):
                 hostname, err = future.result()
                 if err:
                     errors.append(f"[{hostname}] {err}")
+                    # Mark this target as failed (per-target, don't abort)
+                    t_orm = hostname_to_target.get(hostname)
+                    if t_orm:
+                        session.expire(t_orm)
+                        self._set_target_state(
+                            session, t_orm, BaselineTargetState.failed,
+                            error_message=err,
+                        )
                 else:
                     logger.info("Setup complete for %s", hostname)
 
-        if errors:
+        if len(errors) == len(setup_tasks):
             raise RuntimeError(
-                f"Setup failed for {len(errors)}/{len(setup_tasks)} target(s):\n"
+                f"Setup failed for ALL {len(setup_tasks)} target(s):\n"
                 + "\n".join(errors)
+            )
+        elif errors:
+            logger.warning(
+                "Setup failed for %d/%d target(s) — continuing with remaining:\n%s",
+                len(errors), len(setup_tasks), "\n".join(errors),
             )
 
         # Refresh ORM objects after parallel threads committed changes
@@ -526,7 +578,7 @@ class BaselineOrchestrator:
     def _cleanup_pools(self, session: Session, test_run: 'BaselineTestRunORM') -> None:
         """Destroy memory pools on all targets. Called from finally block in run()."""
         try:
-            lab, scenario, targets, _ = self._load_context(session, test_run)
+            lab, scenario, targets, _, _ = self._load_context(session, test_run)
             if scenario.template_type not in self._POOL_HEAP_PERCENT:
                 return
             emulator_port = self._config.emulator.emulator_api_port
@@ -555,7 +607,7 @@ class BaselineOrchestrator:
     # State: CALIBRATING (all targets, all profiles — PARALLEL per target)
     # ------------------------------------------------------------------
     def _do_calibration(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
 
         emulator_port = self._config.emulator.emulator_api_port
         needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
@@ -672,14 +724,19 @@ class BaselineOrchestrator:
             finally:
                 thread_session.close()
 
-        # Prepare plain data tuples for each target
+        # Prepare plain data tuples for each target (skip already-failed)
         cal_tasks = []
         for target_orm, server, loadgen, test_snapshot, _ in targets:
-            lp_data = [
-                (lp.id, lp.name, lp.target_cpu_range_min, lp.target_cpu_range_max,
-                 lp.ramp_up_sec, lp.duration_sec)
-                for lp in load_profiles
-            ]
+            if target_orm.state == BaselineTargetState.failed:
+                logger.info("Skipping failed target %s in calibration", server.hostname)
+                continue
+            lp_data = []
+            for lp in load_profiles:
+                dur, ramp = duration_overrides.get(lp.id, (lp.duration_sec, lp.ramp_up_sec))
+                lp_data.append(
+                    (lp.id, lp.name, lp.target_cpu_range_min, lp.target_cpu_range_max,
+                     ramp, dur)
+                )
             cal_tasks.append((
                 target_orm.id,
                 server.id,
@@ -695,6 +752,20 @@ class BaselineOrchestrator:
                 lp_data,
             ))
 
+        if not cal_tasks:
+            raise RuntimeError("All targets failed before calibration — nothing to calibrate")
+
+        # Set target states to calibrating
+        for target_orm, server, loadgen, test_snapshot, _ in targets:
+            if target_orm.state != BaselineTargetState.failed:
+                self._set_target_state(session, target_orm, BaselineTargetState.calibrating)
+
+        # Build hostname -> target_orm mapping for per-target failure tracking
+        cal_hostname_to_target = {
+            server.hostname: target_orm
+            for target_orm, server, loadgen, test_snapshot, _ in targets
+        }
+
         # Run calibration for all targets in parallel
         errors = []
         with ThreadPoolExecutor(max_workers=len(cal_tasks)) as pool:
@@ -703,13 +774,25 @@ class BaselineOrchestrator:
                 hostname, err = future.result()
                 if err:
                     errors.append(f"[{hostname}] {err}")
+                    t_orm = cal_hostname_to_target.get(hostname)
+                    if t_orm:
+                        session.expire(t_orm)
+                        self._set_target_state(
+                            session, t_orm, BaselineTargetState.failed,
+                            error_message=err,
+                        )
                 else:
                     logger.info("Calibration complete for %s", hostname)
 
-        if errors:
+        if len(errors) == len(cal_tasks):
             raise RuntimeError(
-                f"Calibration failed for {len(errors)}/{len(cal_tasks)} target(s):\n"
+                f"Calibration failed for ALL {len(cal_tasks)} target(s):\n"
                 + "\n".join(errors)
+            )
+        elif errors:
+            logger.warning(
+                "Calibration failed for %d/%d target(s) — continuing with remaining:\n%s",
+                len(errors), len(cal_tasks), "\n".join(errors),
             )
 
         # Refresh main session after parallel threads committed
@@ -722,7 +805,7 @@ class BaselineOrchestrator:
     # State: GENERATING (JMX Test Case Data — all targets — PARALLEL)
     # ------------------------------------------------------------------
     def _do_generation(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
 
         import sys
         gen_root = str(Path(__file__).resolve().parents[4] / "db-assets")
@@ -808,10 +891,16 @@ class BaselineOrchestrator:
             finally:
                 thread_session.close()
 
-        # Prepare plain data tuples
+        # Prepare plain data tuples (skip already-failed targets)
         gen_tasks = []
         for target_orm, server, loadgen, test_snapshot, _ in targets:
-            lp_data = [(lp.id, lp.name, lp.duration_sec) for lp in load_profiles]
+            if target_orm.state == BaselineTargetState.failed:
+                logger.info("Skipping failed target %s in generation", server.hostname)
+                continue
+            lp_data = []
+            for lp in load_profiles:
+                dur, _ = duration_overrides.get(lp.id, (lp.duration_sec, lp.ramp_up_sec))
+                lp_data.append((lp.id, lp.name, dur))
             gen_tasks.append((
                 server.id,
                 server.hostname,
@@ -821,6 +910,19 @@ class BaselineOrchestrator:
                 lp_data,
             ))
 
+        if not gen_tasks:
+            raise RuntimeError("All targets failed before generation — nothing to generate")
+
+        # Set target states to generating
+        for target_orm, server, loadgen, test_snapshot, _ in targets:
+            if target_orm.state != BaselineTargetState.failed:
+                self._set_target_state(session, target_orm, BaselineTargetState.generating)
+
+        gen_hostname_to_target = {
+            server.hostname: target_orm
+            for target_orm, server, loadgen, test_snapshot, _ in targets
+        }
+
         # Run generation for all targets in parallel
         errors = []
         with ThreadPoolExecutor(max_workers=len(gen_tasks)) as pool:
@@ -829,13 +931,25 @@ class BaselineOrchestrator:
                 hostname, err = future.result()
                 if err:
                     errors.append(f"[{hostname}] {err}")
+                    t_orm = gen_hostname_to_target.get(hostname)
+                    if t_orm:
+                        session.expire(t_orm)
+                        self._set_target_state(
+                            session, t_orm, BaselineTargetState.failed,
+                            error_message=err,
+                        )
                 else:
                     logger.info("Generation complete for %s", hostname)
 
-        if errors:
+        if len(errors) == len(gen_tasks):
             raise RuntimeError(
-                f"Generation failed for {len(errors)}/{len(gen_tasks)} target(s):\n"
+                f"Generation failed for ALL {len(gen_tasks)} target(s):\n"
                 + "\n".join(errors)
+            )
+        elif errors:
+            logger.warning(
+                "Generation failed for %d/%d target(s) — continuing with remaining:\n%s",
+                len(errors), len(gen_tasks), "\n".join(errors),
             )
 
         # ── BARRIER: all sequences generated and uploaded ──
@@ -845,12 +959,20 @@ class BaselineOrchestrator:
     # State: EXECUTING (coordinated — barriers per load profile)
     # ------------------------------------------------------------------
     def _do_execution(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
         needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
 
-        # Build per-target thread_counts and jmx_data_paths
+        # Set target states to executing (skip already-failed targets)
+        for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            if target_orm.state != BaselineTargetState.failed:
+                self._set_target_state(session, target_orm, BaselineTargetState.executing)
+
+        # Build per-target thread_counts and jmx_data_paths (skip failed targets)
         target_configs = []
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            if target_orm.state == BaselineTargetState.failed:
+                logger.info("Skipping failed target %s in execution", server.hostname)
+                continue
             thread_counts: Dict[int, int] = {}
             jmx_data_paths: Dict[int, str] = {}
             run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
@@ -894,6 +1016,9 @@ class BaselineOrchestrator:
                 "template_type": scenario.template_type,
             })
 
+        if not target_configs:
+            raise RuntimeError("All targets failed before execution — nothing to execute")
+
         # Create hypervisor provider
         hyp_cred = self._credentials.get_hypervisor_credential(
             lab.hypervisor_type.value,
@@ -914,6 +1039,7 @@ class BaselineOrchestrator:
             lab=lab,
             scenario=scenario,
             load_profiles=load_profiles,
+            duration_overrides=duration_overrides,
         )
 
         # Persist execution results per target
@@ -933,7 +1059,7 @@ class BaselineOrchestrator:
     # State: COMPARING (per-target, independent — no barrier needed)
     # ------------------------------------------------------------------
     def _do_comparison(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        lab, scenario, targets, load_profiles, _duration_overrides = self._load_context(session, test_run)
 
         from orchestrator.services.comparison import ComparisonEngine
         comparison_engine = ComparisonEngine(self._config)
@@ -945,6 +1071,11 @@ class BaselineOrchestrator:
         overall_verdict = Verdict.passed
 
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            if target_orm.state == BaselineTargetState.failed:
+                logger.info("Skipping failed target %s in comparison", server.hostname)
+                continue
+            self._set_target_state(session, target_orm, BaselineTargetState.comparing)
+
             # Reload execution results from disk if not in memory
             if not hasattr(self, '_execution_results') or server.id not in self._execution_results:
                 if not hasattr(self, '_execution_results'):
@@ -1010,9 +1141,14 @@ class BaselineOrchestrator:
     # State: STORING (per-target, independent — no barrier needed)
     # ------------------------------------------------------------------
     def _do_storing(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        lab, scenario, targets, load_profiles = self._load_context(session, test_run)
+        lab, scenario, targets, load_profiles, _duration_overrides = self._load_context(session, test_run)
 
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            if target_orm.state == BaselineTargetState.failed:
+                logger.info("Skipping failed target %s in storing", server.hostname)
+                continue
+            self._set_target_state(session, target_orm, BaselineTargetState.storing)
+
             # Reload execution results from disk if not in memory
             if not hasattr(self, '_execution_results') or server.id not in self._execution_results:
                 if not hasattr(self, '_execution_results'):
@@ -1094,6 +1230,9 @@ class BaselineOrchestrator:
             # Mark snapshot as baseline if new_baseline
             if test_run.test_type == BaselineTestType.new_baseline:
                 test_snapshot.is_baseline = True
+
+            # Mark target as completed
+            self._set_target_state(session, target_orm, BaselineTargetState.completed)
 
             logger.info(
                 "Stored profile data for server %s, snapshot '%s' (id=%d)",

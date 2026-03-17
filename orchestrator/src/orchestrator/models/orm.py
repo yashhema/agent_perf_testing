@@ -25,6 +25,7 @@ from sqlalchemy.orm import relationship
 from orchestrator.models.database import Base
 from orchestrator.models.enums import (
     AgentType,
+    BaselineTargetState,
     BaselineTestState,
     BaselineTestType,
     BaselineType,
@@ -646,9 +647,12 @@ class BaselineTestRunORM(Base):
     __tablename__ = "baseline_test_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
     lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False)
     scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False)
     test_type = Column(Enum(BaselineTestType), nullable=False)
+    parent_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=True)
     state = Column(
         Enum(BaselineTestState), nullable=False, default=BaselineTestState.created,
     )
@@ -662,6 +666,7 @@ class BaselineTestRunORM(Base):
     # Relationships
     lab = relationship("LabORM")
     scenario = relationship("ScenarioORM")
+    parent_run = relationship("BaselineTestRunORM", remote_side=[id], backref="child_runs")
     current_load_profile = relationship("LoadProfileORM", foreign_keys=[current_load_profile_id])
     comparison_results = relationship("ComparisonResultORM", back_populates="baseline_test_run")
     load_profiles = relationship(
@@ -693,6 +698,13 @@ class BaselineTestRunTargetORM(Base):
     service_monitor_patterns = Column(JSON, nullable=True)
     output_folders = Column(String(2000), nullable=True)  # comma-separated folder paths for emulator file output
 
+    # Per-target state tracking
+    state = Column(
+        Enum(BaselineTargetState), nullable=False, default=BaselineTargetState.pending,
+    )
+    error_message = Column(Text, nullable=True)
+    current_load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=True)
+
     # Discovery results (written during setting_up)
     os_kind = Column(String(100), nullable=True)
     os_major_ver = Column(String(20), nullable=True)
@@ -706,6 +718,7 @@ class BaselineTestRunTargetORM(Base):
     partner = relationship("ServerORM", foreign_keys=[partner_id])
     test_snapshot = relationship("SnapshotORM", foreign_keys=[test_snapshot_id])
     compare_snapshot = relationship("SnapshotORM", foreign_keys=[compare_snapshot_id])
+    current_load_profile = relationship("LoadProfileORM", foreign_keys=[current_load_profile_id])
 
 
 # ---------------------------------------------------------------------------
@@ -723,6 +736,8 @@ class BaselineTestRunLoadProfileORM(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=False)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
+    duration_sec = Column(Integer, nullable=True)   # NULL = use LP default
+    ramp_up_sec = Column(Integer, nullable=True)    # NULL = use LP default
 
     # Relationships
     baseline_test_run = relationship("BaselineTestRunORM", back_populates="load_profiles")

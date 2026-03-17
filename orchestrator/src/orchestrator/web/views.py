@@ -358,6 +358,14 @@ async def baseline_test_create(request: Request):
     return templates.TemplateResponse("baseline_tests/create.html", {"request": request})
 
 
+@router.get("/baseline-tests/{run_id}/edit", response_class=HTMLResponse)
+async def baseline_test_edit(request: Request, run_id: int):
+    """Renders the create page in edit mode (pre-fills from existing run)."""
+    return templates.TemplateResponse("baseline_tests/create.html", {
+        "request": request, "edit_run_id": run_id,
+    })
+
+
 @router.get("/baseline-tests/{run_id}/dashboard", response_class=HTMLResponse)
 async def baseline_test_dashboard(request: Request, run_id: int):
     return templates.TemplateResponse("baseline_tests/dashboard.html", {

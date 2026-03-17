@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 
 from orchestrator.api.schemas import (
     BaselineTestRunCreate,
+    BaselineTestRunCreateV2,
     BaselineTestRunResponse,
+    BaselineTestRunUpdate,
     ComparisonResultResponse,
     DeleteSnapshotRequest,
     SnapshotBaselineCreate,
@@ -33,6 +35,7 @@ from orchestrator.models.orm import (
     BaselineTestRunTargetORM,
     ComparisonResultORM,
     LabORM,
+    ScenarioORM,
     ServerORM,
     SnapshotBaselineORM,
     SnapshotGroupORM,
@@ -223,6 +226,211 @@ def get_baseline_comparison_results(run_id: int, session: Session = Depends(get_
         ComparisonResultORM.baseline_test_run_id == run_id,
     ).all()
     return results
+
+
+# ===========================================================================
+# V2 Endpoints — Test Run = Test Case (auto-creates scenario)
+# ===========================================================================
+
+@router.post("/v2", response_model=BaselineTestRunResponse, status_code=status.HTTP_201_CREATED)
+def create_baseline_test_run_v2(
+    data: BaselineTestRunCreateV2,
+    session: Session = Depends(get_session),
+):
+    """Create a baseline test run with inline configuration.
+
+    Auto-creates a ScenarioORM behind the scenes so the execution engine
+    (which uses scenario.template_type in ~12 places) keeps working unchanged.
+
+    For compare modes (parent_run_id set): copies scenario_id and load profiles
+    from parent, auto-fills compare_snapshot_id from parent's test_snapshot_id.
+    """
+    from datetime import datetime as dt
+
+    # --- Validate targets and resolve lab ---
+    target_orms = []
+    lab = None
+    for entry in data.targets:
+        server = session.get(ServerORM, entry.server_id)
+        if not server:
+            raise HTTPException(status_code=404, detail=f"Server {entry.server_id} not found")
+
+        if lab is None:
+            lab = session.get(LabORM, server.lab_id)
+            if lab.execution_mode != ExecutionMode.baseline_compare:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Lab '{lab.name}' is not in baseline_compare mode",
+                )
+        elif server.lab_id != lab.id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Server {entry.server_id} belongs to a different lab",
+            )
+
+        loadgen_id = entry.loadgenerator_id or server.default_loadgen_id
+        if not loadgen_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Server {entry.server_id}: no loadgenerator_id and no default_loadgen_id",
+            )
+        # Simplification: partner = loadgen
+        partner_id = loadgen_id
+        monitor_patterns = entry.service_monitor_patterns or server.service_monitor_patterns
+
+        target_orms.append(BaselineTestRunTargetORM(
+            target_id=entry.server_id,
+            loadgenerator_id=loadgen_id,
+            partner_id=partner_id,
+            test_snapshot_id=entry.test_snapshot_id,
+            compare_snapshot_id=entry.compare_snapshot_id,
+            service_monitor_patterns=monitor_patterns,
+        ))
+
+    # --- Compare mode: validate parent and inherit config ---
+    scenario_id = None
+    lp_entries = data.load_profiles
+
+    if data.parent_run_id is not None:
+        parent = session.get(BaselineTestRunORM, data.parent_run_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail=f"Parent run {data.parent_run_id} not found")
+        if parent.state != BaselineTestState.completed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Parent run {data.parent_run_id} is not completed (state={parent.state.value})",
+            )
+
+        # Reuse scenario from parent (don't recreate)
+        scenario_id = parent.scenario_id
+
+        # Copy load profiles + duration overrides from parent (locked)
+        parent_lp_links = session.query(BaselineTestRunLoadProfileORM).filter(
+            BaselineTestRunLoadProfileORM.baseline_test_run_id == parent.id,
+        ).all()
+        lp_entries = []
+        from orchestrator.api.schemas import BaselineTestRunLoadProfileEntry
+        for plpl in parent_lp_links:
+            lp_entries.append(BaselineTestRunLoadProfileEntry(
+                load_profile_id=plpl.load_profile_id,
+                duration_sec=plpl.duration_sec,
+                ramp_up_sec=plpl.ramp_up_sec,
+            ))
+
+        # Auto-fill compare_snapshot_id from parent's test_snapshot_id per target
+        parent_targets = session.query(BaselineTestRunTargetORM).filter(
+            BaselineTestRunTargetORM.baseline_test_run_id == parent.id,
+        ).all()
+        parent_target_map = {pt.target_id: pt for pt in parent_targets}
+
+        for t_orm in target_orms:
+            parent_target = parent_target_map.get(t_orm.target_id)
+            if parent_target:
+                t_orm.compare_snapshot_id = parent_target.test_snapshot_id
+
+    # --- Auto-create scenario if not inherited from parent ---
+    if scenario_id is None:
+        timestamp = dt.utcnow().strftime("%Y%m%d_%H%M%S")
+        auto_scenario = ScenarioORM(
+            name=f"auto_{data.name}_{timestamp}",
+            lab_id=lab.id,
+            template_type=data.template_type,
+            has_base_phase=True,
+            has_initial_phase=False,
+            has_dbtest=(data.template_type.value == "db-load"),
+            load_generator_package_grp_id=lab.jmeter_package_grpid,
+            stress_test_enabled=data.stress_test_enabled,
+            network_degradation_enabled=data.network_degradation_enabled,
+        )
+        session.add(auto_scenario)
+        session.flush()
+        scenario_id = auto_scenario.id
+
+    # --- Validate test_type + compare_snapshot_id consistency ---
+    for t_orm in target_orms:
+        if data.test_type == BaselineTestType.new_baseline and t_orm.compare_snapshot_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Server {t_orm.target_id}: new_baseline should not have compare_snapshot_id",
+            )
+        if data.test_type != BaselineTestType.new_baseline and not t_orm.compare_snapshot_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Server {t_orm.target_id}: {data.test_type.value} requires compare_snapshot_id",
+            )
+
+    # --- Create the test run ---
+    test_run = BaselineTestRunORM(
+        name=data.name,
+        description=data.description,
+        lab_id=lab.id,
+        scenario_id=scenario_id,
+        test_type=data.test_type,
+        parent_run_id=data.parent_run_id,
+    )
+    session.add(test_run)
+    session.flush()
+
+    for t_orm in target_orms:
+        t_orm.baseline_test_run_id = test_run.id
+        session.add(t_orm)
+
+    for lp_entry in lp_entries:
+        session.add(BaselineTestRunLoadProfileORM(
+            baseline_test_run_id=test_run.id,
+            load_profile_id=lp_entry.load_profile_id,
+            duration_sec=lp_entry.duration_sec,
+            ramp_up_sec=lp_entry.ramp_up_sec,
+        ))
+
+    session.commit()
+    session.refresh(test_run)
+    return test_run
+
+
+@router.put("/{run_id}", response_model=BaselineTestRunResponse)
+def update_baseline_test_run(
+    run_id: int,
+    data: BaselineTestRunUpdate,
+    session: Session = Depends(get_session),
+):
+    """Update a baseline test run (name/description only, state=created only)."""
+    test_run = session.get(BaselineTestRunORM, run_id)
+    if not test_run:
+        raise HTTPException(status_code=404, detail="Baseline test run not found")
+    if test_run.state != BaselineTestState.created:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot edit: current state is '{test_run.state.value}' (must be 'created')",
+        )
+
+    if data.name is not None:
+        test_run.name = data.name
+    if data.description is not None:
+        test_run.description = data.description
+
+    session.commit()
+    session.refresh(test_run)
+    return test_run
+
+
+@router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_baseline_test_run(
+    run_id: int,
+    session: Session = Depends(get_session),
+):
+    """Delete a baseline test run (state=created only). Cascades to targets + load profiles."""
+    test_run = session.get(BaselineTestRunORM, run_id)
+    if not test_run:
+        raise HTTPException(status_code=404, detail="Baseline test run not found")
+    if test_run.state != BaselineTestState.created:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete: current state is '{test_run.state.value}' (must be 'created')",
+        )
+
+    session.delete(test_run)
+    session.commit()
 
 
 # ===========================================================================

@@ -45,20 +45,37 @@
       <table class="table table-hover mb-0">
         <thead><tr>
           <th>ID</th>
-          <th>Server</th>
-          <th>Scenario</th>
+          <th>Name</th>
           <th>Test Type</th>
-          <th>Test Snapshot</th>
-          <th>Compare Snapshot</th>
+          <th>Targets</th>
           <th>State</th>
           <th>Verdict</th>
           <th>Created</th>
           <th>Actions</th>
         </tr></thead>
         <tbody id="runs-table-body">
-          <tr><td colspan="10" class="text-center text-muted py-4">Loading...</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Are you sure you want to delete baseline test <strong id="delete-run-id"></strong>? This action cannot be undone.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+      </div>
     </div>
   </div>
 </div>
@@ -67,7 +84,7 @@
 {% block scripts %}
 <script>
 let _servers = [];
-let _snapshots = {};
+let _deleteRunId = null;
 
 async function init() {
   try {
@@ -92,6 +109,19 @@ function testTypeBadge(t) {
   return `<span class="badge bg-${cls}">${label}</span>`;
 }
 
+function formatTargets(targets) {
+  if (!targets || targets.length === 0) return '-';
+  const names = targets.map(t => escHtml(serverName(t.target_id)));
+  const count = targets.length;
+  const label = count === 1
+    ? names[0]
+    : `${count} targets`;
+  const tooltip = names.join(', ');
+  return `<span title="${tooltip}" style="cursor:default">${label}</span>`;
+}
+
+const TERMINAL_STATES = ['completed', 'cancelled', 'failed'];
+
 async function loadRuns() {
   try {
     let path = '/api/baseline-tests';
@@ -105,7 +135,7 @@ async function loadRuns() {
     const runs = await API.get(path);
     const tbody = document.getElementById('runs-table-body');
     if (runs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No baseline tests found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No baseline tests found</td></tr>';
       return;
     }
 
@@ -114,22 +144,12 @@ async function loadRuns() {
         ? `<span class="badge bg-${r.verdict === 'passed' ? 'success' : r.verdict === 'failed' ? 'danger' : 'warning'}">${r.verdict}</span>`
         : '<span class="badge bg-secondary">-</span>';
       const actions = buildActions(r);
-      const targets = r.targets || [];
-      const t0 = targets[0] || {};
-      const serverLabel = targets.length === 1
-        ? escHtml(serverName(t0.target_id))
-        : targets.length > 1
-          ? escHtml(serverName(t0.target_id)) + ' +' + (targets.length - 1)
-          : '-';
-      const testSnapLabel = t0.test_snapshot_id ? 'Snap #' + t0.test_snapshot_id : '-';
-      const compareSnapLabel = t0.compare_snapshot_id ? 'Snap #' + t0.compare_snapshot_id : '-';
+      const displayName = r.name ? escHtml(r.name) : '<span class="text-muted">Untitled</span>';
       return `<tr>
         <td>${r.id}</td>
-        <td>${serverLabel}</td>
-        <td>Scenario #${r.scenario_id}</td>
+        <td>${displayName}</td>
         <td>${testTypeBadge(r.test_type)}</td>
-        <td>${testSnapLabel}</td>
-        <td>${compareSnapLabel}</td>
+        <td>${formatTargets(r.targets)}</td>
         <td>${stateBadge(r.state)}</td>
         <td>${verdictBadge}</td>
         <td>${fmtDate(r.created_at)}</td>
@@ -140,17 +160,44 @@ async function loadRuns() {
 }
 
 function buildActions(r) {
-  let html = `<a href="/baseline-tests/${r.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="Dashboard"><i class="bi bi-speedometer2"></i></a>`;
+  let html = '';
+  if (r.state === 'created') {
+    html += `<a href="/baseline-tests/create?edit=${r.id}" class="btn btn-sm btn-outline-secondary me-1" title="Edit"><i class="bi bi-pencil"></i></a>`;
+  }
+  html += `<a href="/baseline-tests/${r.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="Dashboard"><i class="bi bi-speedometer2"></i></a>`;
+  if (r.state === 'created') {
+    html += `<button class="btn btn-sm btn-outline-danger me-1" onclick="confirmDelete(${r.id})" title="Delete"><i class="bi bi-trash"></i></button>`;
+  }
   if (r.state === 'created') {
     html += `<button class="btn btn-sm btn-outline-success me-1" onclick="runAction(${r.id},'start')" title="Start"><i class="bi bi-play-fill"></i></button>`;
   }
-  if (!['completed','cancelled','failed'].includes(r.state)) {
-    html += `<button class="btn btn-sm btn-outline-danger" onclick="runAction(${r.id},'cancel')" title="Cancel"><i class="bi bi-x-circle"></i></button>`;
+  if (!TERMINAL_STATES.includes(r.state)) {
+    html += `<button class="btn btn-sm btn-outline-warning me-1" onclick="runAction(${r.id},'cancel')" title="Cancel"><i class="bi bi-x-circle"></i></button>`;
   }
   if (r.state === 'completed') {
     html += `<a href="/baseline-tests/${r.id}/results" class="btn btn-sm btn-outline-info me-1" title="Results"><i class="bi bi-bar-chart"></i></a>`;
   }
   return html;
+}
+
+function confirmDelete(id) {
+  _deleteRunId = id;
+  document.getElementById('delete-run-id').textContent = '#' + id;
+  const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+  modal.show();
+}
+
+async function deleteRun() {
+  if (_deleteRunId === null) return;
+  const id = _deleteRunId;
+  _deleteRunId = null;
+  const modalEl = document.getElementById('deleteModal');
+  bootstrap.Modal.getInstance(modalEl).hide();
+  try {
+    await API.delete(`/api/baseline-tests/${id}`);
+    showToast('Baseline test deleted');
+    loadRuns();
+  } catch (e) { showToast(e.message, 'danger'); }
 }
 
 async function runAction(id, action) {
@@ -161,6 +208,7 @@ async function runAction(id, action) {
   } catch (e) { showToast(e.message, 'danger'); }
 }
 
+document.getElementById('confirm-delete-btn').addEventListener('click', deleteRun);
 document.getElementById('filter-state').addEventListener('change', loadRuns);
 document.getElementById('filter-server').addEventListener('change', loadRuns);
 document.addEventListener('DOMContentLoaded', init);

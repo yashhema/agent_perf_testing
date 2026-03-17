@@ -110,6 +110,7 @@ class BaselineExecutionEngine:
         lab: LabORM,
         scenario: ScenarioORM,
         load_profiles: List[LoadProfileORM],
+        duration_overrides: Optional[Dict[int, tuple]] = None,
     ) -> Dict[int, Dict[int, ExecutionResult]]:
         """Execute test on all targets for all load profiles with barriers.
 
@@ -122,10 +123,14 @@ class BaselineExecutionEngine:
             lab: Lab configuration
             scenario: Scenario configuration
             load_profiles: Load profiles to execute
+            duration_overrides: Dict of lp_id -> (duration_sec, ramp_up_sec).
+                NULL/missing = use LP defaults.
 
         Returns:
             Dict of server_id -> Dict of load_profile_id -> ExecutionResult
         """
+        if duration_overrides is None:
+            duration_overrides = {}
         emulator_port = self._config.emulator.emulator_api_port
         # results[server_id][lp_id] = ExecutionResult
         results: Dict[int, Dict[int, ExecutionResult]] = {}
@@ -133,9 +138,14 @@ class BaselineExecutionEngine:
             results[tc["server"].id] = {}
 
         for lp in load_profiles:
+            # Resolve duration overrides for this load profile
+            eff_duration, eff_ramp_up = duration_overrides.get(
+                lp.id, (lp.duration_sec, lp.ramp_up_sec),
+            )
+
             logger.info(
-                "Executing profile '%s' on %d targets",
-                lp.name, len(target_configs),
+                "Executing profile '%s' on %d targets (duration=%ds, ramp_up=%ds)",
+                lp.name, len(target_configs), eff_duration, eff_ramp_up,
             )
 
             baseline_test.current_load_profile_id = lp.id
@@ -218,7 +228,7 @@ class BaselineExecutionEngine:
                     mode="normal",
                     collect_interval_sec=self._config.stats.collect_interval_sec,
                     thread_count=tc["thread_counts"][lp.id],
-                    duration_sec=lp.duration_sec,
+                    duration_sec=eff_duration,
                 )
                 test_id = start_resp.get("test_id", f"baseline-{baseline_test.id}-lp{lp.id}-srv{server.id}")
 
@@ -270,7 +280,7 @@ class BaselineExecutionEngine:
                     jtl_path=f"{run_dir}/results_{lp.name}.jtl",
                     log_path=f"{run_dir}/jmeter_{lp.name}.log",
                     thread_count=tc["thread_counts"][lp.id],
-                    ramp_up_sec=lp.ramp_up_sec,
+                    ramp_up_sec=eff_ramp_up,
                     duration_sec=86400,  # 24h — orchestrator controls end, not JMeter
                     target_host=server.ip_address,
                     target_port=emulator_port,
@@ -283,9 +293,9 @@ class BaselineExecutionEngine:
 
             # ── Phase 4: Single wait for all ──
             # JMeter runs indefinitely (duration_sec=3600); orchestrator controls the end.
-            total_wait = lp.ramp_up_sec + lp.duration_sec
+            total_wait = eff_ramp_up + eff_duration
             logger.info("Waiting %ds for test (ramp_up=%d + duration=%d), then stopping JMeter",
-                        total_wait, lp.ramp_up_sec, lp.duration_sec)
+                        total_wait, eff_ramp_up, eff_duration)
             time.sleep(total_wait)
 
             # ── Phase 5: Stop + collect from all targets ──
