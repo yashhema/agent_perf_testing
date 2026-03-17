@@ -15,14 +15,19 @@
       <table class="table table-hover mb-0">
         <thead>
           <tr>
-            {% for col in columns %}
-            <th>{{ col.label }}</th>
-            {% endfor %}
+            <th>ID</th>
+            <th>Name</th>
+            <th>Lab</th>
+            <th>Template</th>
+            <th>DB Test</th>
+            <th>Stress</th>
+            <th>Net Degrade</th>
+            <th>Created</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="crud-table-body">
-          <tr><td colspan="{{ columns|length + 1 }}" class="text-center text-muted py-4">Loading...</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -33,47 +38,203 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
-  // Load lookup data first (labs, package groups)
-  const lookups = {};
+  // Load lookup data
+  const labs = {};       // id -> {name, jmeter_package_grpid}
+  const labOptions = []; // [{value, label}]
   try {
-    const labs = await API.get({{ labs_api_path | tojson }});
-    lookups.labs = {};
-    labs.forEach(l => lookups.labs[l.id] = l.name);
+    const labData = await API.get('/api/admin/labs');
+    labData.forEach(l => {
+      labs[l.id] = {name: l.name, jmeter_pkg: l.jmeter_package_grpid};
+      labOptions.push({value: String(l.id), label: l.name});
+    });
+  } catch(e) { console.warn('Could not load labs:', e); }
 
-    const pkgs = await API.get({{ packages_api_path | tojson }});
-    lookups.packages = {};
-    pkgs.forEach(p => lookups.packages[p.id] = p.name);
-  } catch(e) {
-    console.warn('Could not load lookups:', e);
+  const templateOptions = ['server-steady', 'server-normal', 'server-file-heavy', 'db-load'];
+
+  // Render table
+  function renderTable(items) {
+    const tbody = document.getElementById('crud-table-body');
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No scenarios</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(s => {
+      const labName = labs[s.lab_id] ? labs[s.lab_id].name : ('ID: ' + s.lab_id);
+      return '<tr>' +
+        '<td>' + s.id + '</td>' +
+        '<td><strong>' + escHtml(s.name) + '</strong>' +
+          (s.description ? '<br><small class="text-muted">' + escHtml(s.description) + '</small>' : '') + '</td>' +
+        '<td>' + escHtml(labName) + '</td>' +
+        '<td><span class="badge bg-info">' + escHtml(s.template_type) + '</span></td>' +
+        '<td>' + fmtBool(s.has_dbtest) + '</td>' +
+        '<td>' + fmtBool(s.stress_test_enabled) +
+          (s.stress_test_enabled ? ' <small>' + (s.stress_test_duration_sec||'') + 's</small>' : '') + '</td>' +
+        '<td>' + fmtBool(s.network_degradation_enabled) +
+          (s.network_degradation_enabled ? ' <small>' + (s.network_degradation_pct||'') + '%</small>' : '') + '</td>' +
+        '<td>' + fmtDate(s.created_at) + '</td>' +
+        '<td class="text-nowrap">' +
+          '<button class="btn btn-sm btn-outline-primary me-1" onclick="editScenario(' + s.id + ')" title="Edit"><i class="bi bi-pencil"></i></button>' +
+          '<button class="btn btn-sm btn-outline-danger" onclick="deleteScenario(' + s.id + ')" title="Delete"><i class="bi bi-trash"></i></button>' +
+        '</td></tr>';
+    }).join('');
   }
 
-  // Build dynamic select options
-  const columns = {{ columns | tojson }};
-  const fields = {{ fields | tojson }};
+  // Load and render
+  let scenarios = [];
+  async function loadData() {
+    try {
+      scenarios = await API.get('/api/admin/scenarios');
+      renderTable(scenarios);
+    } catch(e) { showToast('Failed to load: ' + e.message, 'danger'); }
+  }
+  await loadData();
 
-  // Add render functions for lookup columns
-  columns.forEach(col => {
-    if (col.lookup && lookups[col.lookup]) {
-      col.render = (val) => lookups[col.lookup][val] || ('ID: ' + val);
+  // Create button
+  document.getElementById('btn-create').addEventListener('click', () => openForm(null));
+
+  // Build form HTML
+  function buildForm(item) {
+    const v = item || {};
+    const stress = v.stress_test_enabled || false;
+    const netdeg = v.network_degradation_enabled || false;
+
+    // Lab select
+    const labOpts = labOptions.map(o =>
+      '<option value="' + o.value + '"' + (String(v.lab_id) === o.value ? ' selected' : '') + '>' + escHtml(o.label) + '</option>'
+    ).join('');
+
+    // Template select
+    const tmplOpts = templateOptions.map(t =>
+      '<option value="' + t + '"' + (v.template_type === t ? ' selected' : '') + '>' + t + '</option>'
+    ).join('');
+
+    return `
+      <div class="mb-3">
+        <label class="form-label">Name <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="field-name" value="${escHtml(v.name||'')}" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" id="field-description" rows="2">${escHtml(v.description||'')}</textarea>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Lab <span class="text-danger">*</span></label>
+          <select class="form-select" id="field-lab_id" required>
+            <option value="">-- Select Lab --</option>${labOpts}
+          </select>
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Template <span class="text-danger">*</span></label>
+          <select class="form-select" id="field-template_type" required>
+            <option value="">-- Select --</option>${tmplOpts}
+          </select>
+        </div>
+      </div>
+      <hr>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="field-stress_test_enabled" ${stress ? 'checked' : ''}
+          onchange="document.getElementById('stress-fields').style.display = this.checked ? '' : 'none'">
+        <label class="form-check-label" for="field-stress_test_enabled"><strong>Stress Test</strong></label>
+      </div>
+      <div id="stress-fields" class="row ms-3 mb-3" style="display:${stress ? '' : 'none'}">
+        <div class="col-md-6">
+          <label class="form-label">Duration (s)</label>
+          <input type="number" class="form-control" id="field-stress_test_duration_sec" value="${v.stress_test_duration_sec||120}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Thread Multiplier</label>
+          <input type="number" class="form-control" id="field-stress_test_thread_multiplier" step="0.1" value="${v.stress_test_thread_multiplier||4.0}">
+        </div>
+      </div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="field-network_degradation_enabled" ${netdeg ? 'checked' : ''}
+          onchange="document.getElementById('netdeg-fields').style.display = this.checked ? '' : 'none'">
+        <label class="form-check-label" for="field-network_degradation_enabled"><strong>Network Degradation</strong></label>
+      </div>
+      <div id="netdeg-fields" class="row ms-3 mb-3" style="display:${netdeg ? '' : 'none'}">
+        <div class="col-md-6">
+          <label class="form-label">Degradation %</label>
+          <input type="number" class="form-control" id="field-network_degradation_pct" step="0.1" value="${v.network_degradation_pct||10}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Duration (s)</label>
+          <input type="number" class="form-control" id="field-network_degradation_duration_sec" value="${v.network_degradation_duration_sec||''}">
+        </div>
+      </div>
+    `;
+  }
+
+  // Collect form data — auto-fills hidden fields
+  function collectForm() {
+    const labId = parseInt(document.getElementById('field-lab_id').value);
+    const templateType = document.getElementById('field-template_type').value;
+    const lab = labs[labId];
+
+    return {
+      name: document.getElementById('field-name').value,
+      description: document.getElementById('field-description').value || null,
+      lab_id: labId,
+      template_type: templateType,
+      // Auto-filled from lab
+      load_generator_package_grp_id: lab ? lab.jmeter_pkg : 1,
+      // Auto-filled defaults for baseline_compare mode
+      has_base_phase: true,
+      has_initial_phase: false,
+      has_dbtest: templateType === 'db-load',
+      // Stress
+      stress_test_enabled: document.getElementById('field-stress_test_enabled').checked,
+      stress_test_duration_sec: parseInt(document.getElementById('field-stress_test_duration_sec').value) || 120,
+      stress_test_thread_multiplier: parseFloat(document.getElementById('field-stress_test_thread_multiplier').value) || 4.0,
+      // Network degradation
+      network_degradation_enabled: document.getElementById('field-network_degradation_enabled').checked,
+      network_degradation_pct: parseFloat(document.getElementById('field-network_degradation_pct').value) || 10,
+      network_degradation_duration_sec: parseInt(document.getElementById('field-network_degradation_duration_sec').value) || null,
+    };
+  }
+
+  // Modal open
+  let editId = null;
+  window.openForm = function(item) {
+    editId = item ? item.id : null;
+    document.getElementById('crud-modal-title').textContent = item ? 'Edit Scenario' : 'Create Scenario';
+    document.getElementById('crud-modal-body').innerHTML = buildForm(item);
+    new bootstrap.Modal(document.getElementById('crud-modal')).show();
+  };
+
+  // Edit
+  window.editScenario = function(id) {
+    const item = scenarios.find(s => s.id === id);
+    if (item) openForm(item);
+  };
+
+  // Save
+  document.getElementById('crud-modal-save').addEventListener('click', async () => {
+    const data = collectForm();
+    try {
+      if (editId) {
+        await API.put('/api/admin/scenarios/' + editId, data);
+        showToast('Scenario updated', 'success');
+      } else {
+        await API.post('/api/admin/scenarios', data);
+        showToast('Scenario created', 'success');
+      }
+      bootstrap.Modal.getInstance(document.getElementById('crud-modal')).hide();
+      await loadData();
+    } catch(e) {
+      showToast('Save failed: ' + e.message, 'danger');
     }
   });
 
-  // Convert select_dynamic fields to regular selects with options from lookups
-  fields.forEach(f => {
-    if (f.type === 'select_dynamic' && lookups[f.source]) {
-      f.type = 'select';
-      f.options = Object.entries(lookups[f.source]).map(([id, name]) => ({
-        value: id, label: name
-      }));
-    }
-  });
-
-  initCrudPage({
-    entityName: {{ entity_name | tojson }},
-    apiPath: {{ api_path | tojson }},
-    columns: columns,
-    fields: fields,
-  });
+  // Delete
+  window.deleteScenario = async function(id) {
+    if (!confirm('Delete this scenario?')) return;
+    try {
+      await API.delete('/api/admin/scenarios/' + id);
+      showToast('Deleted', 'success');
+      await loadData();
+    } catch(e) { showToast('Delete failed: ' + e.message, 'danger'); }
+  };
 });
 </script>
 {% endblock %}
