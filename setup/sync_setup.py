@@ -51,6 +51,42 @@ TESTER_FILES = {
     "setup/testers/test_sudo.py": "setup/testers/test_sudo.py",
 }
 
+ORCHESTRATOR_FILES = {
+    # Web UI
+    "orchestrator/src/orchestrator/web/views.py": "orchestrator/src/orchestrator/web/views.py",
+    "orchestrator/src/orchestrator/static/js/app.js": "orchestrator/src/orchestrator/static/js/app.js",
+    "orchestrator/src/orchestrator/templates/admin/crud.html": "orchestrator/src/orchestrator/templates/admin/crud.html",
+    "orchestrator/src/orchestrator/templates/admin/scenarios.html": "orchestrator/src/orchestrator/templates/admin/scenarios.html",
+    "orchestrator/src/orchestrator/templates/admin/packages.html": "orchestrator/src/orchestrator/templates/admin/packages.html",
+    "orchestrator/src/orchestrator/templates/admin/agents.html": "orchestrator/src/orchestrator/templates/admin/agents.html",
+    "orchestrator/src/orchestrator/templates/admin/dashboard.html": "orchestrator/src/orchestrator/templates/admin/dashboard.html",
+    "orchestrator/src/orchestrator/templates/base.html": "orchestrator/src/orchestrator/templates/base.html",
+    "orchestrator/src/orchestrator/templates/login.html": "orchestrator/src/orchestrator/templates/login.html",
+    # Core
+    "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
+    "orchestrator/src/orchestrator/core/baseline_execution.py": "orchestrator/src/orchestrator/core/baseline_execution.py",
+    "orchestrator/src/orchestrator/core/calibration.py": "orchestrator/src/orchestrator/core/calibration.py",
+    # API
+    "orchestrator/src/orchestrator/api/baseline_test_runs.py": "orchestrator/src/orchestrator/api/baseline_test_runs.py",
+    "orchestrator/src/orchestrator/api/admin.py": "orchestrator/src/orchestrator/api/admin.py",
+    "orchestrator/src/orchestrator/api/schemas.py": "orchestrator/src/orchestrator/api/schemas.py",
+    # Config / Models
+    "orchestrator/src/orchestrator/config/settings.py": "orchestrator/src/orchestrator/config/settings.py",
+    "orchestrator/src/orchestrator/models/orm.py": "orchestrator/src/orchestrator/models/orm.py",
+    "orchestrator/src/orchestrator/models/enums.py": "orchestrator/src/orchestrator/models/enums.py",
+    "orchestrator/src/orchestrator/models/database.py": "orchestrator/src/orchestrator/models/database.py",
+    # Infra
+    "orchestrator/src/orchestrator/infra/remote_executor.py": "orchestrator/src/orchestrator/infra/remote_executor.py",
+    "orchestrator/src/orchestrator/infra/emulator_client.py": "orchestrator/src/orchestrator/infra/emulator_client.py",
+    "orchestrator/src/orchestrator/infra/jmeter_controller.py": "orchestrator/src/orchestrator/infra/jmeter_controller.py",
+    # App + CLI
+    "orchestrator/src/orchestrator/app.py": "orchestrator/src/orchestrator/app.py",
+    "orchestrator/src/orchestrator/cli.py": "orchestrator/src/orchestrator/cli.py",
+    "orchestrator/src/orchestrator/seed.py": "orchestrator/src/orchestrator/seed.py",
+    # Config files
+    "orchestrator/config/orchestrator.yaml": "orchestrator/config/orchestrator.yaml",
+}
+
 ROOT_FILES = {
     "run_test.py": "run_test.py",
     "test_cases/example_5server_steady.yaml": "test_cases/example_5server_steady.yaml",
@@ -64,6 +100,7 @@ PROTECTED = {
     "setup/discovery_output.json",
     "setup/credentials.json",
     "setup/sync_setup.py",
+    "orchestrator/config/credentials.json",
 }
 
 
@@ -129,6 +166,7 @@ def main():
     all_files = {}
     all_files.update(SETUP_FILES)
     all_files.update(TESTER_FILES)
+    all_files.update(ORCHESTRATOR_FILES)
     all_files.update(ROOT_FILES)
 
     if args.list:
