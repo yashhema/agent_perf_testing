@@ -150,7 +150,7 @@ def sync_file(remote_path: str, local_path: str, dry_run: bool = False) -> bool:
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     with open(local_path, "w") as f:
         f.write(content)
-    print(f"  UPDATED: {remote_path}")
+    print(f"  UPDATED: {remote_path} -> {local_path}")
     return True
 
 
@@ -177,8 +177,11 @@ def main():
         return
 
     repo_path = get_repo_path()
-    print(f"Repo path: {repo_path}")
-    print(f"Source:    {RAW_BASE}")
+    print(f"Repo path:    {repo_path}")
+    print(f"Source:       {RAW_BASE}")
+    print(f"Files:        {len(all_files)} total ({len(SETUP_FILES)} setup, "
+          f"{len(ORCHESTRATOR_FILES)} orchestrator, {len(TESTER_FILES)} testers, "
+          f"{len(ROOT_FILES)} root)")
     print()
 
     updated = 0
