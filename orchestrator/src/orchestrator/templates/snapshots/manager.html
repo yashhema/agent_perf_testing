@@ -75,6 +75,18 @@
         </div>
       </div>
 
+      <!-- Unassigned snapshots (not in any subgroup) -->
+      <div class="card shadow-sm mt-3" id="unassigned-card" style="display:none">
+        <div class="card-header" style="cursor:pointer" onclick="toggleUnassigned()">
+          <h6 class="mb-0"><i class="bi bi-question-circle me-1 text-muted"></i>Unassigned Snapshots
+            <span class="badge bg-secondary ms-1" id="unassigned-count">0</span>
+            <i class="bi bi-chevron-down float-end" id="unassigned-chevron"></i>
+          </h6>
+        </div>
+        <div class="card-body collapse p-0" id="unassigned-container" style="max-height:250px; overflow-y:auto">
+        </div>
+      </div>
+
       <!-- Full tree (collapsible) -->
       <div class="card shadow-sm mt-3">
         <div class="card-header" style="cursor:pointer" onclick="toggleTree()">
@@ -358,6 +370,7 @@ async function loadAll() {
     ]);
     renderGroups();
     renderTree();
+    renderUnassigned();
   } catch (e) { showToast('Error loading data: ' + e.message, 'danger'); }
 }
 
@@ -414,7 +427,8 @@ function showGroupDetail(g) {
     </table>
     <div>
       ${snap ? `<button class="btn btn-sm btn-outline-secondary me-2" onclick="validateSnapshot(${g.snapshot_id}, 'validate-g-${g.snapshot_id}')"><i class="bi bi-check-circle me-1"></i>Validate</button>` : ''}
-      ${snap ? `<button class="btn btn-sm btn-outline-warning" onclick="revertToGroup(${g.id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM to Group</button>` : ''}
+      ${snap ? `<button class="btn btn-sm btn-outline-warning me-2" onclick="revertToGroup(${g.id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM to Group</button>` : ''}
+      <button class="btn btn-sm btn-outline-danger" onclick="deleteGroup(${g.id}, '${escHtml(g.name)}', ${subCount})"><i class="bi bi-trash me-1"></i>Delete Group</button>
     </div>
   `;
   document.getElementById('profile-data-card').classList.add('d-none');
@@ -480,7 +494,8 @@ function showSubgroupDetail(sg) {
     </table>
     <div>
       ${snap ? `<button class="btn btn-sm btn-outline-secondary me-2" onclick="validateSnapshot(${sg.snapshot_id}, 'validate-sg-${sg.snapshot_id}')"><i class="bi bi-check-circle me-1"></i>Validate</button>` : ''}
-      ${snap ? `<button class="btn btn-sm btn-outline-warning" onclick="revertSnapshot(${sg.snapshot_id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM</button>` : ''}
+      ${snap ? `<button class="btn btn-sm btn-outline-warning me-2" onclick="revertSnapshot(${sg.snapshot_id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert VM</button>` : ''}
+      <button class="btn btn-sm btn-outline-danger" onclick="deleteSubgroup(${sg.id}, '${escHtml(sg.name)}')"><i class="bi bi-trash me-1"></i>Delete Subgroup</button>
     </div>
   `;
   document.getElementById('profile-data-card').classList.add('d-none');
@@ -947,6 +962,85 @@ async function deleteSnapshot(snapId) {
     showToast('Snapshot deleted');
     await loadAll();
   } catch (e) { showToast('Delete failed: ' + e.message, 'danger'); }
+}
+
+// ===========================================================================
+// Delete Group / Subgroup
+// ===========================================================================
+
+async function deleteGroup(groupId, groupName, subCount) {
+  if (subCount > 0) {
+    if (!confirm(`Group "${groupName}" has ${subCount} subgroup(s). Deleting the group will also delete all subgroups and unlink their snapshots. Continue?`)) return;
+  } else {
+    if (!confirm(`Delete group "${groupName}"? The linked snapshot will NOT be deleted from the hypervisor.`)) return;
+  }
+  try {
+    await API.delete(`/api/servers/${_selectedServerId}/snapshot-baselines/${groupId}`);
+    showToast('Group deleted');
+    _selectedGroupId = null;
+    _selectedSubgroupId = null;
+    resetDetail();
+    document.getElementById('subgroups-card').style.display = 'none';
+    document.getElementById('snapshots-card').style.display = 'none';
+    await loadAll();
+  } catch (e) { showToast('Delete failed: ' + e.message, 'danger'); }
+}
+
+async function deleteSubgroup(sgId, sgName) {
+  if (!confirm(`Delete subgroup "${sgName}"? Snapshots in this subgroup will become unassigned.`)) return;
+  try {
+    await API.delete(`/api/servers/${_selectedServerId}/snapshot-groups/${sgId}`);
+    showToast('Subgroup deleted');
+    _selectedSubgroupId = null;
+    document.getElementById('snapshots-card').style.display = 'none';
+    resetDetail();
+    await loadAll();
+    // Re-select group to refresh subgroups
+    const g = _groups.find(b => b.id === _selectedGroupId);
+    if (g) selectGroup(g);
+  } catch (e) { showToast('Delete failed: ' + e.message, 'danger'); }
+}
+
+// ===========================================================================
+// Unassigned Snapshots
+// ===========================================================================
+
+function toggleUnassigned() {
+  const el = document.getElementById('unassigned-container');
+  const ch = document.getElementById('unassigned-chevron');
+  el.classList.toggle('show');
+  ch.className = el.classList.contains('show') ? 'bi bi-chevron-up float-end' : 'bi bi-chevron-down float-end';
+}
+
+function renderUnassigned() {
+  // Snapshots that are not archived and have no group_id
+  const unassigned = _snapshots.filter(s => !s.is_archived && !s.group_id);
+  const card = document.getElementById('unassigned-card');
+  const countBadge = document.getElementById('unassigned-count');
+  countBadge.textContent = unassigned.length;
+
+  if (unassigned.length > 0) {
+    card.style.display = '';
+  } else {
+    card.style.display = 'none';
+    return;
+  }
+
+  const container = document.getElementById('unassigned-container');
+  container.innerHTML = '';
+  unassigned.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'px-3 py-2 border-bottom snap-tree-node';
+    div.style.cssText = 'cursor:pointer; font-size:.85rem;';
+    div.innerHTML = `
+      <i class="bi bi-camera text-muted me-1"></i>
+      ${escHtml(s.name)}
+      <code class="ms-1 text-muted" style="font-size:.75rem">${escHtml(s.provider_snapshot_id)}</code>
+      ${s.is_baseline ? ' <span class="badge bg-success" style="font-size:.6rem">baseline</span>' : ''}
+    `;
+    div.onclick = () => showSnapshotDetail(s);
+    container.appendChild(div);
+  });
 }
 </script>
 {% endblock %}

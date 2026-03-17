@@ -62,6 +62,8 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/templates/admin/dashboard.html": "orchestrator/src/orchestrator/templates/admin/dashboard.html",
     "orchestrator/src/orchestrator/templates/base.html": "orchestrator/src/orchestrator/templates/base.html",
     "orchestrator/src/orchestrator/templates/login.html": "orchestrator/src/orchestrator/templates/login.html",
+    "orchestrator/src/orchestrator/templates/baseline_tests/create.html": "orchestrator/src/orchestrator/templates/baseline_tests/create.html",
+    "orchestrator/src/orchestrator/templates/snapshots/manager.html": "orchestrator/src/orchestrator/templates/snapshots/manager.html",
     # Core
     "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
     "orchestrator/src/orchestrator/core/baseline_execution.py": "orchestrator/src/orchestrator/core/baseline_execution.py",

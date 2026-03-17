@@ -32,6 +32,7 @@ const API = {
   post(p,b) { return API.request('POST', p, b); },
   put(p,b)  { return API.request('PUT', p, b); },
   del(p)    { return API.request('DELETE', p); },
+  delete(p) { return API.request('DELETE', p); },
 };
 
 // ---- Logout ----

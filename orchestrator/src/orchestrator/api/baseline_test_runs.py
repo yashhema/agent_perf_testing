@@ -657,6 +657,37 @@ def revert_to_baseline(
     return {"message": f"VM reverted to baseline '{baseline.name}'"}
 
 
+@snapshot_router.delete(
+    "/{server_id}/snapshot-baselines/{baseline_id}",
+)
+def delete_snapshot_baseline(
+    server_id: int,
+    baseline_id: int,
+    session: Session = Depends(get_session),
+):
+    """Delete a group and all its subgroups. Snapshots are unlinked, not deleted."""
+    server = session.get(ServerORM, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    baseline = session.get(SnapshotBaselineORM, baseline_id)
+    if not baseline or baseline.server_id != server_id:
+        raise HTTPException(status_code=404, detail="Group not found for this server")
+
+    # Unlink all snapshots from subgroups under this group
+    subgroups = session.query(SnapshotGroupORM).filter(
+        SnapshotGroupORM.baseline_id == baseline_id,
+    ).all()
+    for sg in subgroups:
+        session.query(SnapshotORM).filter(
+            SnapshotORM.group_id == sg.id,
+        ).update({"group_id": None})
+        session.delete(sg)
+
+    session.delete(baseline)
+    session.commit()
+    return {"message": f"Group '{baseline.name}' deleted"}
+
+
 # ===========================================================================
 # Snapshot Group Endpoints
 # ===========================================================================
@@ -756,6 +787,36 @@ def create_snapshot_group(
     session.commit()
     session.refresh(group)
     return group
+
+
+@snapshot_router.delete(
+    "/{server_id}/snapshot-groups/{group_id}",
+)
+def delete_snapshot_group(
+    server_id: int,
+    group_id: int,
+    session: Session = Depends(get_session),
+):
+    """Delete a subgroup. Snapshots in the subgroup become unassigned."""
+    server = session.get(ServerORM, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    group = session.get(SnapshotGroupORM, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Snapshot group not found")
+    # Verify it belongs to this server
+    baseline = session.get(SnapshotBaselineORM, group.baseline_id)
+    if not baseline or baseline.server_id != server_id:
+        raise HTTPException(status_code=404, detail="Group not found for this server")
+
+    # Unlink snapshots
+    session.query(SnapshotORM).filter(
+        SnapshotORM.group_id == group_id,
+    ).update({"group_id": None})
+
+    session.delete(group)
+    session.commit()
+    return {"message": f"Subgroup '{group.name}' deleted"}
 
 
 @snapshot_router.get(
