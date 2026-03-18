@@ -167,7 +167,23 @@ class PackageResolver:
 
 
 class PackageDeployer:
-    """Deploy resolved packages to target servers via SSH/WinRM."""
+    """Deploy resolved packages to target servers via SSH/WinRM.
+
+    Args:
+        use_sudo: If True (default), prefix Linux commands with sudo and
+                  upload via /tmp + sudo mv (SFTP can't write to /opt as
+                  non-root). Set False if SSH user is root or target dirs
+                  are user-writable.
+    """
+
+    def __init__(self, use_sudo: bool = True):
+        self._use_sudo = use_sudo
+
+    def _sudo(self, cmd: str) -> str:
+        """Prefix a command with sudo if use_sudo is enabled."""
+        if self._use_sudo:
+            return f"sudo {cmd}"
+        return cmd
 
     def deploy(self, executor: RemoteExecutor, package: ResolvedPackage) -> None:
         """Deploy a single resolved package to a target server.
@@ -188,16 +204,29 @@ class PackageDeployer:
         rip = package.root_install_path
         if rip.startswith("/"):
             remote_parent = rip.rsplit("/", 1)[0]
-            executor.execute(f"mkdir -p {remote_parent}")
+            executor.execute(self._sudo(f"mkdir -p {remote_parent}"))
+            if self._use_sudo:
+                # SFTP runs as SSH user — upload to /tmp first, then sudo mv
+                remote_filename = rip.rsplit("/", 1)[1]
+                tmp_path = f"/tmp/_pkg_upload_{remote_filename}"
+                executor.upload(package.path, tmp_path)
+                result = executor.execute(f"sudo mv {tmp_path} {rip} && sudo chmod 644 {rip}")
+                if not result.success:
+                    raise RuntimeError(
+                        f"Failed to move uploaded package to {rip}: {result.stderr}"
+                    )
+            else:
+                executor.upload(package.path, package.root_install_path)
         elif "\\" in rip:
             remote_parent = rip.rsplit("\\", 1)[0]
             executor.execute(f'powershell -Command "New-Item -ItemType Directory -Force -Path \'{remote_parent}\'"')
-        executor.upload(package.path, package.root_install_path)
+            executor.upload(package.path, package.root_install_path)
 
         # Step 2: Extract
         if package.extraction_command:
-            logger.info("Extracting: %s", package.extraction_command)
-            result = executor.execute(package.extraction_command)
+            extract_cmd = self._sudo(package.extraction_command) if rip.startswith("/") else package.extraction_command
+            logger.info("Extracting: %s", extract_cmd)
+            result = executor.execute(extract_cmd)
             if not result.success:
                 raise RuntimeError(
                     f"Package extraction failed for '{package.group_name}': {result.stderr}"
@@ -209,8 +238,9 @@ class PackageDeployer:
 
         # Step 4: Install
         if package.install_command:
-            logger.info("Installing: %s", package.install_command)
-            result = executor.execute(package.install_command)
+            install_cmd = self._sudo(package.install_command) if rip.startswith("/") else package.install_command
+            logger.info("Installing: %s", install_cmd)
+            result = executor.execute(install_cmd)
             if not result.success:
                 raise RuntimeError(
                     f"Package install failed for '{package.group_name}': {result.stderr}"
@@ -228,8 +258,10 @@ class PackageDeployer:
         if not package.uninstall_command:
             logger.warning("No uninstall command for '%s'", package.group_name)
             return
-        logger.info("Uninstalling: %s", package.uninstall_command)
-        result = executor.execute(package.uninstall_command)
+        rip = package.root_install_path
+        uninstall_cmd = self._sudo(package.uninstall_command) if rip.startswith("/") else package.uninstall_command
+        logger.info("Uninstalling: %s", uninstall_cmd)
+        result = executor.execute(uninstall_cmd)
         if not result.success:
             logger.warning("Uninstall warning for '%s': %s", package.group_name, result.stderr)
 
@@ -255,7 +287,7 @@ class PackageDeployer:
             run_cmd = f"powershell -ExecutionPolicy Bypass -File \"{remote_path}\""
         else:
             remote_path = f"/tmp/prereq_{script_name}"
-            run_cmd = f"chmod +x {remote_path} && {remote_path}"
+            run_cmd = self._sudo(f"chmod +x {remote_path} && {remote_path}")
 
         logger.info(
             "Running prerequisite script '%s' for package '%s'",
