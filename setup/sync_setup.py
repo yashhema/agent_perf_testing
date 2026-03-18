@@ -92,6 +92,8 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/infra/remote_executor.py": "orchestrator/src/orchestrator/infra/remote_executor.py",
     "orchestrator/src/orchestrator/infra/emulator_client.py": "orchestrator/src/orchestrator/infra/emulator_client.py",
     "orchestrator/src/orchestrator/infra/jmeter_controller.py": "orchestrator/src/orchestrator/infra/jmeter_controller.py",
+    # Services
+    "orchestrator/src/orchestrator/services/package_manager.py": "orchestrator/src/orchestrator/services/package_manager.py",
     # App + CLI
     "orchestrator/src/orchestrator/app.py": "orchestrator/src/orchestrator/app.py",
     "orchestrator/src/orchestrator/cli.py": "orchestrator/src/orchestrator/cli.py",
