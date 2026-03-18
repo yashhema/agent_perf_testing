@@ -100,6 +100,61 @@ ORCHESTRATOR_FILES = {
     "orchestrator/config/orchestrator.yaml": "orchestrator/config/orchestrator.yaml",
 }
 
+EMULATOR_JAVA_FILES = {
+    "emulator_java/pom.xml": "emulator_java/pom.xml",
+    "emulator_java/start.sh": "emulator_java/start.sh",
+    "emulator_java/start.ps1": "emulator_java/start.ps1",
+    "emulator_java/src/main/resources/application.yml": "emulator_java/src/main/resources/application.yml",
+    "emulator_java/src/main/java/com/emulator/EmulatorApplication.java": "emulator_java/src/main/java/com/emulator/EmulatorApplication.java",
+    # Config
+    "emulator_java/src/main/java/com/emulator/config/JacksonConfig.java": "emulator_java/src/main/java/com/emulator/config/JacksonConfig.java",
+    "emulator_java/src/main/java/com/emulator/config/WebConfig.java": "emulator_java/src/main/java/com/emulator/config/WebConfig.java",
+    # Controllers
+    "emulator_java/src/main/java/com/emulator/controller/AgentController.java": "emulator_java/src/main/java/com/emulator/controller/AgentController.java",
+    "emulator_java/src/main/java/com/emulator/controller/ConfigController.java": "emulator_java/src/main/java/com/emulator/controller/ConfigController.java",
+    "emulator_java/src/main/java/com/emulator/controller/HealthController.java": "emulator_java/src/main/java/com/emulator/controller/HealthController.java",
+    "emulator_java/src/main/java/com/emulator/controller/LogsController.java": "emulator_java/src/main/java/com/emulator/controller/LogsController.java",
+    "emulator_java/src/main/java/com/emulator/controller/OperationsController.java": "emulator_java/src/main/java/com/emulator/controller/OperationsController.java",
+    "emulator_java/src/main/java/com/emulator/controller/StatsController.java": "emulator_java/src/main/java/com/emulator/controller/StatsController.java",
+    "emulator_java/src/main/java/com/emulator/controller/TestsController.java": "emulator_java/src/main/java/com/emulator/controller/TestsController.java",
+    # Request models
+    "emulator_java/src/main/java/com/emulator/model/request/AgentInstallRequest.java": "emulator_java/src/main/java/com/emulator/model/request/AgentInstallRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/AgentServiceRequest.java": "emulator_java/src/main/java/com/emulator/model/request/AgentServiceRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/AgentUninstallRequest.java": "emulator_java/src/main/java/com/emulator/model/request/AgentUninstallRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/ConfigRequest.java": "emulator_java/src/main/java/com/emulator/model/request/ConfigRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/CpuRequest.java": "emulator_java/src/main/java/com/emulator/model/request/CpuRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/DiskRequest.java": "emulator_java/src/main/java/com/emulator/model/request/DiskRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/FileOperationRequest.java": "emulator_java/src/main/java/com/emulator/model/request/FileOperationRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/MemRequest.java": "emulator_java/src/main/java/com/emulator/model/request/MemRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/NetRequest.java": "emulator_java/src/main/java/com/emulator/model/request/NetRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/NetworkClientRequest.java": "emulator_java/src/main/java/com/emulator/model/request/NetworkClientRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/NetworkServerRequest.java": "emulator_java/src/main/java/com/emulator/model/request/NetworkServerRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/PoolRequest.java": "emulator_java/src/main/java/com/emulator/model/request/PoolRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/StartTestRequest.java": "emulator_java/src/main/java/com/emulator/model/request/StartTestRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/StopTestRequest.java": "emulator_java/src/main/java/com/emulator/model/request/StopTestRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/SuspiciousRequest.java": "emulator_java/src/main/java/com/emulator/model/request/SuspiciousRequest.java",
+    "emulator_java/src/main/java/com/emulator/model/request/WorkRequest.java": "emulator_java/src/main/java/com/emulator/model/request/WorkRequest.java",
+    # Response models
+    "emulator_java/src/main/java/com/emulator/model/response/FileOperationResult.java": "emulator_java/src/main/java/com/emulator/model/response/FileOperationResult.java",
+    "emulator_java/src/main/java/com/emulator/model/response/OperationResult.java": "emulator_java/src/main/java/com/emulator/model/response/OperationResult.java",
+    "emulator_java/src/main/java/com/emulator/model/response/PoolResponse.java": "emulator_java/src/main/java/com/emulator/model/response/PoolResponse.java",
+    "emulator_java/src/main/java/com/emulator/model/response/TestStatusResponse.java": "emulator_java/src/main/java/com/emulator/model/response/TestStatusResponse.java",
+    # Services
+    "emulator_java/src/main/java/com/emulator/service/AgentService.java": "emulator_java/src/main/java/com/emulator/service/AgentService.java",
+    "emulator_java/src/main/java/com/emulator/service/ConfigService.java": "emulator_java/src/main/java/com/emulator/service/ConfigService.java",
+    "emulator_java/src/main/java/com/emulator/service/CpuBurnService.java": "emulator_java/src/main/java/com/emulator/service/CpuBurnService.java",
+    "emulator_java/src/main/java/com/emulator/service/DiskOperationService.java": "emulator_java/src/main/java/com/emulator/service/DiskOperationService.java",
+    "emulator_java/src/main/java/com/emulator/service/FileOperationService.java": "emulator_java/src/main/java/com/emulator/service/FileOperationService.java",
+    "emulator_java/src/main/java/com/emulator/service/MemoryPoolService.java": "emulator_java/src/main/java/com/emulator/service/MemoryPoolService.java",
+    "emulator_java/src/main/java/com/emulator/service/NetworkClientService.java": "emulator_java/src/main/java/com/emulator/service/NetworkClientService.java",
+    "emulator_java/src/main/java/com/emulator/service/NetworkOperationService.java": "emulator_java/src/main/java/com/emulator/service/NetworkOperationService.java",
+    "emulator_java/src/main/java/com/emulator/service/StatsCollectorService.java": "emulator_java/src/main/java/com/emulator/service/StatsCollectorService.java",
+    "emulator_java/src/main/java/com/emulator/service/SuspiciousOperationService.java": "emulator_java/src/main/java/com/emulator/service/SuspiciousOperationService.java",
+    "emulator_java/src/main/java/com/emulator/service/TestManagerService.java": "emulator_java/src/main/java/com/emulator/service/TestManagerService.java",
+    # Util
+    "emulator_java/src/main/java/com/emulator/util/PlatformUtil.java": "emulator_java/src/main/java/com/emulator/util/PlatformUtil.java",
+}
+
 ROOT_FILES = {
     "run_test.py": "run_test.py",
     "test_cases/example_5server_steady.yaml": "test_cases/example_5server_steady.yaml",
@@ -180,6 +235,7 @@ def main():
     all_files.update(SETUP_FILES)
     all_files.update(TESTER_FILES)
     all_files.update(ORCHESTRATOR_FILES)
+    all_files.update(EMULATOR_JAVA_FILES)
     all_files.update(ROOT_FILES)
 
     if args.list:
@@ -193,8 +249,8 @@ def main():
     print(f"Repo path:    {repo_path}")
     print(f"Source:       {RAW_BASE}")
     print(f"Files:        {len(all_files)} total ({len(SETUP_FILES)} setup, "
-          f"{len(ORCHESTRATOR_FILES)} orchestrator, {len(TESTER_FILES)} testers, "
-          f"{len(ROOT_FILES)} root)")
+          f"{len(ORCHESTRATOR_FILES)} orchestrator, {len(EMULATOR_JAVA_FILES)} emulator_java, "
+          f"{len(TESTER_FILES)} testers, {len(ROOT_FILES)} root)")
     print()
 
     updated = 0
