@@ -55,9 +55,43 @@ logger = logging.getLogger(__name__)
 class BaselineOrchestrator:
     """Orchestrates baseline-compare test runs with multi-target support."""
 
+    # Phase ordering for target states — higher number = further along.
+    # Used by retry logic to skip targets already past a phase.
+    TARGET_PHASE_ORDER = {
+        BaselineTargetState.pending: 0,
+        BaselineTargetState.setting_up: 1,
+        BaselineTargetState.calibrating: 2,
+        BaselineTargetState.generating: 3,
+        BaselineTargetState.executing: 4,
+        BaselineTargetState.storing: 5,
+        BaselineTargetState.comparing: 6,
+        BaselineTargetState.completed: 7,
+        BaselineTargetState.failed: -1,
+        BaselineTargetState.skipped: -1,
+    }
+
+    # Map target phase → run state (for figuring out which run state to resume from)
+    TARGET_TO_RUN_STATE = {
+        BaselineTargetState.pending: BaselineTestState.validating,
+        BaselineTargetState.setting_up: BaselineTestState.setting_up,
+        BaselineTargetState.calibrating: BaselineTestState.calibrating,
+        BaselineTargetState.generating: BaselineTestState.generating,
+        BaselineTargetState.executing: BaselineTestState.executing,
+        BaselineTargetState.storing: BaselineTestState.storing,
+        BaselineTargetState.comparing: BaselineTestState.comparing,
+        BaselineTargetState.completed: BaselineTestState.completed,
+    }
+
     def __init__(self, config: AppConfig, credentials: CredentialsStore):
         self._config = config
         self._credentials = credentials
+
+    @classmethod
+    def target_past_phase(cls, target_orm: BaselineTestRunTargetORM, phase: BaselineTargetState) -> bool:
+        """Return True if this target has already completed the given phase."""
+        target_order = cls.TARGET_PHASE_ORDER.get(target_orm.state, -1)
+        phase_order = cls.TARGET_PHASE_ORDER.get(phase, 0)
+        return target_order > phase_order
 
     def run(self, session: Session, baseline_test_id: int) -> None:
         """Execute a baseline-compare test run through all states until terminal."""
@@ -337,9 +371,10 @@ class BaselineOrchestrator:
             finally:
                 loadgen_exec.close()
 
-        # --- Set all target states to setting_up ---
+        # --- Set target states to setting_up (skip already-past targets) ---
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
-            self._set_target_state(session, target_orm, BaselineTargetState.setting_up)
+            if not self.target_past_phase(target_orm, BaselineTargetState.setting_up):
+                self._set_target_state(session, target_orm, BaselineTargetState.setting_up)
 
         # --- Target setup (all targets — PARALLEL) ---
         def _setup_one_target(target_tuple):
@@ -442,9 +477,12 @@ class BaselineOrchestrator:
             finally:
                 thread_session.close()
 
-        # Prepare plain data tuples (no ORM objects across threads)
+        # Prepare plain data tuples (skip targets already past setup)
         setup_tasks = []
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            if self.target_past_phase(target_orm, BaselineTargetState.setting_up):
+                logger.info("Skipping target %s in setup (already at %s)", server.hostname, target_orm.state.value)
+                continue
             setup_tasks.append((
                 target_orm.id,
                 server.id,
@@ -724,11 +762,14 @@ class BaselineOrchestrator:
             finally:
                 thread_session.close()
 
-        # Prepare plain data tuples for each target (skip already-failed)
+        # Prepare plain data tuples (skip failed OR already past calibration)
         cal_tasks = []
         for target_orm, server, loadgen, test_snapshot, _ in targets:
             if target_orm.state == BaselineTargetState.failed:
                 logger.info("Skipping failed target %s in calibration", server.hostname)
+                continue
+            if self.target_past_phase(target_orm, BaselineTargetState.calibrating):
+                logger.info("Skipping target %s in calibration (already at %s)", server.hostname, target_orm.state.value)
                 continue
             lp_data = []
             for lp in load_profiles:
@@ -755,9 +796,9 @@ class BaselineOrchestrator:
         if not cal_tasks:
             raise RuntimeError("All targets failed before calibration — nothing to calibrate")
 
-        # Set target states to calibrating
+        # Set target states to calibrating (skip already-past targets)
         for target_orm, server, loadgen, test_snapshot, _ in targets:
-            if target_orm.state != BaselineTargetState.failed:
+            if target_orm.state != BaselineTargetState.failed and not self.target_past_phase(target_orm, BaselineTargetState.calibrating):
                 self._set_target_state(session, target_orm, BaselineTargetState.calibrating)
 
         # Build hostname -> target_orm mapping for per-target failure tracking
@@ -891,11 +932,14 @@ class BaselineOrchestrator:
             finally:
                 thread_session.close()
 
-        # Prepare plain data tuples (skip already-failed targets)
+        # Prepare plain data tuples (skip failed OR already past generation)
         gen_tasks = []
         for target_orm, server, loadgen, test_snapshot, _ in targets:
             if target_orm.state == BaselineTargetState.failed:
                 logger.info("Skipping failed target %s in generation", server.hostname)
+                continue
+            if self.target_past_phase(target_orm, BaselineTargetState.generating):
+                logger.info("Skipping target %s in generation (already at %s)", server.hostname, target_orm.state.value)
                 continue
             lp_data = []
             for lp in load_profiles:
@@ -913,9 +957,9 @@ class BaselineOrchestrator:
         if not gen_tasks:
             raise RuntimeError("All targets failed before generation — nothing to generate")
 
-        # Set target states to generating
+        # Set target states to generating (skip already-past targets)
         for target_orm, server, loadgen, test_snapshot, _ in targets:
-            if target_orm.state != BaselineTargetState.failed:
+            if target_orm.state != BaselineTargetState.failed and not self.target_past_phase(target_orm, BaselineTargetState.generating):
                 self._set_target_state(session, target_orm, BaselineTargetState.generating)
 
         gen_hostname_to_target = {
@@ -962,16 +1006,19 @@ class BaselineOrchestrator:
         lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
         needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
 
-        # Set target states to executing (skip already-failed targets)
+        # Set target states to executing (skip failed or already-past)
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
-            if target_orm.state != BaselineTargetState.failed:
+            if target_orm.state != BaselineTargetState.failed and not self.target_past_phase(target_orm, BaselineTargetState.executing):
                 self._set_target_state(session, target_orm, BaselineTargetState.executing)
 
-        # Build per-target thread_counts and jmx_data_paths (skip failed targets)
+        # Build per-target thread_counts and jmx_data_paths (skip failed or already-past)
         target_configs = []
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
             if target_orm.state == BaselineTargetState.failed:
                 logger.info("Skipping failed target %s in execution", server.hostname)
+                continue
+            if self.target_past_phase(target_orm, BaselineTargetState.executing):
+                logger.info("Skipping target %s in execution (already at %s)", server.hostname, target_orm.state.value)
                 continue
             thread_counts: Dict[int, int] = {}
             jmx_data_paths: Dict[int, str] = {}
@@ -1074,6 +1121,9 @@ class BaselineOrchestrator:
             if target_orm.state == BaselineTargetState.failed:
                 logger.info("Skipping failed target %s in comparison", server.hostname)
                 continue
+            if self.target_past_phase(target_orm, BaselineTargetState.comparing):
+                logger.info("Skipping target %s in comparison (already at %s)", server.hostname, target_orm.state.value)
+                continue
             self._set_target_state(session, target_orm, BaselineTargetState.comparing)
 
             # Reload execution results from disk if not in memory
@@ -1146,6 +1196,9 @@ class BaselineOrchestrator:
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
             if target_orm.state == BaselineTargetState.failed:
                 logger.info("Skipping failed target %s in storing", server.hostname)
+                continue
+            if self.target_past_phase(target_orm, BaselineTargetState.storing):
+                logger.info("Skipping target %s in storing (already at %s)", server.hostname, target_orm.state.value)
                 continue
             self._set_target_state(session, target_orm, BaselineTargetState.storing)
 

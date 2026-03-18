@@ -201,6 +201,90 @@ def start_baseline_test_run(run_id: int, session: Session = Depends(get_session)
     return {"message": f"Baseline test run {run_id} started", "state": test_run.state.value}
 
 
+@router.post("/{run_id}/retry")
+def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)):
+    """Retry a failed baseline test run from where it left off.
+
+    Resets failed targets back to pending, determines the earliest
+    incomplete phase, sets the run state to that phase, and starts
+    execution in background. Targets that already completed a phase
+    will skip it on retry.
+    """
+    test_run = session.get(BaselineTestRunORM, run_id)
+    if not test_run:
+        raise HTTPException(status_code=404, detail="Baseline test run not found")
+    if test_run.state != BaselineTestState.failed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot retry: current state is '{test_run.state.value}' (must be 'failed')",
+        )
+
+    from orchestrator.core.baseline_orchestrator import BaselineOrchestrator
+    from orchestrator.models.enums import BaselineTargetState
+
+    # Reset failed targets to pending
+    targets = session.query(BaselineTestRunTargetORM).filter(
+        BaselineTestRunTargetORM.baseline_test_run_id == test_run.id,
+    ).all()
+
+    reset_count = 0
+    for t in targets:
+        if t.state == BaselineTargetState.failed:
+            t.state = BaselineTargetState.pending
+            t.error_message = None
+            reset_count += 1
+
+    # Find the earliest phase we need to resume from.
+    # Look at all non-completed targets and find the lowest phase.
+    RUN_STATE_ORDER = {
+        BaselineTestState.validating: 0,
+        BaselineTestState.setting_up: 1,
+        BaselineTestState.calibrating: 2,
+        BaselineTestState.generating: 3,
+        BaselineTestState.executing: 4,
+        BaselineTestState.storing: 5,
+        BaselineTestState.comparing: 6,
+        BaselineTestState.completed: 7,
+    }
+
+    # Map target states to run states for determining resume point
+    earliest_run_state = BaselineTestState.completed
+    earliest_order = 7
+    for t in targets:
+        run_state = BaselineOrchestrator.TARGET_TO_RUN_STATE.get(t.state)
+        if run_state and RUN_STATE_ORDER.get(run_state, 7) < earliest_order:
+            earliest_order = RUN_STATE_ORDER[run_state]
+            earliest_run_state = run_state
+
+    # Set run state to resume point
+    test_run.state = earliest_run_state
+    test_run.error_message = None
+    session.commit()
+
+    # Start in background
+    def _run_in_background(test_run_id: int):
+        from orchestrator.app import app_config, credentials
+        db_session = SessionLocal()
+        try:
+            orchestrator = BaselineOrchestrator(app_config, credentials)
+            orchestrator.run(db_session, test_run_id)
+        finally:
+            db_session.close()
+
+    thread = threading.Thread(
+        target=_run_in_background,
+        args=(run_id,),
+        daemon=True,
+    )
+    thread.start()
+
+    return {
+        "message": f"Retrying baseline test run {run_id} from '{earliest_run_state.value}'",
+        "reset_targets": reset_count,
+        "resume_state": earliest_run_state.value,
+    }
+
+
 @router.post("/{run_id}/cancel")
 def cancel_baseline_test_run(run_id: int, session: Session = Depends(get_session)):
     """Cancel a running baseline test run."""

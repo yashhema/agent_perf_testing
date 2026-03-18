@@ -214,6 +214,9 @@ function renderHeader() {
   if (!['completed','cancelled','failed'].includes(_run.state)) {
     actions += `<button class="btn btn-sm btn-danger" onclick="doAction('cancel')"><i class="bi bi-x-circle"></i></button>`;
   }
+  if (_run.state === 'failed') {
+    actions += `<button class="btn btn-sm btn-warning me-1" onclick="doAction('retry')"><i class="bi bi-arrow-repeat me-1"></i>Retry</button>`;
+  }
   if (_run.state === 'completed') {
     actions += `<a href="/baseline-tests/${RUN_ID}/results" class="btn btn-sm btn-info"><i class="bi bi-bar-chart me-1"></i>Results</a>`;
   }
