@@ -86,6 +86,29 @@ class BaselineOrchestrator:
         self._config = config
         self._credentials = credentials
 
+    @staticmethod
+    def _sudo_upload(executor, local_path: str, remote_path: str) -> None:
+        """Upload a file via SFTP to /tmp, then sudo mv to final path.
+        For Windows paths (backslash), uploads directly (no sudo needed).
+        """
+        if remote_path.startswith("/"):
+            import os
+            filename = os.path.basename(remote_path)
+            tmp = f"/tmp/_upload_{filename}"
+            remote_dir = remote_path.rsplit("/", 1)[0]
+            executor.execute(f"sudo mkdir -p {remote_dir}")
+            executor.upload(local_path, tmp)
+            result = executor.execute(f"sudo mv {tmp} {remote_path} && sudo chmod 644 {remote_path}")
+            if not result.success:
+                raise RuntimeError(f"sudo mv failed for {remote_path}: {result.stderr}")
+        else:
+            executor.upload(local_path, remote_path)
+
+    @staticmethod
+    def _sudo_exec(executor, cmd: str):
+        """Execute a command with sudo prefix (Linux only)."""
+        return executor.execute(f"sudo {cmd}")
+
     @classmethod
     def target_past_phase(cls, target_orm: BaselineTestRunTargetORM, phase: BaselineTargetState) -> bool:
         """Return True if this target has already completed the given phase."""
@@ -319,8 +342,9 @@ class BaselineOrchestrator:
                         # Start emulator on loadgen (for /networkserver endpoint)
                         for pkg in emu_packages:
                             if pkg.run_command:
-                                logger.info("Starting emulator on loadgen %s: %s", loadgen.hostname, pkg.run_command)
-                                result = loadgen_exec.execute(pkg.run_command, timeout_sec=60)
+                                lg_start_cmd = f"sudo {pkg.run_command}" if loadgen.os_family.value != "windows" else pkg.run_command
+                                logger.info("Starting emulator on loadgen %s: %s", loadgen.hostname, lg_start_cmd)
+                                result = loadgen_exec.execute(lg_start_cmd, timeout_sec=60)
                                 if not result.success:
                                     logger.warning(
                                         "Emulator start on loadgen %s failed (non-fatal): %s",
@@ -341,18 +365,18 @@ class BaselineOrchestrator:
             )
             try:
                 run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
-                loadgen_exec.execute(f"mkdir -p {run_dir}")
+                self._sudo_exec(loadgen_exec, f"mkdir -p {run_dir}")
 
                 # Deploy JMX template
                 jmx_template_name = f"{scenario.template_type.value}.jmx"
                 artifacts_dir = Path(self._config.artifacts_dir)
                 local_jmx = str(artifacts_dir / "jmx" / jmx_template_name)
-                loadgen_exec.upload(local_jmx, f"{run_dir}/test.jmx")
+                self._sudo_upload(loadgen_exec, local_jmx, f"{run_dir}/test.jmx")
 
                 # Deploy kill script (once — shared location for all targets)
                 local_kill_script = str(artifacts_dir / "scripts" / "jmeter_kill.py")
-                loadgen_exec.upload(local_kill_script, "/opt/jmeter/bin/jmeter_kill.py")
-                loadgen_exec.execute("chmod +x /opt/jmeter/bin/jmeter_kill.py")
+                self._sudo_upload(loadgen_exec, local_kill_script, "/opt/jmeter/bin/jmeter_kill.py")
+                self._sudo_exec(loadgen_exec, "chmod +x /opt/jmeter/bin/jmeter_kill.py")
 
                 # For new_baseline / compare_with_new_calibration: deploy calibration CSV
                 if test_run.test_type in (
@@ -425,8 +449,9 @@ class BaselineOrchestrator:
                         # Start the emulator on each target
                         for pkg in emu_packages:
                             if pkg.run_command:
-                                logger.info("Starting emulator on %s: %s", server_hostname, pkg.run_command)
-                                result = target_exec.execute(pkg.run_command, timeout_sec=60)
+                                start_cmd = f"sudo {pkg.run_command}" if server_os_family != "windows" else pkg.run_command
+                                logger.info("Starting emulator on %s: %s", server_hostname, start_cmd)
+                                result = target_exec.execute(start_cmd, timeout_sec=60)
                                 if not result.success:
                                     raise RuntimeError(
                                         f"Emulator start failed on {server_hostname}: {result.stderr}"
@@ -441,7 +466,7 @@ class BaselineOrchestrator:
                             '"'
                         )
                     else:
-                        target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
+                        target_exec.execute("sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
 
                     # Run discovery -> write to target ORM
                     discovery_dir = Path(__file__).resolve().parent.parent.parent.parent / "discovery"
@@ -556,7 +581,7 @@ class BaselineOrchestrator:
         )
         Path(local_cal).parent.mkdir(parents=True, exist_ok=True)
         cal_gen.write_csv(cal_ops, local_cal)
-        loadgen_exec.upload(local_cal, f"{run_dir}/calibration_ops.csv")
+        self._sudo_upload(loadgen_exec, local_cal, f"{run_dir}/calibration_ops.csv")
 
     def _deploy_stored_jmx_data(
         self,
@@ -574,7 +599,7 @@ class BaselineOrchestrator:
             ).first()
             if profile_data and profile_data.jmx_test_case_data:
                 remote_path = f"{run_dir}/ops_sequence_{lp.name}.csv"
-                loadgen_exec.upload(profile_data.jmx_test_case_data, remote_path)
+                self._sudo_upload(loadgen_exec, profile_data.jmx_test_case_data, remote_path)
                 logger.info(
                     "Deployed stored JMX data for profile '%s' from snapshot '%s'",
                     lp.name, compare_snapshot.name,
@@ -913,7 +938,7 @@ class BaselineOrchestrator:
                         gen.write_csv(ops, local_path)
 
                         remote_path = f"{run_dir}/ops_sequence_{lp_name}.csv"
-                        loadgen_exec.upload(local_path, remote_path)
+                        self._sudo_upload(loadgen_exec, local_path, remote_path)
 
                         logger.info(
                             "Generated ops sequence for server %s: %s (%d rows, threads=%d) profile '%s'",
