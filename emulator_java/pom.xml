@@ -66,6 +66,11 @@
                 <artifactId>plexus-archiver</artifactId>
                 <version>4.9.2</version>
             </dependency>
+            <dependency>
+                <groupId>org.codehaus.plexus</groupId>
+                <artifactId>plexus-utils</artifactId>
+                <version>3.5.1</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>
