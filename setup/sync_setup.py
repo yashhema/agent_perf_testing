@@ -66,6 +66,7 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/templates/baseline_tests/list.html": "orchestrator/src/orchestrator/templates/baseline_tests/list.html",
     "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html": "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html",
     "orchestrator/migrations/restructure_baseline_tests.sql": "orchestrator/migrations/restructure_baseline_tests.sql",
+    "orchestrator/seed_packages.py": "orchestrator/seed_packages.py",
     "orchestrator/src/orchestrator/templates/snapshots/manager.html": "orchestrator/src/orchestrator/templates/snapshots/manager.html",
     # Core
     "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
