@@ -37,8 +37,10 @@ _wizard_*.db-wal
 # Credentials (keep local only)
 orchestrator/config/credentials.json
 
-# Generated/temporary output
-orchestrator/artifacts/
+# Generated/temporary output — keep small files, ignore large binaries
+orchestrator/artifacts/packages/
+!orchestrator/artifacts/jmx/
+!orchestrator/artifacts/scripts/
 orchestrator/generated/
 orchestrator/logs/
 orchestrator/results/

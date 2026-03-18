@@ -43,6 +43,7 @@ SETUP_FILES = {
     "setup/install_postgres.sh": "setup/install_postgres.sh",
     "setup/manage_snapshots.py": "setup/manage_snapshots.py",
     "setup/requirements.txt": "setup/requirements.txt",
+    "setup/build_artifacts.sh": "setup/build_artifacts.sh",
     "setup/servers.csv.example": "setup/servers.csv.example",
     "setup/mycred.txt.example": "setup/mycred.txt.example",
 }
@@ -67,6 +68,12 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html": "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html",
     "orchestrator/migrations/restructure_baseline_tests.sql": "orchestrator/migrations/restructure_baseline_tests.sql",
     "orchestrator/seed_packages.py": "orchestrator/seed_packages.py",
+    # JMX templates + scripts (small files, not binary packages)
+    "orchestrator/artifacts/jmx/server-normal.jmx": "orchestrator/artifacts/jmx/server-normal.jmx",
+    "orchestrator/artifacts/jmx/server-file-heavy.jmx": "orchestrator/artifacts/jmx/server-file-heavy.jmx",
+    "orchestrator/artifacts/jmx/server-steady.jmx": "orchestrator/artifacts/jmx/server-steady.jmx",
+    "orchestrator/artifacts/jmx/server-stress.jmx": "orchestrator/artifacts/jmx/server-stress.jmx",
+    "orchestrator/artifacts/scripts/jmeter_kill.py": "orchestrator/artifacts/scripts/jmeter_kill.py",
     "orchestrator/src/orchestrator/templates/snapshots/manager.html": "orchestrator/src/orchestrator/templates/snapshots/manager.html",
     # Core
     "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
