@@ -29,51 +29,68 @@ from orchestrator.models.orm import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ── Package files (relative to artifacts dir, served at /packages/...) ──
-# These paths match what's in orchestrator/artifacts/packages/
-JMETER_LINUX_PKG = "/packages/jmeter-5.6.3-linux.tar.gz"
-EMULATOR_LINUX_PKG = "/packages/emulator-linux.tar.gz"
-EMULATOR_WINDOWS_PKG = "/packages/emulator-windows.tar.gz"
+# ── Package files (relative to orchestrator working directory) ──
+JMETER_LINUX_PKG = "artifacts/packages/jmeter-5.6.3-linux.tar.gz"
+EMULATOR_JAVA_LINUX_PKG = "artifacts/packages/emulator-java-linux.tar.gz"
+EMULATOR_JAVA_WINDOWS_PKG = "artifacts/packages/emulator-java-windows.tar.gz"
 
 # ── Members to seed ──
+# Modeled after the working entries already in the DB (ids 6-11).
+# Key points:
+#   - path: relative to orchestrator working dir (artifacts/packages/...)
+#   - root_install_path: where the tar.gz is UPLOADED on remote (not final install dir)
+#   - extraction_command: uses the uploaded path, installs tar if missing on RHEL
+#   - run_command: how to start the service after extraction
+#   - status_command: how to check if already installed/running
 MEMBERS = {
     "jmeter-default": [
         {
             "os_match_regex": "rhel/.*",
             "path": JMETER_LINUX_PKG,
-            "root_install_path": "/opt/jmeter",
-            "extraction_command": "mkdir -p /opt/jmeter && tar xzf {file} -C /opt/jmeter --strip-components=1",
+            "root_install_path": "/opt/jmeter-pkg/jmeter-5.6.3-linux.tar.gz",
+            "extraction_command": (
+                "command -v tar >/dev/null || dnf install -y -q tar; "
+                "tar -xzf /opt/jmeter-pkg/jmeter-5.6.3-linux.tar.gz -C /opt "
+                "&& ln -sfn /opt/apache-jmeter-5.6.3 /opt/jmeter"
+            ),
             "install_command": None,
             "run_command": None,  # JMeter is started by orchestrator via JMeterController
             "output_path": None,
-            "uninstall_command": "rm -rf /opt/jmeter",
-            "status_command": "test -f /opt/jmeter/bin/jmeter && echo OK",
+            "uninstall_command": "rm -rf /opt/jmeter /opt/jmeter-pkg /opt/apache-jmeter-5.6.3",
+            "status_command": "test -x /opt/jmeter/bin/jmeter",
             "prereq_script": None,
         },
     ],
     "emulator-default": [
         {
             "os_match_regex": "rhel/.*",
-            "path": EMULATOR_LINUX_PKG,
-            "root_install_path": "/opt/emulator",
-            "extraction_command": "mkdir -p /opt/emulator && tar xzf {file} -C /opt/emulator",
+            "path": EMULATOR_JAVA_LINUX_PKG,
+            "root_install_path": "/opt/emulator-pkg/emulator-java-linux.tar.gz",
+            "extraction_command": (
+                "command -v tar >/dev/null || dnf install -y -q tar; "
+                "mkdir -p /opt/emulator "
+                "&& tar -xzf /opt/emulator-pkg/emulator-java-linux.tar.gz -C /opt/emulator --strip-components=1"
+            ),
             "install_command": None,
-            "run_command": "cd /opt/emulator && nohup ./start.sh > /opt/emulator/emulator.log 2>&1 &",
+            "run_command": "bash /opt/emulator/start.sh",
             "output_path": "/opt/emulator/output",
-            "uninstall_command": "rm -rf /opt/emulator",
-            "status_command": "curl -sf http://localhost:8080/api/v1/health",
+            "uninstall_command": "rm -rf /opt/emulator /opt/emulator-pkg",
+            "status_command": "curl -sf http://localhost:8080/health",
             "prereq_script": None,
         },
         {
             "os_match_regex": "windows/.*",
-            "path": EMULATOR_WINDOWS_PKG,
-            "root_install_path": "C:\\emulator",
-            "extraction_command": "powershell -Command \"Expand-Archive -Path '{file}' -DestinationPath 'C:\\emulator' -Force\"",
+            "path": EMULATOR_JAVA_WINDOWS_PKG,
+            "root_install_path": "C:\\emulator-pkg\\emulator-java-windows.tar.gz",
+            "extraction_command": (
+                "mkdir C:\\emulator 2>nul & "
+                "tar -xzf C:\\emulator-pkg\\emulator-java-windows.tar.gz -C C:\\emulator --strip-components=1"
+            ),
             "install_command": None,
-            "run_command": "powershell -Command \"Start-Process -FilePath 'C:\\emulator\\start.bat' -WindowStyle Hidden\"",
+            "run_command": "powershell -ExecutionPolicy Bypass -File C:\\emulator\\start.ps1",
             "output_path": "C:\\emulator\\output",
-            "uninstall_command": "powershell -Command \"Remove-Item -Recurse -Force 'C:\\emulator'\"",
-            "status_command": "powershell -Command \"(Invoke-WebRequest -Uri http://localhost:8080/api/v1/health -UseBasicParsing).StatusCode\"",
+            "uninstall_command": "powershell -Command \"Remove-Item -Recurse -Force 'C:\\emulator','C:\\emulator-pkg'\"",
+            "status_command": "powershell -Command \"(Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing).StatusCode\"",
             "prereq_script": None,
         },
     ],
