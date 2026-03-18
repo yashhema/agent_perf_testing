@@ -158,6 +158,9 @@ class ServerResponse(BaseModel):
     hostname: str
     ip_address: str
     os_family: OSFamily
+    os_vendor_family: Optional[str] = None
+    os_major_ver: Optional[str] = None
+    os_minor_ver: Optional[str] = None
     lab_id: int
     hardware_profile_id: int
     server_infra_type: ServerInfraType
