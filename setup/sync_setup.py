@@ -70,7 +70,6 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/templates/baseline_tests/list.html": "orchestrator/src/orchestrator/templates/baseline_tests/list.html",
     "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html": "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html",
     "orchestrator/migrations/restructure_baseline_tests.sql": "orchestrator/migrations/restructure_baseline_tests.sql",
-    "orchestrator/migrations/add_phase_split_states.sql": "orchestrator/migrations/add_phase_split_states.sql",
     "orchestrator/migrations/state_machine_redesign.sql": "orchestrator/migrations/state_machine_redesign.sql",
     "orchestrator/migrations/state_machine_redesign_postgres.sql": "orchestrator/migrations/state_machine_redesign_postgres.sql",
     "orchestrator/seed_packages.py": "orchestrator/seed_packages.py",
