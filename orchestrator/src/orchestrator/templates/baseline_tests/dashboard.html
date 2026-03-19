@@ -58,6 +58,17 @@
 <!-- Error display -->
 <div class="alert alert-danger d-none mb-3" id="run-error"></div>
 
+<!-- Sanity check results (full-width, collapsible) -->
+<div class="card shadow-sm mb-4 d-none" id="sanity-panel">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <h6 class="mb-0" id="sanity-header">Sanity Check Results</h6>
+    <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('sanity-panel').classList.add('d-none')">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <div class="card-body p-0" id="sanity-body"></div>
+</div>
+
 <!-- Snapshot info -->
 <div class="card shadow-sm mb-4">
   <div class="card-header"><h6 class="mb-0">Snapshots</h6></div>
@@ -414,35 +425,56 @@ async function runSanityCheck() {
     const result = await API.post('/api/baseline-tests/' + RUN_ID + '/sanity-check');
     const checks = result.checks || [];
     const passed = result.passed;
+    const failCount = checks.filter(c => c.status === 'fail').length;
+    const warnCount = checks.filter(c => c.status === 'warn').length;
 
-    // Build results table
-    let html = `<div class="alert alert-${passed ? 'success' : 'danger'} py-2 mb-2">
-      <strong>${passed ? 'All checks passed' : 'Some checks failed'}</strong> — ${checks.length} checks run
-    </div>
-    <div class="table-responsive" style="max-height:300px; overflow-y:auto">
-    <table class="table table-sm table-bordered mb-0">
-      <thead class="table-light sticky-top"><tr><th>Target</th><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
-      <tbody>`;
+    // Group checks by target
+    const groups = {};
     checks.forEach(c => {
-      const statusBadge = {
-        pass: '<span class="badge bg-success">PASS</span>',
-        fail: '<span class="badge bg-danger">FAIL</span>',
-        warn: '<span class="badge bg-warning text-dark">WARN</span>',
-        info: '<span class="badge bg-info text-dark">INFO</span>',
-      }[c.status] || `<span class="badge bg-secondary">${c.status}</span>`;
-      html += `<tr><td class="small">${escHtml(c.target)}</td><td class="small">${escHtml(c.check)}</td><td>${statusBadge}</td><td class="small">${escHtml(c.detail || '')}</td></tr>`;
+      if (!groups[c.target]) groups[c.target] = [];
+      groups[c.target].push(c);
     });
+
+    let html = `<div class="alert ${passed ? 'alert-success' : 'alert-danger'} mb-0 rounded-0 py-2 px-3">
+      <strong><i class="bi bi-${passed ? 'check-circle' : 'exclamation-triangle'} me-1"></i>
+      ${passed ? 'All checks passed' : failCount + ' check(s) failed'}</strong>
+      <span class="text-muted ms-2">${checks.length} total, ${warnCount} warnings</span>
+    </div>
+    <div class="table-responsive" style="max-height:400px; overflow-y:auto">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light sticky-top">
+        <tr><th style="width:180px">Target</th><th style="width:160px">Check</th><th style="width:60px">Status</th><th>Detail</th></tr>
+      </thead><tbody>`;
+
+    const statusBadges = {
+      pass: '<span class="badge bg-success">PASS</span>',
+      fail: '<span class="badge bg-danger">FAIL</span>',
+      warn: '<span class="badge bg-warning text-dark">WARN</span>',
+      info: '<span class="badge bg-info text-dark">INFO</span>',
+    };
+
+    Object.keys(groups).forEach(target => {
+      groups[target].forEach((c, i) => {
+        const badge = statusBadges[c.status] || `<span class="badge bg-secondary">${c.status}</span>`;
+        const rowClass = c.status === 'fail' ? 'table-danger' : c.status === 'warn' ? 'table-warning' : '';
+        const targetCell = i === 0
+          ? `<td rowspan="${groups[target].length}" class="fw-bold small align-middle">${escHtml(target)}</td>`
+          : '';
+        html += `<tr class="${rowClass}">${targetCell}<td class="small">${escHtml(c.check.replace(/_/g, ' '))}</td><td>${badge}</td><td class="small text-break">${escHtml(c.detail || '')}</td></tr>`;
+      });
+    });
+
     html += '</tbody></table></div>';
 
-    // Show in a panel below the actions
-    let panel = document.getElementById('sanity-results');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'sanity-results';
-      panel.className = 'mt-3';
-      document.getElementById('run-actions').parentElement.appendChild(panel);
-    }
-    panel.innerHTML = `<h6 class="mb-2"><i class="bi bi-shield-check me-1"></i>Sanity Check Results</h6>${html}`;
+    // Show in full-width panel
+    const panel = document.getElementById('sanity-panel');
+    const header = document.getElementById('sanity-header');
+    header.innerHTML = `<i class="bi bi-shield-check me-1"></i>Sanity Check — ${passed ? '<span class="text-success">Passed</span>' : '<span class="text-danger">' + failCount + ' Failed</span>'}`;
+    document.getElementById('sanity-body').innerHTML = html;
+    panel.classList.remove('d-none');
+
+    // Scroll to panel
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     showToast('Sanity check failed: ' + e.message, 'danger');
   } finally {
