@@ -732,6 +732,124 @@ def revert_to_snapshot(
     return {"message": f"VM reverted to snapshot '{snapshot.name}'"}
 
 
+@snapshot_router.post("/{server_id}/snapshots/{snapshot_id}/retake")
+def retake_snapshot(
+    server_id: int,
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+):
+    """Retake a dirty snapshot: revert to parent, cleanup, delete old, take new.
+
+    Updates the EXISTING snapshot record in-place (same ID, same group, same
+    test run references). Only provider_ref and provider_snapshot_id change.
+
+    Flow:
+    1. Revert VM to the snapshot's parent (the clean base)
+    2. Wait for VM ready
+    3. Run cleanup commands on the VM (kill emulator, clean dirs)
+    4. Delete the old snapshot on the hypervisor
+    5. Take a new snapshot with the same name
+    6. Update the existing DB record with new provider_ref/provider_snapshot_id
+    """
+    server = session.get(ServerORM, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    snapshot = session.get(SnapshotORM, snapshot_id)
+    if not snapshot or snapshot.server_id != server_id:
+        raise HTTPException(status_code=404, detail="Snapshot not found for this server")
+    if snapshot.is_archived:
+        raise HTTPException(status_code=400, detail="Cannot retake an archived snapshot")
+
+    # Must have a parent to revert to
+    if not snapshot.parent_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot retake: snapshot has no parent to revert to. "
+                   "This is a root snapshot — take a new one manually.",
+        )
+    parent = session.get(SnapshotORM, snapshot.parent_id)
+    if not parent or parent.is_archived:
+        raise HTTPException(status_code=400, detail="Parent snapshot is missing or archived")
+
+    lab = session.get(LabORM, server.lab_id)
+
+    from orchestrator.app import credentials
+    from orchestrator.services.snapshot_manager import SnapshotManager
+
+    mgr = SnapshotManager(credentials)
+    provider = mgr._get_provider(lab)
+
+    # Step 1: Revert to parent (the clean base)
+    new_ip = provider.restore_snapshot(server.server_infra_ref, parent.provider_ref)
+    provider.wait_for_vm_ready(server.server_infra_ref)
+    if new_ip and new_ip != server.ip_address:
+        server.ip_address = new_ip
+        session.commit()
+
+    # Step 2: Wait for SSH/WinRM
+    from orchestrator.core.baseline_execution import wait_for_ssh
+    wait_for_ssh(server.ip_address, os_family=server.os_family.value, timeout_sec=120)
+
+    # Step 3: Cleanup on the VM
+    from orchestrator.infra.remote_executor import create_executor
+    target_cred = credentials.get_server_credential(server.id, server.os_family.value)
+    executor = create_executor(
+        os_family=server.os_family.value,
+        host=server.ip_address,
+        username=target_cred.username,
+        password=target_cred.password,
+    )
+    try:
+        if server.os_family.value == "windows":
+            executor.execute('powershell -Command "Stop-Process -Name *emulator* -Force -ErrorAction SilentlyContinue"')
+            executor.execute(
+                'powershell -Command "'
+                "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
+                "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
+                '"'
+            )
+        else:
+            executor.execute("sudo pkill -f emulator || true")
+            executor.execute("sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
+    finally:
+        executor.close()
+
+    # Step 4: Delete old snapshot on hypervisor
+    try:
+        provider.delete_snapshot(server.server_infra_ref, snapshot.provider_ref)
+    except Exception as e:
+        # Non-fatal — old snapshot may already be gone
+        pass
+
+    # Step 5: Take new snapshot with same name
+    result = provider.create_snapshot(
+        server.server_infra_ref,
+        snapshot_name=snapshot.name,
+        description=snapshot.description or "",
+    )
+    # result: {"snapshot_moref_id": ...} for vSphere, {"snapshot_id": ...} for Vultr, etc.
+    new_provider_snapshot_id = (
+        result.get("snapshot_moref_id")
+        or result.get("snapshot_id")
+        or result.get("snapshot_name")
+    )
+
+    # Step 6: Update existing DB record in-place (no new record, no sync)
+    snapshot.provider_snapshot_id = new_provider_snapshot_id
+    snapshot.provider_ref = result
+    snapshot.snapshot_tree = [s.to_dict() for s in provider.list_snapshots(server.server_infra_ref)]
+    # Preserve: id, name, description, server_id, parent_id, group_id, is_baseline, is_archived
+    session.commit()
+    session.refresh(snapshot)
+
+    return {
+        "message": f"Snapshot '{snapshot.name}' retaken successfully. "
+                   f"Old provider_ref replaced. DB record ID {snapshot.id} preserved.",
+        "snapshot_id": snapshot.id,
+        "new_provider_snapshot_id": snapshot.provider_snapshot_id,
+    }
+
+
 @snapshot_router.get(
     "/{server_id}/snapshots/{snapshot_id}/profile-data",
     response_model=List[SnapshotProfileDataResponse],
