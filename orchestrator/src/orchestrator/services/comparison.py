@@ -100,6 +100,7 @@ class ComparisonEngine:
         baseline_jtl_path: Optional[str],
         comparison_mode: str,
         results_dir: str,
+        cycle: int = 1,
     ) -> Verdict:
         """Run Cohen's d comparison for baseline_compare mode.
 
@@ -224,7 +225,7 @@ class ComparisonEngine:
         # Save result to JSON
         result_file = self._save_baseline_result(
             results_dir, baseline_test.id, server_id, load_profile_id,
-            comparison_data,
+            comparison_data, cycle=cycle,
         )
 
         # Persist ComparisonResultORM to DB so the API can return it
@@ -232,6 +233,7 @@ class ComparisonEngine:
             baseline_test_run_id=baseline_test.id,
             target_id=server_id,
             load_profile_id=load_profile_id,
+            cycle=cycle,
             comparison_type=f"baseline_{comparison_mode}",
             result_file_path=result_file,
             result_data={
@@ -325,11 +327,12 @@ class ComparisonEngine:
         server_id: int,
         load_profile_id: int,
         data: BaselineComparisonData,
+        cycle: int = 1,
     ) -> str:
         """Save baseline comparison result to JSON file. Returns file path."""
         comp_dir = Path(results_dir)
         comp_dir.mkdir(parents=True, exist_ok=True)
-        file_path = comp_dir / f"cohens_d_server{server_id}_lp{load_profile_id}.json"
+        file_path = comp_dir / f"lp{load_profile_id}_cycle{cycle}_comparison.json"
 
         result = {
             "system_cohens_d": [

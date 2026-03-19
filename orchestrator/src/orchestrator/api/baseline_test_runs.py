@@ -35,6 +35,7 @@ from orchestrator.models.orm import (
     BaselineTestRunTargetORM,
     ComparisonResultORM,
     LabORM,
+    LoadProfileORM,
     ScenarioORM,
     ServerORM,
     SnapshotBaselineORM,
@@ -124,6 +125,7 @@ def create_baseline_test_run(
         lab_id=lab.id,
         scenario_id=data.scenario_id,
         test_type=data.test_type,
+        cycle_count=data.cycle_count,
     )
     session.add(test_run)
     session.flush()
@@ -203,12 +205,11 @@ def start_baseline_test_run(run_id: int, session: Session = Depends(get_session)
 
 @router.post("/{run_id}/retry")
 def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)):
-    """Retry a failed baseline test run from where it left off.
+    """Retry a failed baseline test run using per-cycle clean slate retry.
 
-    Resets failed targets back to pending, determines the earliest
-    incomplete phase, sets the run state to that phase, and starts
-    execution in background. Targets that already completed a phase
-    will skip it on retry.
+    Uses RETRY_RESUME_STATE mapping to determine where to resume.
+    Resets ALL targets to pending (not just failed ones).
+    Preserves current_load_profile_id and current_cycle.
     """
     test_run = session.get(BaselineTestRunORM, run_id)
     if not test_run:
@@ -219,51 +220,56 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
             detail=f"Cannot retry: current state is '{test_run.state.value}' (must be 'failed')",
         )
 
-    from orchestrator.core.baseline_orchestrator import BaselineOrchestrator
+    from orchestrator.core.baseline_state_machine import RETRY_RESUME_STATE
     from orchestrator.models.enums import BaselineTargetState
 
-    # Reset failed targets to pending
+    # Determine resume state from failed_at_state
+    if not test_run.failed_at_state:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot retry: failed_at_state not recorded (test may have failed before state machine redesign)",
+        )
+
+    try:
+        failed_at = BaselineTestState(test_run.failed_at_state)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot retry: unrecognized failed_at_state '{test_run.failed_at_state}'",
+        )
+
+    resume_state = RETRY_RESUME_STATE.get(failed_at)
+    if resume_state is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot retry: no resume mapping for failed_at_state '{test_run.failed_at_state}'",
+        )
+
+    # Reset ALL targets to pending (clean slate for the cycle)
     targets = session.query(BaselineTestRunTargetORM).filter(
         BaselineTestRunTargetORM.baseline_test_run_id == test_run.id,
     ).all()
-
-    reset_count = 0
     for t in targets:
-        if t.state == BaselineTargetState.failed:
-            t.state = BaselineTargetState.pending
-            t.error_message = None
-            reset_count += 1
+        t.state = BaselineTargetState.pending
+        t.error_message = None
 
-    # Find the earliest phase we need to resume from.
-    # Look at all non-completed targets and find the lowest phase.
-    RUN_STATE_ORDER = {
-        BaselineTestState.validating: 0,
-        BaselineTestState.setting_up: 1,
-        BaselineTestState.calibrating: 2,
-        BaselineTestState.generating: 3,
-        BaselineTestState.executing: 4,
-        BaselineTestState.storing: 5,
-        BaselineTestState.comparing: 6,
-        BaselineTestState.completed: 7,
-    }
-
-    # Map target states to run states for determining resume point
-    earliest_run_state = BaselineTestState.completed
-    earliest_order = 7
-    for t in targets:
-        run_state = BaselineOrchestrator.TARGET_TO_RUN_STATE.get(t.state)
-        if run_state and RUN_STATE_ORDER.get(run_state, 7) < earliest_order:
-            earliest_order = RUN_STATE_ORDER[run_state]
-            earliest_run_state = run_state
-
-    # Set run state to resume point
-    test_run.state = earliest_run_state
+    # Set test to resume state (LP + cycle preserved)
+    test_run.state = resume_state
     test_run.error_message = None
+    test_run.failed_at_state = None
     session.commit()
+
+    # Get current LP name for message
+    current_lp_name = "unknown"
+    if test_run.current_load_profile_id:
+        lp = session.get(LoadProfileORM, test_run.current_load_profile_id)
+        if lp:
+            current_lp_name = lp.name
 
     # Start in background
     def _run_in_background(test_run_id: int):
         from orchestrator.app import app_config, credentials
+        from orchestrator.core.baseline_orchestrator import BaselineOrchestrator
         db_session = SessionLocal()
         try:
             orchestrator = BaselineOrchestrator(app_config, credentials)
@@ -279,9 +285,10 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
     thread.start()
 
     return {
-        "message": f"Retrying baseline test run {run_id} from '{earliest_run_state.value}'",
-        "reset_targets": reset_count,
-        "resume_state": earliest_run_state.value,
+        "message": f"Retrying from {resume_state.value} [LP={current_lp_name}, cycle={test_run.current_cycle}]",
+        "resume_state": resume_state.value,
+        "current_lp": current_lp_name,
+        "current_cycle": test_run.current_cycle,
     }
 
 
@@ -451,6 +458,7 @@ def create_baseline_test_run_v2(
         scenario_id=scenario_id,
         test_type=data.test_type,
         parent_run_id=data.parent_run_id,
+        cycle_count=data.cycle_count,
     )
     session.add(test_run)
     session.flush()

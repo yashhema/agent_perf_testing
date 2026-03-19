@@ -71,6 +71,9 @@
 .state-created { background: #6c757d; }
 .state-validating { background: #0d6efd; }
 .state-setting_up { background: #0dcaf0; color: #000; }
+.state-deploying_loadgen { background: #0dcaf0; color: #000; }
+.state-deploying_calibration { background: #0dcaf0; color: #000; }
+.state-deploying_testing { background: #ffc107; color: #000; }
 .state-calibrating { background: #6f42c1; }
 .state-generating_sequences { background: #d63384; }
 .state-executing { background: #fd7e14; color: #000; }

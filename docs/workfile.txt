@@ -356,3 +356,94 @@ All changes to src/ code are documented here with date, file, and summary.
     e.g. 1→2 threads could overshoot from 25% to 60% on a 4-core VM. Intelligent
     prediction minimizes wasted calibration iterations.
 
+--- State Machine Redesign (per-LP per-cycle with deploy states) ---
+
+2026-03-19  orchestrator/migrations/state_machine_redesign.sql (NEW)
+  - Added columns to baseline_test_runs: current_cycle, cycle_count, failed_at_state
+  - Added cycle column to snapshot_profile_data and comparison_results
+  - Changed unique constraint on snapshot_profile_data from (snapshot_id, load_profile_id)
+    to (snapshot_id, load_profile_id, cycle)
+  - Migration updates in-progress rows with old states to 'failed'
+
+2026-03-19  orchestrator/src/orchestrator/models/enums.py
+  - BaselineTestState: removed setting_up, deploying, setup_testing;
+    added deploying_loadgen, deploying_calibration, deploying_testing
+  - BaselineTargetState: removed setting_up, deploying, setup_testing;
+    added deploying_calibration, deploying_testing
+
+2026-03-19  orchestrator/src/orchestrator/models/orm.py
+  - SnapshotProfileDataORM: added cycle column, updated unique constraint
+  - BaselineTestRunORM: added current_cycle, cycle_count, failed_at_state columns
+  - ComparisonResultORM: added cycle column
+
+2026-03-19  orchestrator/src/orchestrator/core/baseline_state_machine.py
+  - Rewrote BASELINE_TRANSITIONS with new states + cycle loop transitions
+  - Added RETRY_RESUME_STATE mapping for per-cycle clean slate retry
+  - Modified fail() to save failed_at_state before transitioning
+  - Added update_current_cycle() helper
+
+2026-03-19  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - Major refactor: replaced monolithic setting_up/deploying/setup_testing with
+    deploying_loadgen (one-time), deploying_calibration (per-LP),
+    deploying_testing (per-LP x cycle)
+  - Removed: _do_setup(), _do_deploying(), _do_setup_testing(),
+    TARGET_PHASE_ORDER, TARGET_TO_RUN_STATE, target_past_phase()
+  - Added: _next_test_iteration(), _next_cal_iteration(),
+    _kill_jmeter_all_loadgens(), _check_dirty_snapshot(),
+    _validate_remote_file()
+  - _do_calibration/_do_generation: now operate on single current LP (not loop)
+  - _do_execution: inlined single-LP single-cycle execution (replaced
+    BaselineExecutionEngine.execute() delegation)
+  - _do_comparison/_do_storing: iterate over all LPs x all cycles
+  - Manifest keys changed from str(lp_id) to "lp{lp_id}_cycle{cycle}"
+  - Strict barriers: any target failure -> test fails immediately
+  - JMeter cleanup in exception handler before sm.fail() when executing
+  - Snapshot revert on every cycle with dirty pre-check
+
+2026-03-19  orchestrator/src/orchestrator/core/baseline_execution.py
+  - Added cycle field to ExecutionResult dataclass
+  - BaselineExecutionEngine.execute() no longer called by orchestrator;
+    kept for backwards compatibility. wait_for_ssh() and ExecutionResult still used.
+
+2026-03-19  orchestrator/src/orchestrator/api/schemas.py
+  - BaselineTestRunCreate: added cycle_count field
+  - BaselineTestRunCreateV2: added cycle_count field
+  - BaselineTestRunResponse: added current_cycle, cycle_count, failed_at_state
+  - SnapshotProfileDataResponse: added cycle field
+  - ComparisonResultResponse: added cycle field
+
+2026-03-19  orchestrator/src/orchestrator/api/baseline_test_runs.py
+  - create_baseline_test_run(): passes cycle_count to ORM
+  - create_baseline_test_run_v2(): passes cycle_count to ORM
+  - retry_baseline_test_run(): rewritten — uses RETRY_RESUME_STATE mapping,
+    resets ALL targets to pending (clean slate), preserves LP + cycle
+
+2026-03-19  orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html
+  - Updated activeStates with new deploy states
+  - Updated targetStateBadge with new state colors/spinners
+  - Added LP name + cycle display: "executing [LP=high, cycle 2/3]"
+
+2026-03-19  orchestrator/src/orchestrator/templates/baseline_tests/create.html
+  - Added cycle_count number input (default 1, min 1) in Step 1
+  - Submit body includes cycle_count
+
+2026-03-19  setup/cleanup_targets.py (NEW)
+  - Standalone script to clean target servers and loadgens
+  - Args: --lab, --servers, --loadgens, --full
+  - Kills emulator/JMeter, cleans artifact dirs
+
+2026-03-19  orchestrator/src/orchestrator/static/css/app.css
+  - Added CSS rules for .state-deploying_loadgen (info/cyan),
+    .state-deploying_calibration (info/cyan), .state-deploying_testing (warning/amber)
+
+2026-03-19  orchestrator/src/orchestrator/services/comparison.py
+  - Added cycle parameter to run_baseline_comparison() and _save_baseline_result()
+  - ComparisonResultORM now stores cycle field
+  - Result filename changed from cohens_d_server{id}_lp{id}.json to
+    lp{lp_id}_cycle{cycle}_comparison.json (cycle-keyed per design Section 13)
+
+2026-03-19  setup/sync_setup.py
+  - Added state_machine_redesign.sql migration to ORCHESTRATOR_FILES
+  - Added cleanup_targets.py to SETUP_FILES
+  - Added app.css and comparison.py to ORCHESTRATOR_FILES
+

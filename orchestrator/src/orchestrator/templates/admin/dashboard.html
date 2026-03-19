@@ -107,7 +107,7 @@
     document.getElementById('stat-completed').textContent = completed.length;
 
     // Baseline stats
-    const bActiveStates = ['validating','setting_up','calibrating','generating','executing','storing','comparing'];
+    const bActiveStates = ['validating','deploying_loadgen','deploying_calibration','calibrating','generating','deploying_testing','executing','storing','comparing'];
     const bActive = baselineRuns.filter(r => bActiveStates.includes(r.state));
     const bCompleted = baselineRuns.filter(r => r.state === 'completed');
     document.getElementById('stat-baseline-total').textContent = baselineRuns.length;

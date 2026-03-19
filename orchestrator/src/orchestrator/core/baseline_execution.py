@@ -43,7 +43,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ExecutionResult:
-    """Result from executing one load profile on one snapshot."""
+    """Result from executing one load profile on one snapshot.
+
+    Used by the orchestrator for per-LP per-cycle results.
+    The cycle field tracks which cycle this result belongs to.
+    """
     stats_path: str
     jtl_path: str
     stats_summary: dict
@@ -53,6 +57,7 @@ class ExecutionResult:
     jtl_total_requests: int = 0
     jtl_total_errors: int = 0
     jtl_success_rate_pct: float = 0.0
+    cycle: int = 1
 
 
 def wait_for_ssh(host: str, os_family: str = "linux", timeout_sec: int = 120, poll_sec: int = 5) -> None:
@@ -463,8 +468,9 @@ class BaselineExecutionEngine:
         # Start the emulator after deployment
         for pkg in emu_packages:
             if pkg.run_command:
-                logger.info("Starting emulator on %s: %s", server.hostname, pkg.run_command)
-                result = executor.execute(pkg.run_command, timeout_sec=60)
+                start_cmd = f"sudo {pkg.run_command}" if server.os_family.value != "windows" else pkg.run_command
+                logger.info("Starting emulator on %s: %s", server.hostname, start_cmd)
+                result = executor.execute(start_cmd, timeout_sec=60)
                 if not result.success:
                     raise RuntimeError(
                         f"Emulator start failed on {server.hostname}: {result.stderr}"
@@ -482,7 +488,7 @@ class BaselineExecutionEngine:
                 '"'
             )
         else:
-            cmd = "rm -rf /opt/emulator/output/* /opt/emulator/stats/*"
+            cmd = "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/*"
         try:
             executor.execute(cmd)
         except Exception as e:

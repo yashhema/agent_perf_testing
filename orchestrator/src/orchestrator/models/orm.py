@@ -423,12 +423,19 @@ class PhaseExecutionResultORM(Base):
 # ---------------------------------------------------------------------------
 class ComparisonResultORM(Base):
     __tablename__ = "comparison_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "baseline_test_run_id", "target_id", "load_profile_id", "cycle",
+            name="uq_baseline_comparison_cycle",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=True)
     baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=True)
     target_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
+    cycle = Column(Integer, nullable=False, default=1)
     comparison_type = Column(String(50), nullable=False)
     result_file_path = Column(String(1024), nullable=True)
     result_data = Column(JSON, nullable=True)
@@ -618,12 +625,13 @@ class SnapshotORM(Base):
 class SnapshotProfileDataORM(Base):
     __tablename__ = "snapshot_profile_data"
     __table_args__ = (
-        UniqueConstraint("snapshot_id", "load_profile_id", name="uq_snapshot_profile"),
+        UniqueConstraint("snapshot_id", "load_profile_id", "cycle", name="uq_snapshot_profile_cycle"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=False)
     load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
+    cycle = Column(Integer, nullable=False, default=1)
     thread_count = Column(Integer, nullable=False)
     jmx_test_case_data = Column(String(500), nullable=True)
     stats_data = Column(String(500), nullable=True)
@@ -657,6 +665,9 @@ class BaselineTestRunORM(Base):
         Enum(BaselineTestState), nullable=False, default=BaselineTestState.created,
     )
     current_load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=True)
+    current_cycle = Column(Integer, nullable=False, default=1)
+    cycle_count = Column(Integer, nullable=False, default=1)
+    failed_at_state = Column(String(50), nullable=True)
     error_message = Column(Text, nullable=True)
     verdict = Column(Enum(Verdict), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -705,7 +716,7 @@ class BaselineTestRunTargetORM(Base):
     error_message = Column(Text, nullable=True)
     current_load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=True)
 
-    # Discovery results (written during setting_up)
+    # Discovery results (written during deploying_calibration, first LP)
     os_kind = Column(String(100), nullable=True)
     os_major_ver = Column(String(20), nullable=True)
     os_minor_ver = Column(String(20), nullable=True)

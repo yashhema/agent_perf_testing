@@ -42,6 +42,7 @@ SETUP_FILES = {
     "setup/setup.py": "setup/setup.py",
     "setup/install_postgres.sh": "setup/install_postgres.sh",
     "setup/manage_snapshots.py": "setup/manage_snapshots.py",
+    "setup/cleanup_targets.py": "setup/cleanup_targets.py",
     "setup/requirements.txt": "setup/requirements.txt",
     "setup/build_artifacts.sh": "setup/build_artifacts.sh",
     "setup/servers.csv.example": "setup/servers.csv.example",
@@ -56,6 +57,7 @@ ORCHESTRATOR_FILES = {
     # Web UI
     "orchestrator/src/orchestrator/web/views.py": "orchestrator/src/orchestrator/web/views.py",
     "orchestrator/src/orchestrator/static/js/app.js": "orchestrator/src/orchestrator/static/js/app.js",
+    "orchestrator/src/orchestrator/static/css/app.css": "orchestrator/src/orchestrator/static/css/app.css",
     "orchestrator/src/orchestrator/templates/admin/crud.html": "orchestrator/src/orchestrator/templates/admin/crud.html",
     "orchestrator/src/orchestrator/templates/admin/scenarios.html": "orchestrator/src/orchestrator/templates/admin/scenarios.html",
     "orchestrator/src/orchestrator/templates/admin/packages.html": "orchestrator/src/orchestrator/templates/admin/packages.html",
@@ -67,6 +69,9 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/templates/baseline_tests/list.html": "orchestrator/src/orchestrator/templates/baseline_tests/list.html",
     "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html": "orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html",
     "orchestrator/migrations/restructure_baseline_tests.sql": "orchestrator/migrations/restructure_baseline_tests.sql",
+    "orchestrator/migrations/add_phase_split_states.sql": "orchestrator/migrations/add_phase_split_states.sql",
+    "orchestrator/migrations/state_machine_redesign.sql": "orchestrator/migrations/state_machine_redesign.sql",
+    "orchestrator/migrations/state_machine_redesign_postgres.sql": "orchestrator/migrations/state_machine_redesign_postgres.sql",
     "orchestrator/seed_packages.py": "orchestrator/seed_packages.py",
     # JMX templates + scripts (small files, not binary packages)
     "orchestrator/artifacts/jmx/server-normal.jmx": "orchestrator/artifacts/jmx/server-normal.jmx",
@@ -76,6 +81,7 @@ ORCHESTRATOR_FILES = {
     "orchestrator/artifacts/scripts/jmeter_kill.py": "orchestrator/artifacts/scripts/jmeter_kill.py",
     "orchestrator/src/orchestrator/templates/snapshots/manager.html": "orchestrator/src/orchestrator/templates/snapshots/manager.html",
     # Core
+    "orchestrator/src/orchestrator/core/baseline_state_machine.py": "orchestrator/src/orchestrator/core/baseline_state_machine.py",
     "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
     "orchestrator/src/orchestrator/core/baseline_execution.py": "orchestrator/src/orchestrator/core/baseline_execution.py",
     "orchestrator/src/orchestrator/core/calibration.py": "orchestrator/src/orchestrator/core/calibration.py",
@@ -94,6 +100,7 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/infra/jmeter_controller.py": "orchestrator/src/orchestrator/infra/jmeter_controller.py",
     # Services
     "orchestrator/src/orchestrator/services/package_manager.py": "orchestrator/src/orchestrator/services/package_manager.py",
+    "orchestrator/src/orchestrator/services/comparison.py": "orchestrator/src/orchestrator/services/comparison.py",
     # App + CLI
     "orchestrator/src/orchestrator/app.py": "orchestrator/src/orchestrator/app.py",
     "orchestrator/src/orchestrator/cli.py": "orchestrator/src/orchestrator/cli.py",

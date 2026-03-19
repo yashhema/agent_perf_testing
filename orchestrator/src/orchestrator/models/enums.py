@@ -125,12 +125,26 @@ class BaselineTestType(str, Enum):
 
 
 class BaselineTestState(str, Enum):
-    """State machine states for baseline-compare test runs."""
+    """State machine states for baseline-compare test runs.
+
+    State flow per test type:
+      new_baseline:       created -> validating -> deploying_loadgen -> deploying_calibration
+                          -> calibrating -> generating -> deploying_testing -> executing
+                          -> storing -> completed
+      compare:            created -> validating -> deploying_loadgen -> deploying_testing
+                          -> executing -> comparing -> storing -> completed
+      compare_with_new_calibration:
+                          created -> validating -> deploying_loadgen -> deploying_calibration
+                          -> calibrating -> generating -> deploying_testing -> executing
+                          -> comparing -> storing -> completed
+    """
     created = "created"
     validating = "validating"
-    setting_up = "setting_up"
+    deploying_loadgen = "deploying_loadgen"
+    deploying_calibration = "deploying_calibration"
     calibrating = "calibrating"
     generating = "generating"
+    deploying_testing = "deploying_testing"
     executing = "executing"
     storing = "storing"
     comparing = "comparing"
@@ -142,9 +156,10 @@ class BaselineTestState(str, Enum):
 class BaselineTargetState(str, Enum):
     """Per-target progress tracking within a baseline test run."""
     pending = "pending"
-    setting_up = "setting_up"
+    deploying_calibration = "deploying_calibration"
     calibrating = "calibrating"
     generating = "generating"
+    deploying_testing = "deploying_testing"
     executing = "executing"
     storing = "storing"
     comparing = "comparing"

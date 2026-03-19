@@ -655,6 +655,7 @@ class ComparisonResultResponse(BaseModel):
     baseline_test_run_id: Optional[int] = None
     target_id: Optional[int] = None
     load_profile_id: int
+    cycle: int = 1
     comparison_type: str
     result_file_path: Optional[str]
     result_data: Optional[Dict[str, Any]]
@@ -791,6 +792,7 @@ class SnapshotProfileDataResponse(BaseModel):
     id: int
     snapshot_id: int
     load_profile_id: int
+    cycle: int = 1
     thread_count: int
     jmx_test_case_data: Optional[str]
     stats_data: Optional[str]
@@ -847,6 +849,7 @@ class BaselineTestRunCreate(BaseModel):
     test_type: BaselineTestType
     load_profile_ids: List[int] = Field(min_length=1)
     targets: List[BaselineTestRunTargetEntry] = Field(min_length=1)
+    cycle_count: int = Field(default=1, ge=1)
 
 
 class BaselineTestRunTargetResponse(BaseModel):
@@ -888,6 +891,9 @@ class BaselineTestRunResponse(BaseModel):
     parent_run_id: Optional[int] = None
     state: BaselineTestState
     current_load_profile_id: Optional[int]
+    current_cycle: int = 1
+    cycle_count: int = 1
+    failed_at_state: Optional[str] = None
     error_message: Optional[str]
     verdict: Optional[Verdict] = None
     targets: List[BaselineTestRunTargetResponse] = []
@@ -926,6 +932,7 @@ class BaselineTestRunCreateV2(BaseModel):
     load_profiles: List[BaselineTestRunLoadProfileEntry] = Field(min_length=1)
     stress_test_enabled: bool = False
     network_degradation_enabled: bool = False
+    cycle_count: int = Field(default=1, ge=1)
 
 
 class BaselineTestRunUpdate(BaseModel):

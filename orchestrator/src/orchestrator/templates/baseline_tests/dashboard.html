@@ -183,7 +183,15 @@ function renderHeader() {
   nameEl.textContent = displayName;
   nameEl.title = _run.description || displayName;
 
-  document.getElementById('run-state').innerHTML = stateBadge(_run.state);
+  let stateHtml = stateBadge(_run.state);
+  // Add LP name + cycle info for active states
+  const lpCycleStates = ['deploying_calibration','calibrating','generating','deploying_testing','executing'];
+  if (lpCycleStates.includes(_run.state) && _run.current_load_profile_id) {
+    const lpLabel = lpName(_run.current_load_profile_id);
+    const cycleInfo = _run.cycle_count > 1 ? `, cycle ${_run.current_cycle || 1}/${_run.cycle_count}` : '';
+    stateHtml += ` <small class="text-muted">[LP=${escHtml(lpLabel)}${cycleInfo}]</small>`;
+  }
+  document.getElementById('run-state').innerHTML = stateHtml;
   document.getElementById('run-test-type').innerHTML =
     '<span class="badge bg-primary">' + _run.test_type.replace(/_/g, ' ') + '</span>';
   const _targets = _run.targets || [];
@@ -223,7 +231,7 @@ function renderHeader() {
   document.getElementById('run-actions').innerHTML = actions;
 
   // Auto-refresh
-  const activeStates = ['validating','setting_up','calibrating','generating','executing','storing','comparing'];
+  const activeStates = ['validating','deploying_loadgen','deploying_calibration','calibrating','generating','deploying_testing','executing','storing','comparing'];
   if (activeStates.includes(_run.state)) {
     if (!_refreshTimer) _refreshTimer = setInterval(loadAll, 5000);
   } else {
@@ -274,12 +282,13 @@ function renderDiscovery() {
 }
 
 function targetStateBadge(state) {
-  const spinnerStates = ['setting_up', 'calibrating', 'generating', 'executing'];
+  const spinnerStates = ['deploying_calibration', 'deploying_testing', 'calibrating', 'generating', 'executing'];
   const colorMap = {
     pending: 'secondary',
-    setting_up: 'primary',
+    deploying_calibration: 'info',
     calibrating: 'primary',
     generating: 'primary',
+    deploying_testing: 'warning',
     executing: 'primary',
     storing: 'info',
     comparing: 'info',

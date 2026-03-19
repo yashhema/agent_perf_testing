@@ -42,7 +42,7 @@
             <option value="server-steady">server-steady</option>
           </select>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label">Test Type</label>
           <div class="mt-1">
             <div class="form-check form-check-inline">
@@ -58,6 +58,11 @@
               <label class="form-check-label" for="tt-compare-cal">Compare + Recal</label>
             </div>
           </div>
+        </div>
+        <div class="col-md-1">
+          <label class="form-label">Cycles</label>
+          <input type="number" class="form-control" id="inp-cycle-count" value="1" min="1" max="10"
+            title="Number of test cycles per load profile (for consistency validation)">
         </div>
       </div>
     </div>
@@ -910,6 +915,7 @@ async function submitTest() {
       return entry;
     });
 
+    const cycleCount = parseInt(document.getElementById('inp-cycle-count').value) || 1;
     const body = {
       name,
       description: desc || null,
@@ -917,6 +923,7 @@ async function submitTest() {
       test_type: tt,
       targets,
       load_profiles,
+      cycle_count: cycleCount,
     };
     if (_parentRun) body.parent_run_id = _parentRun.id;
 
