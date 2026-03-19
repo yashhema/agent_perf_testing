@@ -444,6 +444,63 @@ All changes to src/ code are documented here with date, file, and summary.
 
 2026-03-19  setup/sync_setup.py
   - Added state_machine_redesign.sql migration to ORCHESTRATOR_FILES
-  - Added cleanup_targets.py to SETUP_FILES
-  - Added app.css and comparison.py to ORCHESTRATOR_FILES
+  - Added cleanup_targets.py and retake_snapshots.py to SETUP_FILES
+  - Added app.css, comparison.py, baseline_state_machine.py to ORCHESTRATOR_FILES
+  - Added state_machine_redesign_postgres.sql to ORCHESTRATOR_FILES
+  - Added PermissionError handling in sync_file() (line 228)
+  - Removed add_phase_split_states.sql (not in repo, caused sync error)
+
+--- Code review fixes ---
+
+2026-03-19  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - BUG FIX: _do_deploying_calibration kill_for_target was deduplicated per loadgen.
+    With shared loadgens, only the first target's stale JMeter was killed.
+    Fix: removed seen_loadgens guard, kill_for_target called for every target IP.
+  - BUG FIX: same issue in _do_deploying_testing per-cycle section. Fixed same way.
+  - BUG FIX: _do_execution Phase D resource leak — if an early target fails (e.g.
+    JTL validation), remaining targets' SSH connections and emulator clients opened
+    in Phase A were never closed. Fix: added outer try/finally around Phase D loop
+    that closes all unclosed resources.
+  - Parallelized target revert+deploy in _do_deploying_calibration and
+    _do_deploying_testing using ThreadPoolExecutor (was sequential — 30-60s per
+    target, now parallel). Matches old _do_setup() pattern.
+
+--- Sanity check + retake ---
+
+2026-03-19  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - Added _check_dirty_loadgen() helper: checks for stale JMeter processes,
+    old run dirs from previous tests, running emulator on loadgen
+  - Added sanity_check() method: runs all pre-flight validation, hypervisor
+    connectivity, loadgen checks (SSH, JMeter binary, dirty state, kill script),
+    and target checks. Target checks now REVERT to snapshot first, then check
+    dirty state on the reverted image (not the VM's current state).
+
+2026-03-19  orchestrator/src/orchestrator/api/baseline_test_runs.py
+  - Added POST /{run_id}/sanity-check endpoint: runs sanity_check() and returns
+    per-check results with pass/fail/warn/info status
+  - Added POST /{server_id}/snapshots/{snapshot_id}/retake endpoint: automates
+    dirty snapshot fix (revert to parent, cleanup, delete old, take new, update
+    DB record in-place preserving ID/group/baseline refs)
+
+2026-03-19  orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html
+  - Added "Sanity Check" button (visible when state=created or failed)
+  - Results render in full-width collapsible card below header (not in tiny
+    Actions column). Grouped by target with rowspan, color-coded rows
+    (red=fail, yellow=warn), scrollable, dismiss button.
+
+2026-03-19  setup/retake_snapshots.py (NEW)
+  - Phase 1: loadgen cleanup — kill JMeter, clean stale run dirs, kill emulator
+    (deduplicated per unique loadgen)
+  - Phase 2: target snapshot retake — revert to parent, cleanup VM, delete old
+    snapshot on hypervisor, take fresh one, update DB record in-place
+  - Args: test name (case-insensitive partial match) or --test-id
+  - Options: --dry-run, --targets hostname1,hostname2, --skip-cleanup
+
+2026-03-19  orchestrator/migrations/state_machine_redesign_postgres.sql (NEW)
+  - PostgreSQL-specific migration: ALTER TYPE ADD VALUE for new enum values
+    (cannot run inside transaction block — runs with autocommit)
+  - Uses pg_enum table checks for idempotency
+
+2026-03-19  orchestrator/src/orchestrator/core/baseline_state_machine.py
+  - Added BaselineTestState.created to RETRY_RESUME_STATE (defensive)
 
