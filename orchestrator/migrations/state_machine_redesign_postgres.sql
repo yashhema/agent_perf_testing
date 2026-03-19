@@ -1,32 +1,46 @@
 -- State Machine Redesign Migration — PostgreSQL
 -- Run this on PostgreSQL. For SQL Server, use state_machine_redesign.sql sections A+B.
-
-BEGIN;
+--
+-- NOTE: ALTER TYPE ... ADD VALUE cannot run inside a transaction block in PostgreSQL.
+-- This script must be run with autocommit (psql default) or with:
+--   psql -d <db> -f state_machine_redesign_postgres.sql
 
 -- ============================================================================
 -- 1. Add new enum values to native PostgreSQL enum types
--- Must be done BEFORE any rows use these values
+-- Must run OUTSIDE a transaction (ALTER TYPE ADD VALUE restriction)
 -- ============================================================================
 
--- Check if enum types exist and add new values
+-- baselineteststate: add 3 new deploy states
 DO $$
 BEGIN
-    -- baselineteststate: add 3 new deploy states
     IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'baselineteststate') THEN
-        BEGIN ALTER TYPE baselineteststate ADD VALUE IF NOT EXISTS 'deploying_loadgen'; EXCEPTION WHEN duplicate_object THEN NULL; END;
-        BEGIN ALTER TYPE baselineteststate ADD VALUE IF NOT EXISTS 'deploying_calibration'; EXCEPTION WHEN duplicate_object THEN NULL; END;
-        BEGIN ALTER TYPE baselineteststate ADD VALUE IF NOT EXISTS 'deploying_testing'; EXCEPTION WHEN duplicate_object THEN NULL; END;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'deploying_loadgen' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'baselineteststate')) THEN
+            ALTER TYPE baselineteststate ADD VALUE 'deploying_loadgen';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'deploying_calibration' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'baselineteststate')) THEN
+            ALTER TYPE baselineteststate ADD VALUE 'deploying_calibration';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'deploying_testing' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'baselineteststate')) THEN
+            ALTER TYPE baselineteststate ADD VALUE 'deploying_testing';
+        END IF;
     END IF;
+END$$;
 
-    -- baselinetargetstate: add 2 new deploy states
+-- baselinetargetstate: add 2 new deploy states
+DO $$
+BEGIN
     IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'baselinetargetstate') THEN
-        BEGIN ALTER TYPE baselinetargetstate ADD VALUE IF NOT EXISTS 'deploying_calibration'; EXCEPTION WHEN duplicate_object THEN NULL; END;
-        BEGIN ALTER TYPE baselinetargetstate ADD VALUE IF NOT EXISTS 'deploying_testing'; EXCEPTION WHEN duplicate_object THEN NULL; END;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'deploying_calibration' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'baselinetargetstate')) THEN
+            ALTER TYPE baselinetargetstate ADD VALUE 'deploying_calibration';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'deploying_testing' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'baselinetargetstate')) THEN
+            ALTER TYPE baselinetargetstate ADD VALUE 'deploying_testing';
+        END IF;
     END IF;
 END$$;
 
 -- ============================================================================
--- 2. Clean up rows with old states (before they become orphaned)
+-- 2. Clean up rows with old states
 -- Old values ('setting_up', 'deploying', 'setup_testing') remain in the enum
 -- type but will no longer be used by the application.
 -- ============================================================================
@@ -55,7 +69,6 @@ ALTER TABLE baseline_test_runs ADD COLUMN IF NOT EXISTS failed_at_state VARCHAR(
 
 ALTER TABLE snapshot_profile_data ADD COLUMN IF NOT EXISTS cycle INT NOT NULL DEFAULT 1;
 
--- Drop old constraint, add new one including cycle
 ALTER TABLE snapshot_profile_data DROP CONSTRAINT IF EXISTS uq_snapshot_profile;
 DO $$
 BEGIN
@@ -83,5 +96,3 @@ BEGIN
             UNIQUE (baseline_test_run_id, target_id, load_profile_id, cycle);
     END IF;
 END$$;
-
-COMMIT;
