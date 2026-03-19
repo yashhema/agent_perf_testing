@@ -225,11 +225,16 @@ def sync_file(remote_path: str, local_path: str, dry_run: bool = False) -> bool:
         print(f"  WOULD UPDATE: {remote_path} -> {local_path}")
         return True
 
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    with open(local_path, "w") as f:
-        f.write(content)
-    print(f"  UPDATED: {remote_path} -> {local_path}")
-    return True
+    try:
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "w") as f:
+            f.write(content)
+        print(f"  UPDATED: {remote_path} -> {local_path}")
+        return True
+    except PermissionError as e:
+        print(f"  PERMISSION ERROR: {local_path} — {e}")
+        print(f"    Try: sudo chown -R $(whoami) {os.path.dirname(local_path)}")
+        return False
 
 
 def main():
