@@ -292,6 +292,33 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
     }
 
 
+@router.post("/{run_id}/sanity-check")
+def sanity_check_baseline_test_run(run_id: int, session: Session = Depends(get_session)):
+    """Run pre-flight, connectivity, and dirty-state checks without starting the test.
+
+    Returns a report of all checks with pass/fail/warn status.
+    Can be run in any non-terminal state.
+    """
+    test_run = session.get(BaselineTestRunORM, run_id)
+    if not test_run:
+        raise HTTPException(status_code=404, detail="Baseline test run not found")
+
+    terminal = {BaselineTestState.completed, BaselineTestState.cancelled}
+    if test_run.state in terminal:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot run sanity check: test is in terminal state '{test_run.state.value}'",
+        )
+
+    from orchestrator.app import app_config, credentials
+    from orchestrator.core.baseline_orchestrator import BaselineOrchestrator
+
+    orchestrator = BaselineOrchestrator(app_config, credentials)
+    result = orchestrator.sanity_check(session, run_id)
+
+    return result
+
+
 @router.post("/{run_id}/cancel")
 def cancel_baseline_test_run(run_id: int, session: Session = Depends(get_session)):
     """Cancel a running baseline test run."""

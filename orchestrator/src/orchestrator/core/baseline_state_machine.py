@@ -91,6 +91,9 @@ BASELINE_TRANSITIONS = {
 # Work states resume at their deploy state (machine is dirty).
 # Deploy/non-machine states resume at themselves.
 RETRY_RESUME_STATE = {
+    # Initial -> resume at itself (can't normally fail here, but defensive)
+    BaselineTestState.created:                BaselineTestState.created,
+
     # Pre-flight -> resume at itself
     BaselineTestState.validating:             BaselineTestState.validating,
 

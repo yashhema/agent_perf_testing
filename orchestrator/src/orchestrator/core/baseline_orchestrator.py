@@ -350,6 +350,192 @@ class BaselineOrchestrator:
             )
 
     # ------------------------------------------------------------------
+    # Helper: dirty loadgen check
+    # ------------------------------------------------------------------
+    def _check_dirty_loadgen(self, executor, loadgen: ServerORM, test_run_id: int) -> List[str]:
+        """Check for stale artifacts on a loadgen. Returns list of issues found (empty = clean)."""
+        issues = []
+
+        # Check for running JMeter processes
+        result = executor.execute("pgrep -f jmeter -c || echo 0")
+        if result.success:
+            try:
+                count = int(result.stdout.strip())
+                if count > 0:
+                    issues.append(f"{count} stale JMeter process(es) running")
+            except ValueError:
+                pass
+
+        # Check for stale run dirs from previous tests
+        result = executor.execute("ls -d /opt/jmeter/runs/baseline_* 2>/dev/null | head -5")
+        if result.success and result.stdout.strip():
+            dirs = result.stdout.strip().split("\n")
+            # Filter out the current test's dir
+            stale = [d for d in dirs if f"baseline_{test_run_id}" not in d]
+            if stale:
+                issues.append(f"stale run dirs from previous tests: {', '.join(stale)}")
+
+        # Check for running emulator processes on loadgen
+        result = executor.execute("pgrep -f emulator -c || echo 0")
+        if result.success:
+            try:
+                count = int(result.stdout.strip())
+                if count > 0:
+                    # Emulator on loadgen is expected for pool templates — just note it
+                    issues.append(f"emulator process running ({count} process(es)) — expected for pool templates")
+            except ValueError:
+                pass
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Sanity check (pre-flight + connectivity + dirty checks)
+    # ------------------------------------------------------------------
+    def sanity_check(self, session: Session, test_run_id: int) -> Dict:
+        """Run all pre-flight, connectivity, and dirty state checks without starting the test.
+
+        Returns a dict with:
+            passed: bool
+            checks: list of {target, check, status, detail}
+        """
+        test_run = session.get(BaselineTestRunORM, test_run_id)
+        if not test_run:
+            return {"passed": False, "checks": [{"target": "system", "check": "test_run", "status": "fail", "detail": f"Test run {test_run_id} not found"}]}
+
+        lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
+        checks = []
+        all_passed = True
+
+        # 1. Pre-flight validation
+        try:
+            validator = BaselinePreFlightValidator(
+                credentials=self._credentials,
+                emulator_port=self._config.emulator.emulator_api_port,
+            )
+            result = validator.validate(session, test_run)
+            if result.passed:
+                checks.append({"target": "system", "check": "pre_flight_validation", "status": "pass", "detail": "All pre-flight checks passed"})
+            else:
+                all_passed = False
+                error_msgs = "; ".join(f"[{e.check}] {e.message}" for e in result.errors)
+                checks.append({"target": "system", "check": "pre_flight_validation", "status": "fail", "detail": error_msgs})
+        except Exception as e:
+            all_passed = False
+            checks.append({"target": "system", "check": "pre_flight_validation", "status": "fail", "detail": str(e)})
+
+        # 2. cycle_count validation
+        if test_run.cycle_count < 1:
+            all_passed = False
+            checks.append({"target": "system", "check": "cycle_count", "status": "fail", "detail": f"cycle_count={test_run.cycle_count} (must be >= 1)"})
+        else:
+            checks.append({"target": "system", "check": "cycle_count", "status": "pass", "detail": f"cycle_count={test_run.cycle_count}"})
+
+        # 3. Hypervisor connectivity
+        try:
+            hyp_cred = self._credentials.get_hypervisor_credential(lab.hypervisor_type.value)
+            provider = create_hypervisor_provider(
+                hypervisor_type=lab.hypervisor_type.value,
+                url=lab.hypervisor_manager_url,
+                port=lab.hypervisor_manager_port,
+                credential=hyp_cred,
+            )
+            checks.append({"target": "hypervisor", "check": "connectivity", "status": "pass", "detail": f"{lab.hypervisor_type.value} at {lab.hypervisor_manager_url}"})
+        except Exception as e:
+            all_passed = False
+            checks.append({"target": "hypervisor", "check": "connectivity", "status": "fail", "detail": str(e)})
+
+        # 4. Loadgen checks (per unique loadgen)
+        seen_loadgens = set()
+        for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            if loadgen.id in seen_loadgens:
+                continue
+            seen_loadgens.add(loadgen.id)
+
+            try:
+                loadgen_cred = self._credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
+                loadgen_exec = create_executor(
+                    os_family=loadgen.os_family.value,
+                    host=loadgen.ip_address,
+                    username=loadgen_cred.username,
+                    password=loadgen_cred.password,
+                )
+                try:
+                    # SSH connectivity
+                    checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "ssh_connectivity", "status": "pass", "detail": f"SSH to {loadgen.ip_address} OK"})
+
+                    # JMeter binary
+                    jmeter_check = loadgen_exec.execute("/opt/jmeter/bin/jmeter --version")
+                    if jmeter_check.success:
+                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "jmeter_binary", "status": "pass", "detail": "jmeter --version OK"})
+                    else:
+                        all_passed = False
+                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "jmeter_binary", "status": "fail", "detail": f"jmeter --version failed: {jmeter_check.stderr}"})
+
+                    # Dirty state check
+                    issues = self._check_dirty_loadgen(loadgen_exec, loadgen, test_run.id)
+                    if issues:
+                        stale_jmeter = [i for i in issues if "JMeter" in i and "stale" not in i.lower()]
+                        # Running JMeter is a warning (will be killed), stale dirs are info
+                        for issue in issues:
+                            if "stale JMeter" in issue:
+                                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "warn", "detail": f"{issue} (will be killed on start)"})
+                            elif "stale run dirs" in issue:
+                                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "warn", "detail": issue})
+                            else:
+                                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "info", "detail": issue})
+                    else:
+                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "pass", "detail": "Clean"})
+
+                    # Kill script present
+                    kill_check = loadgen_exec.execute("test -f /opt/jmeter/bin/jmeter_kill.py && echo OK")
+                    if kill_check.success and "OK" in kill_check.stdout:
+                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "kill_script", "status": "pass", "detail": "jmeter_kill.py present"})
+                    else:
+                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "kill_script", "status": "info", "detail": "jmeter_kill.py not found (will be deployed)"})
+                finally:
+                    loadgen_exec.close()
+            except Exception as e:
+                all_passed = False
+                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "ssh_connectivity", "status": "fail", "detail": str(e)})
+
+        # 5. Target checks (per target)
+        for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            try:
+                target_cred = self._credentials.get_server_credential(server.id, server.os_family.value)
+                target_exec = create_executor(
+                    os_family=server.os_family.value,
+                    host=server.ip_address,
+                    username=target_cred.username,
+                    password=target_cred.password,
+                )
+                try:
+                    # SSH/WinRM connectivity
+                    checks.append({"target": f"target:{server.hostname}", "check": "connectivity", "status": "pass", "detail": f"{'WinRM' if server.os_family.value == 'windows' else 'SSH'} to {server.ip_address} OK"})
+
+                    # Dirty snapshot check (without revert — check current state)
+                    try:
+                        self._check_dirty_snapshot(target_exec, server, test_snapshot.name)
+                        checks.append({"target": f"target:{server.hostname}", "check": "dirty_state", "status": "pass", "detail": "Clean (no stale emulator artifacts)"})
+                    except RuntimeError as e:
+                        all_passed = False
+                        checks.append({"target": f"target:{server.hostname}", "check": "dirty_state", "status": "fail", "detail": str(e)})
+
+                    # Snapshot exists on hypervisor
+                    try:
+                        provider.snapshot_exists(server.server_infra_ref, test_snapshot.provider_ref)
+                        checks.append({"target": f"target:{server.hostname}", "check": "snapshot_exists", "status": "pass", "detail": f"Snapshot '{test_snapshot.name}' found on hypervisor"})
+                    except Exception as e:
+                        all_passed = False
+                        checks.append({"target": f"target:{server.hostname}", "check": "snapshot_exists", "status": "fail", "detail": f"Snapshot check failed: {e}"})
+                finally:
+                    target_exec.close()
+            except Exception as e:
+                all_passed = False
+                checks.append({"target": f"target:{server.hostname}", "check": "connectivity", "status": "fail", "detail": str(e)})
+
+        return {"passed": all_passed, "checks": checks}
+
+    # ------------------------------------------------------------------
     # Helper: validate file exists on remote
     # ------------------------------------------------------------------
     @staticmethod

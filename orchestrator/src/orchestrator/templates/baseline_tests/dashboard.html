@@ -217,13 +217,15 @@ function renderHeader() {
   // Actions
   let actions = '';
   if (_run.state === 'created') {
+    actions += `<button class="btn btn-sm btn-info me-1" onclick="runSanityCheck()" id="btn-sanity"><i class="bi bi-shield-check me-1"></i>Sanity Check</button>`;
     actions += `<button class="btn btn-sm btn-success me-1" onclick="doAction('start')"><i class="bi bi-play-fill"></i></button>`;
+  }
+  if (_run.state === 'failed') {
+    actions += `<button class="btn btn-sm btn-info me-1" onclick="runSanityCheck()" id="btn-sanity"><i class="bi bi-shield-check me-1"></i>Sanity Check</button>`;
+    actions += `<button class="btn btn-sm btn-warning me-1" onclick="doAction('retry')"><i class="bi bi-arrow-repeat me-1"></i>Retry</button>`;
   }
   if (!['completed','cancelled','failed'].includes(_run.state)) {
     actions += `<button class="btn btn-sm btn-danger" onclick="doAction('cancel')"><i class="bi bi-x-circle"></i></button>`;
-  }
-  if (_run.state === 'failed') {
-    actions += `<button class="btn btn-sm btn-warning me-1" onclick="doAction('retry')"><i class="bi bi-arrow-repeat me-1"></i>Retry</button>`;
   }
   if (_run.state === 'completed') {
     actions += `<a href="/baseline-tests/${RUN_ID}/results" class="btn btn-sm btn-info"><i class="bi bi-bar-chart me-1"></i>Results</a>`;
@@ -403,6 +405,49 @@ async function renderLPProgress() {
       <td>${compResult}</td>
     </tr>`;
   }).join('');
+}
+
+async function runSanityCheck() {
+  const btn = document.getElementById('btn-sanity');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...'; }
+  try {
+    const result = await API.post('/api/baseline-tests/' + RUN_ID + '/sanity-check');
+    const checks = result.checks || [];
+    const passed = result.passed;
+
+    // Build results table
+    let html = `<div class="alert alert-${passed ? 'success' : 'danger'} py-2 mb-2">
+      <strong>${passed ? 'All checks passed' : 'Some checks failed'}</strong> — ${checks.length} checks run
+    </div>
+    <div class="table-responsive" style="max-height:300px; overflow-y:auto">
+    <table class="table table-sm table-bordered mb-0">
+      <thead class="table-light sticky-top"><tr><th>Target</th><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody>`;
+    checks.forEach(c => {
+      const statusBadge = {
+        pass: '<span class="badge bg-success">PASS</span>',
+        fail: '<span class="badge bg-danger">FAIL</span>',
+        warn: '<span class="badge bg-warning text-dark">WARN</span>',
+        info: '<span class="badge bg-info text-dark">INFO</span>',
+      }[c.status] || `<span class="badge bg-secondary">${c.status}</span>`;
+      html += `<tr><td class="small">${escHtml(c.target)}</td><td class="small">${escHtml(c.check)}</td><td>${statusBadge}</td><td class="small">${escHtml(c.detail || '')}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+
+    // Show in a panel below the actions
+    let panel = document.getElementById('sanity-results');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'sanity-results';
+      panel.className = 'mt-3';
+      document.getElementById('run-actions').parentElement.appendChild(panel);
+    }
+    panel.innerHTML = `<h6 class="mb-2"><i class="bi bi-shield-check me-1"></i>Sanity Check Results</h6>${html}`;
+  } catch (e) {
+    showToast('Sanity check failed: ' + e.message, 'danger');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-shield-check me-1"></i>Sanity Check'; }
+  }
 }
 
 async function doAction(action) {
