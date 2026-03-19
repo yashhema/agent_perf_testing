@@ -498,8 +498,46 @@ class BaselineOrchestrator:
                 all_passed = False
                 checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "ssh_connectivity", "status": "fail", "detail": str(e)})
 
-        # 5. Target checks (per target)
+        # 5. Target checks (per target): revert to snapshot FIRST, then check
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
+            target_label = f"target:{server.hostname}"
+
+            # 5a. Snapshot exists on hypervisor
+            try:
+                provider.snapshot_exists(server.server_infra_ref, test_snapshot.provider_ref)
+                checks.append({"target": target_label, "check": "snapshot_exists", "status": "pass", "detail": f"Snapshot '{test_snapshot.name}' found on hypervisor"})
+            except Exception as e:
+                all_passed = False
+                checks.append({"target": target_label, "check": "snapshot_exists", "status": "fail", "detail": f"Snapshot check failed: {e}"})
+                continue  # Can't revert if snapshot doesn't exist
+
+            # 5b. Revert to test snapshot
+            try:
+                checks.append({"target": target_label, "check": "snapshot_revert", "status": "info", "detail": f"Reverting to '{test_snapshot.name}'..."})
+                new_ip = provider.restore_snapshot(server.server_infra_ref, test_snapshot.provider_ref)
+                provider.wait_for_vm_ready(server.server_infra_ref)
+                actual_ip = server.ip_address
+                if new_ip and new_ip != server.ip_address:
+                    actual_ip = new_ip
+                    server.ip_address = new_ip
+                    session.commit()
+                checks.append({"target": target_label, "check": "snapshot_revert", "status": "pass", "detail": f"Reverted to '{test_snapshot.name}'"})
+            except Exception as e:
+                all_passed = False
+                checks.append({"target": target_label, "check": "snapshot_revert", "status": "fail", "detail": f"Revert failed: {e}"})
+                continue
+
+            # 5c. Wait for SSH/WinRM after revert
+            try:
+                actual_ip = server.ip_address
+                wait_for_ssh(actual_ip, os_family=server.os_family.value, timeout_sec=120)
+                checks.append({"target": target_label, "check": "connectivity", "status": "pass", "detail": f"{'WinRM' if server.os_family.value == 'windows' else 'SSH'} to {actual_ip} OK after revert"})
+            except Exception as e:
+                all_passed = False
+                checks.append({"target": target_label, "check": "connectivity", "status": "fail", "detail": f"Not reachable after revert: {e}"})
+                continue
+
+            # 5d. Dirty snapshot check (on the REVERTED snapshot state)
             try:
                 target_cred = self._credentials.get_server_credential(server.id, server.os_family.value)
                 target_exec = create_executor(
@@ -509,29 +547,16 @@ class BaselineOrchestrator:
                     password=target_cred.password,
                 )
                 try:
-                    # SSH/WinRM connectivity
-                    checks.append({"target": f"target:{server.hostname}", "check": "connectivity", "status": "pass", "detail": f"{'WinRM' if server.os_family.value == 'windows' else 'SSH'} to {server.ip_address} OK"})
-
-                    # Dirty snapshot check (without revert — check current state)
-                    try:
-                        self._check_dirty_snapshot(target_exec, server, test_snapshot.name)
-                        checks.append({"target": f"target:{server.hostname}", "check": "dirty_state", "status": "pass", "detail": "Clean (no stale emulator artifacts)"})
-                    except RuntimeError as e:
-                        all_passed = False
-                        checks.append({"target": f"target:{server.hostname}", "check": "dirty_state", "status": "fail", "detail": str(e)})
-
-                    # Snapshot exists on hypervisor
-                    try:
-                        provider.snapshot_exists(server.server_infra_ref, test_snapshot.provider_ref)
-                        checks.append({"target": f"target:{server.hostname}", "check": "snapshot_exists", "status": "pass", "detail": f"Snapshot '{test_snapshot.name}' found on hypervisor"})
-                    except Exception as e:
-                        all_passed = False
-                        checks.append({"target": f"target:{server.hostname}", "check": "snapshot_exists", "status": "fail", "detail": f"Snapshot check failed: {e}"})
+                    self._check_dirty_snapshot(target_exec, server, test_snapshot.name)
+                    checks.append({"target": target_label, "check": "dirty_state", "status": "pass", "detail": "Snapshot is clean (no stale emulator artifacts after revert)"})
+                except RuntimeError as e:
+                    all_passed = False
+                    checks.append({"target": target_label, "check": "dirty_state", "status": "fail", "detail": str(e)})
                 finally:
                     target_exec.close()
             except Exception as e:
                 all_passed = False
-                checks.append({"target": f"target:{server.hostname}", "check": "connectivity", "status": "fail", "detail": str(e)})
+                checks.append({"target": target_label, "check": "dirty_state", "status": "fail", "detail": str(e)})
 
         return {"passed": all_passed, "checks": checks}
 

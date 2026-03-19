@@ -110,7 +110,54 @@ def main():
         credential=hyp_cred,
     )
 
-    # --- Process each target ---
+    # --- Phase 1: Clean loadgens ---
+    print(f"\n{'='*60}")
+    print(f"  PHASE 1: Loadgen Cleanup")
+    print(f"{'='*60}")
+
+    seen_loadgens = set()
+    for t_orm in target_orms:
+        loadgen = session.get(ServerORM, t_orm.loadgenerator_id)
+        if not loadgen or loadgen.id in seen_loadgens:
+            continue
+        seen_loadgens.add(loadgen.id)
+
+        print(f"\n  Loadgen: {loadgen.hostname} ({loadgen.ip_address})")
+
+        if args.dry_run:
+            print(f"  [DRY RUN] Would: kill JMeter, clean stale run dirs")
+            continue
+
+        try:
+            lg_cred = credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
+            lg_exec = create_executor(
+                os_family=loadgen.os_family.value,
+                host=loadgen.ip_address,
+                username=lg_cred.username,
+                password=lg_cred.password,
+            )
+            try:
+                # Kill all JMeter processes
+                result = lg_exec.execute("pkill -f jmeter || true")
+                print(f"    [OK] JMeter processes killed")
+
+                # Clean stale run dirs from previous tests (keep nothing)
+                result = lg_exec.execute("sudo rm -rf /opt/jmeter/runs/baseline_*")
+                print(f"    [OK] Stale run dirs cleaned")
+
+                # Kill emulator if running on loadgen
+                result = lg_exec.execute("sudo pkill -f emulator || true")
+                print(f"    [OK] Emulator processes killed")
+            finally:
+                lg_exec.close()
+        except Exception as e:
+            print(f"    [ERROR] {e}")
+
+    # --- Phase 2: Retake target snapshots ---
+    print(f"\n{'='*60}")
+    print(f"  PHASE 2: Target Snapshot Retake")
+    print(f"{'='*60}")
+
     success_count = 0
     fail_count = 0
     skip_count = 0
@@ -244,9 +291,12 @@ def main():
 
     # --- Summary ---
     print(f"\n{'='*60}")
-    print(f"  Done: {success_count} retaken, {fail_count} failed, {skip_count} skipped")
+    print(f"  Loadgens cleaned: {len(seen_loadgens)}")
+    print(f"  Targets retaken:  {success_count} ok, {fail_count} failed, {skip_count} skipped")
     if fail_count == 0 and success_count > 0:
-        print(f"  All snapshots are clean. You can now retry the test.")
+        print(f"\n  All clean. Run sanity check from the UI to confirm, then start/retry the test.")
+    elif fail_count > 0:
+        print(f"\n  {fail_count} target(s) failed. Check errors above and fix manually.")
     print(f"{'='*60}")
 
     session.close()
