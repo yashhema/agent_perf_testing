@@ -492,6 +492,24 @@ class BaselineOrchestrator:
                                        "detail": "Will be installed during deploying_loadgen"})
                         checks.append({"target": lg_label, "check": "dirty_state", "status": "pass",
                                        "detail": "Clean (reverted to clean snapshot)"})
+
+                        # Infrastructure checks on reverted loadgen
+                        try:
+                            lg_cred = self._credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
+                            lg_exec = create_executor(
+                                os_family=loadgen.os_family.value,
+                                host=loadgen.ip_address,
+                                username=lg_cred.username,
+                                password=lg_cred.password,
+                            )
+                            try:
+                                checks.extend(self._check_infra_prerequisites(lg_exec, lg_label, loadgen.os_family.value))
+                            finally:
+                                lg_exec.close()
+                        except Exception as e:
+                            all_passed = False
+                            checks.append({"target": lg_label, "check": "infra_prerequisites", "status": "fail", "detail": str(e)})
+
                         continue
                     except Exception as e:
                         all_passed = False
@@ -541,6 +559,9 @@ class BaselineOrchestrator:
                     else:
                         checks.append({"target": lg_label, "check": "dirty_state", "status": "pass",
                                        "detail": "Clean"})
+
+                    # Infrastructure checks
+                    checks.extend(self._check_infra_prerequisites(loadgen_exec, lg_label, loadgen.os_family.value))
                 finally:
                     loadgen_exec.close()
             except Exception as e:
@@ -603,12 +624,102 @@ class BaselineOrchestrator:
                     all_passed = False
                     checks.append({"target": target_label, "check": "dirty_state", "status": "fail", "detail": str(e)})
                 finally:
+                    # Infrastructure checks (run regardless of dirty state)
+                    checks.extend(self._check_infra_prerequisites(target_exec, target_label, server.os_family.value))
                     target_exec.close()
             except Exception as e:
                 all_passed = False
-                checks.append({"target": target_label, "check": "dirty_state", "status": "fail", "detail": str(e)})
+                checks.append({"target": target_label, "check": "infra_prerequisites", "status": "fail", "detail": str(e)})
 
         return {"passed": all_passed, "checks": checks}
+
+    # ------------------------------------------------------------------
+    # Helper: check infrastructure prerequisites (sudo, Java, firewall)
+    # ------------------------------------------------------------------
+    def _check_infra_prerequisites(self, executor, label: str, os_family: str) -> list:
+        """Check passwordless sudo, Java 17+, and firewall port on a machine.
+
+        Returns a list of check dicts to append to the sanity check results.
+        """
+        results = []
+        emu_port = self._config.emulator.emulator_api_port
+
+        if os_family == "windows":
+            # Windows: check firewall rule only
+            try:
+                fw_result = executor.execute(
+                    f'powershell -Command "(Get-NetFirewallRule -DisplayName \'Emulator {emu_port}\' '
+                    f'-ErrorAction SilentlyContinue | Measure-Object).Count"'
+                )
+                lines = [l.strip() for l in fw_result.stdout.splitlines() if l.strip()]
+                count = lines[-1] if lines else "0"
+                if count != "0":
+                    results.append({"target": label, "check": "firewall_port", "status": "pass",
+                                    "detail": f"Firewall rule for port {emu_port} exists"})
+                else:
+                    results.append({"target": label, "check": "firewall_port", "status": "fail",
+                                    "detail": f"No firewall rule for port {emu_port}"})
+            except Exception as e:
+                results.append({"target": label, "check": "firewall_port", "status": "fail", "detail": str(e)})
+            return results
+
+        # Linux checks
+        # 1. Passwordless sudo
+        try:
+            sudo_result = executor.execute("sudo -n whoami 2>&1")
+            lines = [l.strip() for l in sudo_result.stdout.splitlines() if l.strip()]
+            got = lines[-1] if lines else ""
+            if sudo_result.success and "root" in got:
+                results.append({"target": label, "check": "passwordless_sudo", "status": "pass",
+                                "detail": "sudo -n whoami returns root"})
+            else:
+                results.append({"target": label, "check": "passwordless_sudo", "status": "fail",
+                                "detail": f"sudo -n whoami failed — got: {got!r}"})
+        except Exception as e:
+            results.append({"target": label, "check": "passwordless_sudo", "status": "fail", "detail": str(e)})
+
+        # 2. Java 17+
+        try:
+            java_result = executor.execute("java -version 2>&1 | head -1")
+            java_out = java_result.stdout.strip()
+            if java_result.success and java_out:
+                import re
+                m = re.search(r'"(\d+)', java_out)
+                if m:
+                    major = int(m.group(1))
+                    if major >= 17:
+                        results.append({"target": label, "check": "java_version", "status": "pass",
+                                        "detail": f"Java {major} ({java_out})"})
+                    else:
+                        results.append({"target": label, "check": "java_version", "status": "fail",
+                                        "detail": f"Java {major} found but need 17+ ({java_out})"})
+                else:
+                    results.append({"target": label, "check": "java_version", "status": "warn",
+                                    "detail": f"Could not parse Java version: {java_out}"})
+            else:
+                results.append({"target": label, "check": "java_version", "status": "fail",
+                                "detail": "Java not installed"})
+        except Exception as e:
+            results.append({"target": label, "check": "java_version", "status": "fail", "detail": str(e)})
+
+        # 3. Firewall port open
+        try:
+            fw_result = executor.execute(
+                f"sudo firewall-cmd --list-ports 2>/dev/null | grep -q {emu_port} && echo OPEN || "
+                f"sudo iptables -C INPUT -p tcp --dport {emu_port} -j ACCEPT 2>/dev/null && echo OPEN || "
+                f"echo CLOSED"
+            )
+            status = fw_result.stdout.strip().split('\n')[-1].strip()
+            if "OPEN" in status:
+                results.append({"target": label, "check": "firewall_port", "status": "pass",
+                                "detail": f"Port {emu_port}/tcp is open"})
+            else:
+                results.append({"target": label, "check": "firewall_port", "status": "fail",
+                                "detail": f"Port {emu_port}/tcp is NOT open"})
+        except Exception as e:
+            results.append({"target": label, "check": "firewall_port", "status": "fail", "detail": str(e)})
+
+        return results
 
     # ------------------------------------------------------------------
     # Helper: validate file exists on remote
