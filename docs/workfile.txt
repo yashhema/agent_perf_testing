@@ -540,3 +540,18 @@ All changes to src/ code are documented here with date, file, and summary.
   - Flow: revert snapshot → wait SSH → kill stale → install JMeter/emulator
   - Graceful fallback: if no clean_snapshot_id, skips revert (old behavior)
 
+2026-03-20  setup/retake_snapshots.py
+  - Rewritten: unified 11-step flow for both loadgens and targets
+  - Steps: revert → SSH → fix sudo (echo pass|sudo -S) → open firewall 8080 →
+    install prereqs (Java 17, Python3) → cleanup → verify → delete old snap →
+    take new snap → update DB → validate (revert to new + verify sudo/firewall/clean)
+  - New --sudo-user CLI arg (required)
+  - Java 17 install + alternatives --set to force as default
+  - Validation pass: reverts to newly created snapshot and verifies everything
+
+2026-03-20  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - sanity_check(): added _check_infra_prerequisites() for every machine
+  - Checks: passwordless sudo (sudo -n whoami), Java 17+ (java -version parse),
+    firewall port 8080 open (firewall-cmd/iptables on Linux, Get-NetFirewallRule on Windows)
+  - Runs after snapshot revert to validate actual snapshot state
+
