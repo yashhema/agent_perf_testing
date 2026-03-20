@@ -25,8 +25,14 @@ if ORCH_SRC not in sys.path:
 
 def get_session_and_credentials():
     """Initialize DB session and credentials."""
-    from orchestrator.models.database import SessionLocal
+    from orchestrator.models.database import SessionLocal, init_db
+    from orchestrator.config.settings import load_config
     from orchestrator.config.credentials import CredentialsStore
+
+    # Initialize DB engine (standalone scripts must do this explicitly)
+    config_path = os.path.join(REPO_ROOT, "orchestrator", "config", "orchestrator.yaml")
+    config = load_config(config_path)
+    init_db(config.database.url)
 
     cred_path = os.path.join(REPO_ROOT, "orchestrator", "config", "credentials.json")
     credentials = CredentialsStore(cred_path)

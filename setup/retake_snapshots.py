@@ -42,15 +42,21 @@ def main():
                         help="Skip the cleanup step (VM already clean)")
     args = parser.parse_args()
 
-    from orchestrator.models.database import SessionLocal
+    from orchestrator.models.database import SessionLocal, init_db
     from orchestrator.models.orm import (
         BaselineTestRunORM, BaselineTestRunTargetORM,
         LabORM, ServerORM, SnapshotORM,
     )
+    from orchestrator.config.settings import load_config
     from orchestrator.config.credentials import CredentialsStore
     from orchestrator.infra.hypervisor import create_hypervisor_provider
     from orchestrator.infra.remote_executor import create_executor
     from orchestrator.core.baseline_execution import wait_for_ssh
+
+    # Initialize DB engine (standalone scripts must do this explicitly)
+    config_path = os.path.join(REPO_ROOT, "orchestrator", "config", "orchestrator.yaml")
+    config = load_config(config_path)
+    init_db(config.database.url)
 
     cred_path = os.path.join(REPO_ROOT, "orchestrator", "config", "credentials.json")
     credentials = CredentialsStore(cred_path)

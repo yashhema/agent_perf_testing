@@ -504,3 +504,11 @@ All changes to src/ code are documented here with date, file, and summary.
 2026-03-19  orchestrator/src/orchestrator/core/baseline_state_machine.py
   - Added BaselineTestState.created to RETRY_RESUME_STATE (defensive)
 
+2026-03-19  setup/retake_snapshots.py
+  - Bug fix: added init_db() call before creating SessionLocal session
+  - Standalone scripts don't go through app.py startup, so the engine was never bound
+  - Loads config from orchestrator/config/orchestrator.yaml via load_config()
+
+2026-03-19  setup/cleanup_targets.py
+  - Same bug fix: added init_db() call in get_session_and_credentials()
+
