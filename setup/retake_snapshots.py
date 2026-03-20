@@ -6,12 +6,13 @@ Both loadgens and targets follow the same unified flow:
   2. Wait for SSH/WinRM
   3. Fix passwordless sudo (Linux only — echo pass | sudo -S)
   4. Open firewall port 8080
-  5. Cleanup (kill processes, rm dirs)
-  6. Verify cleanliness
-  7. Delete old snapshot from hypervisor
-  8. Take new snapshot
-  9. Update DB record
- 10. VALIDATE: Revert to new snapshot, verify sudo + firewall + cleanliness
+  5. Install prerequisites (Java 17 for emulator, Python3+pip if needed)
+  6. Cleanup (kill processes, rm dirs)
+  7. Verify cleanliness
+  8. Delete old snapshot from hypervisor
+  9. Take new snapshot
+ 10. Update DB record
+ 11. VALIDATE: Revert to new snapshot, verify sudo + firewall + cleanliness
 
 Usage:
     python retake_snapshots.py "Win2022 CrowdStrike v7.18 baseline" --sudo-user svc_account
@@ -216,6 +217,72 @@ def open_firewall(executor, os_family, port=FIREWALL_PORT, dry_run=False):
 
 
 # ---------------------------------------------------------------------------
+# Step: Install prerequisites (Java 17, Python3+pip)
+# ---------------------------------------------------------------------------
+def install_prerequisites(executor, os_family, dry_run=False):
+    """Install Java 17 and Python3 prerequisites on Linux. Idempotent."""
+    if os_family == "windows":
+        print(f"    [SKIP] Prerequisites not needed for Windows")
+        return True
+
+    if dry_run:
+        print(f"    [DRY RUN] Would install Java 17 + Python3 prerequisites")
+        return True
+
+    print(f"\n  --- Installing prerequisites ---")
+    all_ok = True
+
+    # 1. Ensure tar is available
+    _run_cmd(executor, "Ensure tar is installed",
+        "command -v tar >/dev/null || sudo dnf install -y -q tar 2>&1",
+        warn_only=True)
+
+    # 2. Install Java 17 (required for Java emulator)
+    # Check if Java 17+ is already installed
+    ok, stdout = _run_cmd(executor, "Check Java version",
+        'java -version 2>&1 | head -1')
+    needs_java17 = True
+    if ok and stdout:
+        # Parse version string like: openjdk version "17.0.x" or "1.8.0_xxx"
+        import re
+        m = re.search(r'"(\d+)', stdout)
+        if m:
+            major = int(m.group(1))
+            if major >= 17:
+                print(f"    [OK] Java {major} already installed")
+                needs_java17 = False
+            else:
+                print(f"    Java {major} found but need 17+")
+
+    if needs_java17:
+        ok, _ = _run_cmd(executor, "Install Java 17 (OpenJDK headless)",
+            "sudo dnf install -y java-17-openjdk-headless 2>&1")
+        if not ok:
+            # Try yum as fallback
+            ok, _ = _run_cmd(executor, "Install Java 17 (yum fallback)",
+                "sudo yum install -y java-17-openjdk-headless 2>&1")
+        if not ok:
+            print(f"    [ERROR] Failed to install Java 17")
+            all_ok = False
+        else:
+            # Verify
+            ok, stdout = _run_cmd(executor, "Verify Java 17 installed",
+                "java -version 2>&1 | head -1")
+            if ok:
+                print(f"    [OK] Java installed: {stdout}")
+
+    # 3. Install Python3 + pip (needed for various scripts, JMeter kill script, etc.)
+    ok, _ = _run_cmd(executor, "Check Python3",
+        "python3 --version 2>&1")
+    if not ok:
+        _run_cmd(executor, "Install Python3",
+            "sudo dnf install -y python3 python3-pip 2>&1",
+            warn_only=True)
+
+    return all_ok
+
+
+# ---------------------------------------------------------------------------
 # Step: Cleanup
 # ---------------------------------------------------------------------------
 def cleanup_loadgen(executor, hostname, dry_run=False):
@@ -379,7 +446,7 @@ def retake_one(
     Returns True on success, False on failure.
     """
     os_family = server.os_family.value
-    TOTAL_STEPS = 10
+    TOTAL_STEPS = 11
 
     if dry_run:
         print(f"  [DRY RUN] Would: revert -> fix sudo -> open firewall -> cleanup -> "
@@ -425,27 +492,32 @@ def retake_one(
         if not open_firewall(executor, os_family, FIREWALL_PORT, dry_run):
             print(f"  [WARN] Firewall fix may have failed on {server.hostname} — continuing")
 
-        # --- Step 5: Cleanup ---
-        print(f"  [5/{TOTAL_STEPS}] Running cleanup on {server.hostname}...")
+        # --- Step 5: Install prerequisites ---
+        print(f"  [5/{TOTAL_STEPS}] Installing prerequisites...")
+        if not install_prerequisites(executor, os_family, dry_run):
+            print(f"  [WARN] Some prerequisites may have failed on {server.hostname} — continuing")
+
+        # --- Step 6: Cleanup ---
+        print(f"  [6/{TOTAL_STEPS}] Running cleanup on {server.hostname}...")
         is_clean = cleanup_fn(executor, server.hostname, os_family)
         if not is_clean:
             print(f"  [ERROR] {server.hostname} not clean after cleanup — aborting retake")
             return False
-        print(f"  [6/{TOTAL_STEPS}] Verification passed")
+        print(f"  [7/{TOTAL_STEPS}] Verification passed")
 
     finally:
         executor.close()
 
-    # --- Step 7: Delete old snapshot from hypervisor ---
-    print(f"  [7/{TOTAL_STEPS}] Deleting old snapshot '{snapshot.name}' from hypervisor...")
+    # --- Step 8: Delete old snapshot from hypervisor ---
+    print(f"  [8/{TOTAL_STEPS}] Deleting old snapshot '{snapshot.name}' from hypervisor...")
     try:
         provider.delete_snapshot(server.server_infra_ref, snapshot.provider_ref)
         print(f"         Deleted")
     except Exception as e:
         print(f"         Delete failed (non-fatal, may already be gone): {e}")
 
-    # --- Step 8: Take new snapshot ---
-    print(f"  [8/{TOTAL_STEPS}] Taking new snapshot '{snapshot.name}'...")
+    # --- Step 9: Take new snapshot ---
+    print(f"  [9/{TOTAL_STEPS}] Taking new snapshot '{snapshot.name}'...")
     result = provider.create_snapshot(
         server.server_infra_ref,
         snapshot_name=snapshot.name,
@@ -458,8 +530,8 @@ def retake_one(
     )
     print(f"         Created: provider_id={new_provider_id}")
 
-    # --- Step 9: Update DB record in-place ---
-    print(f"  [9/{TOTAL_STEPS}] Updating DB record (ID={snapshot.id})...")
+    # --- Step 10: Update DB record in-place ---
+    print(f"  [10/{TOTAL_STEPS}] Updating DB record (ID={snapshot.id})...")
     old_provider_id = snapshot.provider_snapshot_id
     snapshot.provider_snapshot_id = str(new_provider_id)
     snapshot.provider_ref = result
@@ -477,8 +549,8 @@ def retake_one(
     else:
         print(f"         [WARN] Snapshot not found on hypervisor after creation!")
 
-    # --- Step 10: Validate by reverting to new snapshot ---
-    print(f"  [10/{TOTAL_STEPS}] Validating snapshot (revert to new + verify)...")
+    # --- Step 11: Validate by reverting to new snapshot ---
+    print(f"  [11/{TOTAL_STEPS}] Validating snapshot (revert to new + verify)...")
     # Re-read snapshot from DB to use the updated provider_ref
     session.refresh(snapshot)
     valid = validate_snapshot(
@@ -679,8 +751,12 @@ def main():
                         print(f"  [2] Opening firewall...")
                         open_firewall(executor, loadgen.os_family.value)
 
+                        # Install prerequisites
+                        print(f"  [3] Installing prerequisites...")
+                        install_prerequisites(executor, loadgen.os_family.value)
+
                         # Cleanup
-                        print(f"  [3] Cleaning...")
+                        print(f"  [4] Cleaning...")
                         is_clean = cleanup_loadgen(executor, loadgen.hostname)
                         if not is_clean:
                             print(f"  [ERROR] Not clean — skipping")
@@ -690,7 +766,7 @@ def main():
                         executor.close()
 
                     # Take snapshot
-                    print(f"  [4] Taking snapshot '{snap_name}'...")
+                    print(f"  [5] Taking snapshot '{snap_name}'...")
                     result = provider.create_snapshot(
                         loadgen.server_infra_ref,
                         snapshot_name=snap_name,
@@ -704,7 +780,7 @@ def main():
                     print(f"      Created: provider_id={new_provider_id}")
 
                     # Create DB record
-                    print(f"  [5] Creating DB snapshot record...")
+                    print(f"  [6] Creating DB snapshot record...")
                     snap_orm = SnapshotORM(
                         name=snap_name,
                         description=f"Clean loadgen snapshot for {loadgen.hostname}",
@@ -726,7 +802,7 @@ def main():
                     print(f"      DB record ID={snap_orm.id}, linked to server.clean_snapshot_id")
 
                     # Validate
-                    print(f"  [6] Validating snapshot (revert + verify)...")
+                    print(f"  [7] Validating snapshot (revert + verify)...")
                     session.refresh(snap_orm)
                     valid = validate_snapshot(
                         provider, loadgen, snap_orm.provider_ref, credentials,
