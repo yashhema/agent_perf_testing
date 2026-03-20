@@ -206,13 +206,21 @@ class PackageDeployer:
             package.group_name, package.member_id, package.root_install_path,
         )
 
-        # Step 1: Ensure parent directory exists, then upload
+        # Step 1: Upload package to remote
         rip = package.root_install_path
-        if rip.startswith("/"):
+        # If extraction_command uses {file}, upload to /tmp to avoid colliding
+        # with the extraction target (e.g., root_install_path = /opt/jmeter)
+        has_file_placeholder = package.extraction_command and "{file}" in package.extraction_command
+        if has_file_placeholder:
+            local_filename = Path(package.path).name
+            uploaded_path = f"/tmp/_pkg_{local_filename}"
+            logger.info("Upload to temp (extraction uses {{file}}): %s -> %s", package.path, uploaded_path)
+            executor.upload(package.path, uploaded_path)
+            executor.execute(f"sudo chmod 644 {uploaded_path}")
+        elif rip.startswith("/"):
             remote_parent = rip.rsplit("/", 1)[0]
             executor.execute(self._sudo(f"mkdir -p {remote_parent}"))
             if self._use_sudo:
-                # SFTP runs as SSH user — upload to /tmp first, then sudo mv
                 remote_filename = rip.rsplit("/", 1)[1]
                 tmp_path = f"/tmp/_pkg_upload_{remote_filename}"
                 executor.upload(package.path, tmp_path)
@@ -230,15 +238,15 @@ class PackageDeployer:
 
         # Step 2: Extract
         if package.extraction_command:
-            # Substitute placeholders: {file} → root_install_path (where the package was uploaded)
-            raw_cmd = package.extraction_command.replace("{file}", rip)
+            # Substitute {file} with actual uploaded path (temp or root_install_path)
+            file_path = uploaded_path if has_file_placeholder else rip
+            raw_cmd = package.extraction_command.replace("{file}", file_path)
             extract_cmd = self._sudo(raw_cmd) if rip.startswith("/") else raw_cmd
 
             # Force clean: remove any dirs/symlinks that extraction will create,
             # so mkdir/ln/tar never hit "file exists" errors.
             # NEVER clean root_install_path — that's where the uploaded archive lives.
             if rip.startswith("/"):
-                import re
                 dirs_to_clean = set()
                 # mkdir -p /some/dir
                 for m in re.finditer(r"mkdir\s+-p\s+(\S+)", raw_cmd):
