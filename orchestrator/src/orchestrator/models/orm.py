@@ -122,6 +122,8 @@ class ServerORM(Base):
     default_loadgen_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     default_partner_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     service_monitor_patterns = Column(JSON, nullable=True)
+    # Clean snapshot for reverting to known-good state (loadgens: pre-JMeter/emulator install)
+    clean_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
@@ -130,6 +132,7 @@ class ServerORM(Base):
     baseline = relationship("BaselineORM", foreign_keys=[baseline_id])
     default_loadgen = relationship("ServerORM", foreign_keys=[default_loadgen_id], remote_side="ServerORM.id")
     default_partner = relationship("ServerORM", foreign_keys=[default_partner_id], remote_side="ServerORM.id")
+    clean_snapshot = relationship("SnapshotORM", foreign_keys=[clean_snapshot_id])
 
 
 # ---------------------------------------------------------------------------

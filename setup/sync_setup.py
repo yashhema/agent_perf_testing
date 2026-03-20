@@ -72,6 +72,7 @@ ORCHESTRATOR_FILES = {
     "orchestrator/migrations/restructure_baseline_tests.sql": "orchestrator/migrations/restructure_baseline_tests.sql",
     "orchestrator/migrations/state_machine_redesign.sql": "orchestrator/migrations/state_machine_redesign.sql",
     "orchestrator/migrations/state_machine_redesign_postgres.sql": "orchestrator/migrations/state_machine_redesign_postgres.sql",
+    "orchestrator/migrations/add_clean_snapshot_id.sql": "orchestrator/migrations/add_clean_snapshot_id.sql",
     "orchestrator/seed_packages.py": "orchestrator/seed_packages.py",
     # JMX templates + scripts (small files, not binary packages)
     "orchestrator/artifacts/jmx/server-normal.jmx": "orchestrator/artifacts/jmx/server-normal.jmx",
@@ -105,8 +106,8 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/app.py": "orchestrator/src/orchestrator/app.py",
     "orchestrator/src/orchestrator/cli.py": "orchestrator/src/orchestrator/cli.py",
     "orchestrator/src/orchestrator/seed.py": "orchestrator/src/orchestrator/seed.py",
-    # Config files
-    "orchestrator/config/orchestrator.yaml": "orchestrator/config/orchestrator.yaml",
+    # Config files (orchestrator.yaml is local-only, sync the template instead)
+    "orchestrator/config/orchestrator_default.yaml": "orchestrator/config/orchestrator_default.yaml",
 }
 
 EMULATOR_JAVA_FILES = {

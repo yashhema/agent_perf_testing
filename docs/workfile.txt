@@ -512,3 +512,26 @@ All changes to src/ code are documented here with date, file, and summary.
 2026-03-19  setup/cleanup_targets.py
   - Same bug fix: added init_db() call in get_session_and_credentials()
 
+2026-03-19  orchestrator/src/orchestrator/models/orm.py
+  - Added clean_snapshot_id (FK to snapshots) on ServerORM
+  - Used by loadgens to store a known-good hypervisor snapshot for reverting
+  - Nullable — only populated after first retake_snapshots.py run
+
+2026-03-19  orchestrator/migrations/add_clean_snapshot_id.sql
+  - Migration to add clean_snapshot_id column + FK to servers table
+  - Works on both SQL Server and PostgreSQL
+
+2026-03-19  setup/retake_snapshots.py
+  - Full rewrite: loadgen cleanup + snapshot + target retake
+  - Phase 1 (loadgens): kill all processes, rm -rf /opt/jmeter + /opt/emulator,
+    verify dirs gone + no processes, take hypervisor snapshot, store as clean_snapshot_id
+  - Phase 2 (targets): revert to parent, cleanup, delete old snapshot, take new,
+    update DB in-place, verify snapshot exists on hypervisor
+  - New flags: --loadgens-only, --targets-only
+  - Every step verified before proceeding
+
+2026-03-19  setup/sync_setup.py
+  - Removed orchestrator.yaml from sync list (now local-only)
+  - Added orchestrator_default.yaml (template) to sync list
+  - Added add_clean_snapshot_id.sql migration to sync list
+
