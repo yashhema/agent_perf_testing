@@ -226,13 +226,20 @@ class PackageDeployer:
         if package.extraction_command:
             extract_cmd = self._sudo(package.extraction_command) if rip.startswith("/") else package.extraction_command
 
-            # Force clean: parse any mkdir -p target and rm -rf it first
-            import re
-            m = re.search(r"mkdir\s+-p\s+(\S+)", package.extraction_command)
-            if m:
-                target_dir = m.group(1)
-                logger.info("Pre-cleaning extraction target: sudo rm -rf %s", target_dir)
-                executor.execute(f"sudo rm -rf {target_dir}")
+            # Force clean: remove any dirs/symlinks that extraction will create,
+            # so mkdir/ln/tar never hit "file exists" errors
+            if rip.startswith("/"):
+                import re
+                dirs_to_clean = set()
+                # mkdir -p /some/dir
+                for m in re.finditer(r"mkdir\s+-p\s+(\S+)", package.extraction_command):
+                    dirs_to_clean.add(m.group(1))
+                # ln -sfn /source /target — clean the target
+                for m in re.finditer(r"ln\s+-\S*\s+\S+\s+(\S+)", package.extraction_command):
+                    dirs_to_clean.add(m.group(1))
+                for d in dirs_to_clean:
+                    logger.info("Pre-cleaning: sudo rm -rf %s", d)
+                    executor.execute(f"sudo rm -rf {d}")
 
             logger.info("Extracting: %s", extract_cmd)
             result = executor.execute(extract_cmd)
