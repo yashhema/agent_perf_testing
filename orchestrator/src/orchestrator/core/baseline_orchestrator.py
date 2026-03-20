@@ -718,10 +718,25 @@ class BaselineOrchestrator:
             try:
                 # Clean slate: kill stale processes and remove old installations
                 loadgen_exec.execute("pgrep -f '[j]meter' | xargs -r kill -9 2>/dev/null; true")
-                loadgen_exec.execute("rm -rf /opt/jmeter 2>/dev/null; sudo rm -rf /opt/jmeter 2>/dev/null; true")
                 loadgen_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
-                loadgen_exec.execute("rm -rf /opt/emulator 2>/dev/null; sudo rm -rf /opt/emulator 2>/dev/null; true")
-                logger.info("Loadgen %s: cleaned stale processes and directories", loadgen.hostname)
+
+                # Remove old dirs — try multiple approaches
+                for d in ["/opt/jmeter", "/opt/emulator"]:
+                    loadgen_exec.execute(f"sudo rm -rf {d} 2>&1 || rm -rf {d} 2>&1 || true")
+                    # Verify it's actually gone
+                    check = loadgen_exec.execute(f"test -e {d} && echo EXISTS || echo GONE")
+                    status = check.stdout.strip().split('\n')[-1].strip()
+                    if status == "EXISTS":
+                        # Last resort: try removing contents and the dir separately
+                        loadgen_exec.execute(f"sudo rm -rf {d}/* 2>&1; sudo rmdir {d} 2>&1 || true")
+                        check2 = loadgen_exec.execute(f"test -e {d} && echo EXISTS || echo GONE")
+                        status2 = check2.stdout.strip().split('\n')[-1].strip()
+                        if status2 == "EXISTS":
+                            logger.warning("Could not remove %s on %s — will attempt deploy anyway", d, loadgen.hostname)
+                        else:
+                            logger.info("Removed %s on %s (second attempt)", d, loadgen.hostname)
+                    else:
+                        logger.info("Removed %s on %s", d, loadgen.hostname)
 
                 # Install JMeter
                 jmeter_packages = resolver.resolve(

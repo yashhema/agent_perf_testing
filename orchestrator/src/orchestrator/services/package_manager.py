@@ -224,7 +224,18 @@ class PackageDeployer:
 
         # Step 2: Extract
         if package.extraction_command:
+            # Clean target dir before extraction to avoid "file exists" errors
+            # Parse extraction command for target dir (e.g., "mkdir -p /opt/jmeter && tar ...")
             extract_cmd = self._sudo(package.extraction_command) if rip.startswith("/") else package.extraction_command
+            if "mkdir -p " in package.extraction_command:
+                # Extract the target dir from "mkdir -p /some/dir && ..."
+                import re
+                m = re.search(r"mkdir\s+-p\s+(\S+)", package.extraction_command)
+                if m:
+                    target_dir = m.group(1)
+                    rm_cmd = self._sudo(f"rm -rf {target_dir}") if rip.startswith("/") else f"rm -rf {target_dir}"
+                    logger.info("Pre-cleaning extraction target: %s", rm_cmd)
+                    executor.execute(rm_cmd)
             logger.info("Extracting: %s", extract_cmd)
             result = executor.execute(extract_cmd)
             if not result.success:
