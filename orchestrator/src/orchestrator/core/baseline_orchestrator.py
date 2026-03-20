@@ -311,7 +311,9 @@ class BaselineOrchestrator:
             proc_cmd = 'powershell -Command "Get-Process -Name *emulator* -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.Id }"'
         else:
             dirs_to_check = ["/opt/emulator/output", "/opt/emulator/stats"]
-            proc_cmd = "pgrep -f emulator || true"
+            # Use [e]mulator trick to avoid matching the grep/pgrep command itself.
+            # Use -c to get a count instead of PIDs (cleaner check).
+            proc_cmd = "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0"
 
         dirty_details = []
 
@@ -324,29 +326,41 @@ class BaselineOrchestrator:
                 result = executor.execute(
                     f"find {d} -type f 2>/dev/null | head -1 | wc -l"
                 )
-            if result.success and result.stdout.strip() not in ("0", ""):
+            stdout_val = result.stdout.strip()
+            if stdout_val not in ("0", ""):
                 try:
-                    count = int(result.stdout.strip())
+                    count = int(stdout_val)
                     if count > 0:
-                        dirty_details.append(f"files in {d}")
+                        dirty_details.append(f"files in {d} (count={count})")
+                        logger.warning("Dirty check %s: %d files in %s", server.hostname, count, d)
                 except ValueError:
-                    dirty_details.append(f"files in {d}")
+                    dirty_details.append(f"files in {d} (raw={stdout_val!r})")
 
         # Check for running emulator process
         result = executor.execute(proc_cmd)
-        if result.success and result.stdout.strip():
-            dirty_details.append("emulator process running")
+        proc_stdout = result.stdout.strip()
+        # Parse count from last line
+        lines = [l.strip() for l in proc_stdout.splitlines() if l.strip()]
+        proc_count_str = lines[-1] if lines else "0"
+        try:
+            proc_count = int(proc_count_str)
+        except ValueError:
+            proc_count = 0
+            logger.warning("Dirty check %s: unexpected pgrep output: %r", server.hostname, proc_stdout)
+
+        if proc_count > 0:
+            # Log the actual process details for debugging
+            ps_result = executor.execute("ps -eo pid,cmd | grep '[e]mulator' 2>/dev/null || true")
+            logger.warning("Dirty check %s: %d emulator process(es) found. ps output: %s",
+                           server.hostname, proc_count, ps_result.stdout.strip())
+            dirty_details.append(f"emulator process running (count={proc_count}, ps={ps_result.stdout.strip()!r})")
 
         if dirty_details:
             details = ", ".join(dirty_details)
             raise RuntimeError(
                 f"Dirty snapshot detected on {server.hostname} after revert to '{snapshot_name}'. "
                 f"Pre-existing artifacts found: {details}. "
-                f"Action required: "
-                f"1. Run cleanup_targets.py on this server; "
-                f"2. Take a fresh snapshot in vSphere/Proxmox; "
-                f"3. Update the snapshot record in the DB (same record, new provider_ref); "
-                f"4. Retry the test"
+                f"Run retake_snapshots.py to fix."
             )
 
     # ------------------------------------------------------------------
@@ -356,15 +370,16 @@ class BaselineOrchestrator:
         """Check for stale artifacts on a loadgen. Returns list of issues found (empty = clean)."""
         issues = []
 
-        # Check for running JMeter processes
-        result = executor.execute("pgrep -f jmeter -c || echo 0")
-        if result.success:
-            try:
-                count = int(result.stdout.strip())
-                if count > 0:
-                    issues.append(f"{count} stale JMeter process(es) running")
-            except ValueError:
-                pass
+        # Check for running JMeter processes (use [j]meter to avoid matching grep itself)
+        result = executor.execute("pgrep -f '[j]meter' -c 2>/dev/null || echo 0")
+        lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+        count_str = lines[-1] if lines else "0"
+        try:
+            count = int(count_str)
+            if count > 0:
+                issues.append(f"{count} stale JMeter process(es) running")
+        except ValueError:
+            pass
 
         # Check for stale run dirs from previous tests
         result = executor.execute("ls -d /opt/jmeter/runs/baseline_* 2>/dev/null | head -5")
@@ -376,15 +391,16 @@ class BaselineOrchestrator:
                 issues.append(f"stale run dirs from previous tests: {', '.join(stale)}")
 
         # Check for running emulator processes on loadgen
-        result = executor.execute("pgrep -f emulator -c || echo 0")
-        if result.success:
-            try:
-                count = int(result.stdout.strip())
-                if count > 0:
-                    # Emulator on loadgen is expected for pool templates — just note it
-                    issues.append(f"emulator process running ({count} process(es)) — expected for pool templates")
-            except ValueError:
-                pass
+        result = executor.execute("pgrep -f '[e]mulator' -c 2>/dev/null || echo 0")
+        lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+        emu_count_str = lines[-1] if lines else "0"
+        try:
+            emu_count = int(emu_count_str)
+            if emu_count > 0:
+                # Emulator on loadgen is expected for pool templates — just note it
+                issues.append(f"emulator process running ({emu_count} process(es)) — expected for pool templates")
+        except ValueError:
+            pass
 
         return issues
 
