@@ -235,7 +235,8 @@ class PackageDeployer:
             extract_cmd = self._sudo(raw_cmd) if rip.startswith("/") else raw_cmd
 
             # Force clean: remove any dirs/symlinks that extraction will create,
-            # so mkdir/ln/tar never hit "file exists" errors
+            # so mkdir/ln/tar never hit "file exists" errors.
+            # NEVER clean root_install_path — that's where the uploaded archive lives.
             if rip.startswith("/"):
                 import re
                 dirs_to_clean = set()
@@ -245,6 +246,9 @@ class PackageDeployer:
                 # ln -sfn /source /target — clean the target
                 for m in re.finditer(r"ln\s+-\S*\s+\S+\s+(\S+)", raw_cmd):
                     dirs_to_clean.add(m.group(1))
+                # Never delete the uploaded file or its parent dir
+                dirs_to_clean.discard(rip)
+                dirs_to_clean.discard(rip.rsplit("/", 1)[0])
                 for d in dirs_to_clean:
                     logger.info("Pre-cleaning: sudo rm -rf %s", d)
                     executor.execute(f"sudo rm -rf {d}")
