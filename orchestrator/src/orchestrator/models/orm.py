@@ -611,7 +611,7 @@ class SnapshotORM(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
-    server = relationship("ServerORM", backref="snapshots")
+    server = relationship("ServerORM", foreign_keys=[server_id], backref="snapshots")
     parent = relationship("SnapshotORM", remote_side=[id], backref="children")
     group = relationship("SnapshotGroupORM", foreign_keys=[group_id], back_populates="snapshots")
     profile_data = relationship(
