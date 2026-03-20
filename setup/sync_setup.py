@@ -44,6 +44,7 @@ SETUP_FILES = {
     "setup/manage_snapshots.py": "setup/manage_snapshots.py",
     "setup/cleanup_targets.py": "setup/cleanup_targets.py",
     "setup/retake_snapshots.py": "setup/retake_snapshots.py",
+    "setup/open_firewall.py": "setup/open_firewall.py",
     "setup/requirements.txt": "setup/requirements.txt",
     "setup/build_artifacts.sh": "setup/build_artifacts.sh",
     "setup/servers.csv.example": "setup/servers.csv.example",
