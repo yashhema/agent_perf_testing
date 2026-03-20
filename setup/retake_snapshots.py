@@ -50,8 +50,12 @@ LOADGEN_VERIFY_COMMANDS_LINUX = [
 
 TARGET_CLEANUP_COMMANDS = {
     "linux": [
-        ("Kill emulator", "sudo pkill -9 -f emulator || true"),
-        ("Clean emulator output", "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/*"),
+        # Stop and disable any emulator systemd service so it doesn't respawn
+        ("Disable emulator service", "systemctl stop emulator 2>/dev/null; systemctl disable emulator 2>/dev/null; echo done"),
+        # Kill emulator process (try without sudo first, then with)
+        ("Kill emulator processes", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; sleep 1; pgrep -f '[e]mulator' | xargs -r sudo kill -9 2>/dev/null; echo done"),
+        # Clean emulator output and stats
+        ("Clean emulator output", "rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; echo done"),
     ],
     "windows": [
         ("Kill emulator", 'powershell -Command "Stop-Process -Name *emulator* -Force -ErrorAction SilentlyContinue"'),
@@ -60,6 +64,17 @@ TARGET_CLEANUP_COMMANDS = {
          "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
          "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
          '"'),
+    ],
+}
+
+TARGET_VERIFY_COMMANDS = {
+    "linux": [
+        ("No emulator processes", "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0", "0"),
+        ("No emulator output files", "find /opt/emulator/output -type f 2>/dev/null | head -1 | wc -l", "0"),
+        ("No emulator stats files", "find /opt/emulator/stats -type f 2>/dev/null | head -1 | wc -l", "0"),
+    ],
+    "windows": [
+        ("No emulator processes", 'powershell -Command "(Get-Process -Name *emulator* -ErrorAction SilentlyContinue | Measure-Object).Count"', "0"),
     ],
 }
 
@@ -108,21 +123,45 @@ def clean_loadgen(executor, hostname, dry_run=False):
 
 
 def clean_target(executor, hostname, os_family, dry_run=False):
-    """Clean a target VM after reverting to parent snapshot."""
+    """Clean a target VM. Returns True if verified clean."""
     commands = TARGET_CLEANUP_COMMANDS.get(os_family, TARGET_CLEANUP_COMMANDS["linux"])
+    verify_commands = TARGET_VERIFY_COMMANDS.get(os_family, TARGET_VERIFY_COMMANDS.get("linux", []))
 
     if dry_run:
         for desc, _ in commands:
             print(f"    [DRY RUN] {desc}")
-        return
+        return True
 
+    # Cleanup
     for desc, cmd in commands:
         print(f"    {desc}...")
+        print(f"      cmd: {cmd}")
         result = executor.execute(cmd)
+        if result.stdout.strip():
+            print(f"      stdout: {result.stdout.strip()}")
+        if result.stderr.strip():
+            print(f"      stderr: {result.stderr.strip()}")
         if not result.success:
-            print(f"    [WARN] {desc}: {result.stderr}")
+            print(f"    [WARN] {desc}: exit_code={result.exit_code}")
         else:
             print(f"    [OK] {desc}")
+
+    time.sleep(2)
+
+    # Verify
+    all_clean = True
+    print(f"    --- Verifying target cleanup ---")
+    for desc, cmd, expected in verify_commands:
+        result = executor.execute(cmd)
+        lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+        actual = lines[-1] if lines else ""
+        if actual == expected:
+            print(f"    [PASS] {desc}: {actual}")
+        else:
+            print(f"    [FAIL] {desc}: expected={expected!r}, got={actual!r}")
+            all_clean = False
+
+    return all_clean
 
 
 def main():
@@ -428,7 +467,7 @@ def main():
                 wait_for_ssh(actual_ip, os_family=server.os_family.value, timeout_sec=120)
                 print(f"         Connected")
 
-                # Step 3: Cleanup
+                # Step 3: Cleanup + verify
                 print(f"  [3/7] Running cleanup on {server.hostname}...")
                 target_cred = credentials.get_server_credential(server.id, server.os_family.value)
                 executor = create_executor(
@@ -438,7 +477,11 @@ def main():
                     password=target_cred.password,
                 )
                 try:
-                    clean_target(executor, server.hostname, server.os_family.value)
+                    is_clean = clean_target(executor, server.hostname, server.os_family.value)
+                    if not is_clean:
+                        print(f"  [ERROR] Target {server.hostname} not clean after cleanup — aborting retake")
+                        fail_count += 1
+                        continue
                 finally:
                     executor.close()
 
