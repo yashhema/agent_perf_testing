@@ -928,7 +928,7 @@ class BaselineOrchestrator:
                     except Exception as e:
                         logger.warning("Discovery failed for %s (non-fatal): %s", server_hostname, e)
 
-                # Dirty snapshot pre-check + emulator deploy
+                # Clean slate + emulator deploy
                 target_cred = self._credentials.get_server_credential(server_id, server_os_family)
                 target_exec = create_executor(
                     os_family=server_os_family,
@@ -938,6 +938,20 @@ class BaselineOrchestrator:
                     orchestrator_url=orchestrator_url,
                 )
                 try:
+                    # Safety: kill stale emulator + clean dirs before dirty check
+                    if server_os_family == "windows":
+                        target_exec.execute('powershell -Command "Stop-Process -Name *emulator* -Force -ErrorAction SilentlyContinue"')
+                        target_exec.execute(
+                            'powershell -Command "'
+                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
+                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
+                            '"'
+                        )
+                    else:
+                        target_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
+                        target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; "
+                                            "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; true")
+
                     self._check_dirty_snapshot(target_exec, thread_session.get(ServerORM, server_id), snap_name)
 
                     if emu_grp_id:
@@ -951,17 +965,6 @@ class BaselineOrchestrator:
                                 result = target_exec.execute(start_cmd, timeout_sec=60)
                                 if not result.success:
                                     raise RuntimeError(f"Emulator start failed on {server_hostname}: {result.stderr}")
-
-                    # Clean emulator dirs
-                    if server_os_family == "windows":
-                        target_exec.execute(
-                            'powershell -Command "'
-                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
-                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
-                            '"'
-                        )
-                    else:
-                        target_exec.execute("sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
 
                     # Validate emulator responding
                     em_client = EmulatorClient(host=actual_ip, port=emulator_port)
@@ -1449,6 +1452,20 @@ class BaselineOrchestrator:
                     orchestrator_url=orchestrator_url,
                 )
                 try:
+                    # Safety: kill stale emulator + clean dirs before dirty check
+                    if server_os_family == "windows":
+                        target_exec.execute('powershell -Command "Stop-Process -Name *emulator* -Force -ErrorAction SilentlyContinue"')
+                        target_exec.execute(
+                            'powershell -Command "'
+                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
+                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
+                            '"'
+                        )
+                    else:
+                        target_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
+                        target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; "
+                                            "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; true")
+
                     self._check_dirty_snapshot(target_exec, thread_session.get(ServerORM, server_id), snap_name)
 
                     if emu_grp_id:
@@ -1462,16 +1479,6 @@ class BaselineOrchestrator:
                                 result = target_exec.execute(start_cmd, timeout_sec=60)
                                 if not result.success:
                                     raise RuntimeError(f"Emulator start failed on {server_hostname}: {result.stderr}")
-
-                    if server_os_family == "windows":
-                        target_exec.execute(
-                            'powershell -Command "'
-                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\output\\*';"
-                            "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'C:\\emulator\\stats\\*'"
-                            '"'
-                        )
-                    else:
-                        target_exec.execute("sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/*")
 
                     em_client = EmulatorClient(host=actual_ip, port=emulator_port)
                     try:
