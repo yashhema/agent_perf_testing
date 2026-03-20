@@ -781,22 +781,20 @@ class BaselineOrchestrator:
                                     f"Emulator start on loadgen {loadgen.hostname} failed: {result.stderr}"
                                 )
 
-                    # Validate emulator responding on loadgen
-                    lg_em_client = EmulatorClient(
-                        host=loadgen.ip_address, port=self._config.emulator.emulator_api_port,
+                    # Validate emulator responding on loadgen (via SSH to avoid firewall issues)
+                    emu_port = self._config.emulator.emulator_api_port
+                    logger.info("Waiting for emulator on loadgen %s (port %d)...", loadgen.hostname, emu_port)
+                    time.sleep(5)  # Give emulator time to start
+                    health_result = loadgen_exec.execute(
+                        f"curl -sf http://localhost:{emu_port}/health || "
+                        f"curl -sf http://127.0.0.1:{emu_port}/health"
                     )
-                    try:
-                        lg_em_client.health_check()
-                        logger.info("Emulator health check passed on loadgen %s", loadgen.hostname)
-                    except Exception as e:
+                    if health_result.success:
+                        logger.info("Emulator health check passed on loadgen %s (via SSH)", loadgen.hostname)
+                    else:
                         raise RuntimeError(
-                            f"Emulator health check failed on loadgen {loadgen.hostname}: {e}"
+                            f"Emulator health check failed on loadgen {loadgen.hostname}: {health_result.stderr}"
                         )
-                    finally:
-                        try:
-                            lg_em_client.close()
-                        except Exception:
-                            pass
             finally:
                 loadgen_exec.close()
 
@@ -981,17 +979,18 @@ class BaselineOrchestrator:
                                 if not result.success:
                                     raise RuntimeError(f"Emulator start failed on {server_hostname}: {result.stderr}")
 
-                    # Validate emulator responding
-                    em_client = EmulatorClient(host=actual_ip, port=emulator_port)
-                    try:
-                        em_client.health_check()
-                    except Exception as e:
-                        raise RuntimeError(f"Emulator health check failed on {server_hostname}: {e}")
-                    finally:
-                        try:
-                            em_client.close()
-                        except Exception:
-                            pass
+                    # Validate emulator responding (via SSH to avoid firewall issues)
+                    time.sleep(5)
+                    health_result = target_exec.execute(
+                        f"curl -sf http://localhost:{emulator_port}/health || "
+                        f"curl -sf http://127.0.0.1:{emulator_port}/health"
+                    )
+                    if health_result.success:
+                        logger.info("Emulator health check passed on %s (via SSH)", server_hostname)
+                    else:
+                        raise RuntimeError(
+                            f"Emulator health check failed on {server_hostname}: {health_result.stderr}"
+                        )
                 finally:
                     target_exec.close()
 
@@ -1495,16 +1494,18 @@ class BaselineOrchestrator:
                                 if not result.success:
                                     raise RuntimeError(f"Emulator start failed on {server_hostname}: {result.stderr}")
 
-                    em_client = EmulatorClient(host=actual_ip, port=emulator_port)
-                    try:
-                        em_client.health_check()
-                    except Exception as e:
-                        raise RuntimeError(f"Emulator health check failed on {server_hostname}: {e}")
-                    finally:
-                        try:
-                            em_client.close()
-                        except Exception:
-                            pass
+                    # Validate emulator responding (via SSH to avoid firewall issues)
+                    time.sleep(5)
+                    health_result = target_exec.execute(
+                        f"curl -sf http://localhost:{emulator_port}/health || "
+                        f"curl -sf http://127.0.0.1:{emulator_port}/health"
+                    )
+                    if health_result.success:
+                        logger.info("Emulator health check passed on %s (via SSH)", server_hostname)
+                    else:
+                        raise RuntimeError(
+                            f"Emulator health check failed on {server_hostname}: {health_result.stderr}"
+                        )
                 finally:
                     target_exec.close()
 
