@@ -224,7 +224,9 @@ class PackageDeployer:
 
         # Step 2: Extract
         if package.extraction_command:
-            extract_cmd = self._sudo(package.extraction_command) if rip.startswith("/") else package.extraction_command
+            # Substitute placeholders: {file} → root_install_path (where the package was uploaded)
+            raw_cmd = package.extraction_command.replace("{file}", rip)
+            extract_cmd = self._sudo(raw_cmd) if rip.startswith("/") else raw_cmd
 
             # Force clean: remove any dirs/symlinks that extraction will create,
             # so mkdir/ln/tar never hit "file exists" errors
@@ -232,10 +234,10 @@ class PackageDeployer:
                 import re
                 dirs_to_clean = set()
                 # mkdir -p /some/dir
-                for m in re.finditer(r"mkdir\s+-p\s+(\S+)", package.extraction_command):
+                for m in re.finditer(r"mkdir\s+-p\s+(\S+)", raw_cmd):
                     dirs_to_clean.add(m.group(1))
                 # ln -sfn /source /target — clean the target
-                for m in re.finditer(r"ln\s+-\S*\s+\S+\s+(\S+)", package.extraction_command):
+                for m in re.finditer(r"ln\s+-\S*\s+\S+\s+(\S+)", raw_cmd):
                     dirs_to_clean.add(m.group(1))
                 for d in dirs_to_clean:
                     logger.info("Pre-cleaning: sudo rm -rf %s", d)
