@@ -268,6 +268,17 @@ class PackageDeployer:
                     f"Package extraction failed for '{package.group_name}': {result.stderr}"
                 )
 
+            # Make extracted files world-readable/executable so non-root SSH user can run them
+            if rip.startswith("/") and self._use_sudo:
+                chmod_dirs = set(dirs_to_clean)
+                # Also chmod the -C target (where tar extracts to)
+                c_match = re.search(r"-C\s+(\S+)", raw_cmd)
+                if c_match:
+                    chmod_dirs.add(c_match.group(1))
+                for d in chmod_dirs:
+                    logger.info("Setting permissions: sudo chmod -R a+rX %s", d)
+                    executor.execute(f"sudo chmod -R a+rX {d}")
+
         # Step 3: Run prerequisite script (after extract so bundled deps are available)
         if package.prereq_script:
             self._run_prereq_script(executor, package)
