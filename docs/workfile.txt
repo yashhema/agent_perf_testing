@@ -535,3 +535,8 @@ All changes to src/ code are documented here with date, file, and summary.
   - Added orchestrator_default.yaml (template) to sync list
   - Added add_clean_snapshot_id.sql migration to sync list
 
+2026-03-19  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - _do_deploying_loadgen: revert loadgen to clean_snapshot_id before installing
+  - Flow: revert snapshot → wait SSH → kill stale → install JMeter/emulator
+  - Graceful fallback: if no clean_snapshot_id, skips revert (old behavior)
+

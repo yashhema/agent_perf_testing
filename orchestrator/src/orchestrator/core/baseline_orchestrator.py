@@ -445,12 +445,48 @@ class BaselineOrchestrator:
             checks.append({"target": "hypervisor", "check": "connectivity", "status": "fail", "detail": str(e)})
 
         # 4. Loadgen checks (per unique loadgen)
+        #    If clean_snapshot_id exists: revert to it first, then check SSH only
+        #    (JMeter/emulator will be installed during deploying_loadgen)
+        #    If no clean snapshot: check current state as-is
         seen_loadgens = set()
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
             if loadgen.id in seen_loadgens:
                 continue
             seen_loadgens.add(loadgen.id)
+            lg_label = f"loadgen:{loadgen.hostname}"
 
+            # Revert loadgen to clean snapshot if available
+            if loadgen.clean_snapshot_id:
+                clean_snap = session.get(SnapshotORM, loadgen.clean_snapshot_id)
+                if clean_snap:
+                    try:
+                        logger.info("Sanity check: reverting loadgen %s to clean snapshot '%s'",
+                                    loadgen.hostname, clean_snap.name)
+                        new_ip = provider.restore_snapshot(loadgen.server_infra_ref, clean_snap.provider_ref)
+                        provider.wait_for_vm_ready(loadgen.server_infra_ref)
+                        if new_ip and new_ip != loadgen.ip_address:
+                            loadgen.ip_address = new_ip
+                            session.commit()
+                        wait_for_ssh(loadgen.ip_address, os_family=loadgen.os_family.value, timeout_sec=120)
+                        checks.append({"target": lg_label, "check": "clean_snapshot_revert", "status": "pass",
+                                       "detail": f"Reverted to '{clean_snap.name}', SSH OK"})
+                        # After revert to clean snapshot: JMeter/emulator are gone (expected).
+                        # They will be installed during deploying_loadgen. No further checks needed.
+                        checks.append({"target": lg_label, "check": "jmeter_binary", "status": "info",
+                                       "detail": "Will be installed during deploying_loadgen"})
+                        checks.append({"target": lg_label, "check": "dirty_state", "status": "pass",
+                                       "detail": "Clean (reverted to clean snapshot)"})
+                        continue
+                    except Exception as e:
+                        all_passed = False
+                        checks.append({"target": lg_label, "check": "clean_snapshot_revert", "status": "fail",
+                                       "detail": str(e)})
+                        continue
+                else:
+                    checks.append({"target": lg_label, "check": "clean_snapshot_revert", "status": "warn",
+                                   "detail": f"clean_snapshot_id={loadgen.clean_snapshot_id} but DB record not found"})
+
+            # No clean snapshot — check current state as-is
             try:
                 loadgen_cred = self._credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
                 loadgen_exec = create_executor(
@@ -461,42 +497,40 @@ class BaselineOrchestrator:
                 )
                 try:
                     # SSH connectivity
-                    checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "ssh_connectivity", "status": "pass", "detail": f"SSH to {loadgen.ip_address} OK"})
+                    checks.append({"target": lg_label, "check": "ssh_connectivity", "status": "pass",
+                                   "detail": f"SSH to {loadgen.ip_address} OK"})
 
                     # JMeter binary
                     jmeter_check = loadgen_exec.execute("/opt/jmeter/bin/jmeter --version")
                     if jmeter_check.success:
-                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "jmeter_binary", "status": "pass", "detail": "jmeter --version OK"})
+                        checks.append({"target": lg_label, "check": "jmeter_binary", "status": "pass",
+                                       "detail": "jmeter --version OK"})
                     else:
-                        all_passed = False
-                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "jmeter_binary", "status": "fail", "detail": f"jmeter --version failed: {jmeter_check.stderr}"})
+                        checks.append({"target": lg_label, "check": "jmeter_binary", "status": "info",
+                                       "detail": "JMeter not installed (will be deployed during deploying_loadgen)"})
 
                     # Dirty state check
                     issues = self._check_dirty_loadgen(loadgen_exec, loadgen, test_run.id)
                     if issues:
-                        stale_jmeter = [i for i in issues if "JMeter" in i and "stale" not in i.lower()]
-                        # Running JMeter is a warning (will be killed), stale dirs are info
                         for issue in issues:
                             if "stale JMeter" in issue:
-                                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "warn", "detail": f"{issue} (will be killed on start)"})
+                                checks.append({"target": lg_label, "check": "dirty_state", "status": "warn",
+                                               "detail": f"{issue} (will be killed on start)"})
                             elif "stale run dirs" in issue:
-                                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "warn", "detail": issue})
+                                checks.append({"target": lg_label, "check": "dirty_state", "status": "warn",
+                                               "detail": issue})
                             else:
-                                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "info", "detail": issue})
+                                checks.append({"target": lg_label, "check": "dirty_state", "status": "info",
+                                               "detail": issue})
                     else:
-                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "dirty_state", "status": "pass", "detail": "Clean"})
-
-                    # Kill script present
-                    kill_check = loadgen_exec.execute("test -f /opt/jmeter/bin/jmeter_kill.py && echo OK")
-                    if kill_check.success and "OK" in kill_check.stdout:
-                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "kill_script", "status": "pass", "detail": "jmeter_kill.py present"})
-                    else:
-                        checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "kill_script", "status": "info", "detail": "jmeter_kill.py not found (will be deployed)"})
+                        checks.append({"target": lg_label, "check": "dirty_state", "status": "pass",
+                                       "detail": "Clean"})
                 finally:
                     loadgen_exec.close()
             except Exception as e:
                 all_passed = False
-                checks.append({"target": f"loadgen:{loadgen.hostname}", "check": "ssh_connectivity", "status": "fail", "detail": str(e)})
+                checks.append({"target": lg_label, "check": "ssh_connectivity", "status": "fail",
+                               "detail": str(e)})
 
         # 5. Target checks (per target): revert to snapshot FIRST, then check
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
@@ -612,18 +646,49 @@ class BaselineOrchestrator:
         return f"http://{ip}:8000"
 
     def _do_deploying_loadgen(self, session: Session, test_run: BaselineTestRunORM) -> None:
-        """Install JMeter (and emulator if needed) on all unique loadgen servers."""
+        """Revert loadgens to clean snapshot, then install JMeter (and emulator if needed)."""
         lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
 
         resolver = PackageResolver()
         deployer = PackageDeployer()
         needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
 
+        # Create hypervisor provider for loadgen revert
+        hyp_cred = self._credentials.get_hypervisor_credential(lab.hypervisor_type.value)
+        provider = create_hypervisor_provider(
+            hypervisor_type=lab.hypervisor_type.value,
+            url=lab.hypervisor_manager_url,
+            port=lab.hypervisor_manager_port,
+            credential=hyp_cred,
+        )
+
         seen_loadgens = set()
         for target_orm, server, loadgen, test_snapshot, compare_snapshot in targets:
             if loadgen.id in seen_loadgens:
                 continue
             seen_loadgens.add(loadgen.id)
+
+            # Revert loadgen to clean snapshot (if one exists)
+            if loadgen.clean_snapshot_id:
+                clean_snap = session.get(SnapshotORM, loadgen.clean_snapshot_id)
+                if clean_snap:
+                    logger.info("Reverting loadgen %s to clean snapshot '%s'",
+                                loadgen.hostname, clean_snap.name)
+                    new_ip = provider.restore_snapshot(loadgen.server_infra_ref, clean_snap.provider_ref)
+                    provider.wait_for_vm_ready(loadgen.server_infra_ref)
+                    if new_ip and new_ip != loadgen.ip_address:
+                        logger.info("Loadgen %s IP changed: %s -> %s",
+                                    loadgen.hostname, loadgen.ip_address, new_ip)
+                        loadgen.ip_address = new_ip
+                        session.commit()
+                    wait_for_ssh(loadgen.ip_address, os_family=loadgen.os_family.value, timeout_sec=120)
+                    logger.info("Loadgen %s reverted and reachable", loadgen.hostname)
+                else:
+                    logger.warning("Loadgen %s has clean_snapshot_id=%d but record not found, skipping revert",
+                                   loadgen.hostname, loadgen.clean_snapshot_id)
+            else:
+                logger.info("Loadgen %s has no clean snapshot, skipping revert (kill stale processes only)",
+                            loadgen.hostname)
 
             loadgen_cred = self._credentials.get_server_credential(
                 loadgen.id, loadgen.os_family.value,
@@ -635,7 +700,7 @@ class BaselineOrchestrator:
                 password=loadgen_cred.password,
             )
             try:
-                # Kill stale JMeter from previous runs
+                # Kill stale JMeter from previous runs (safety net even after revert)
                 loadgen_exec.execute("pkill -f jmeter || true")
 
                 # Install JMeter
