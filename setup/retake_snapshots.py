@@ -90,16 +90,17 @@ def clean_loadgen(executor, hostname, dry_run=False):
     # Small pause for process cleanup to propagate
     time.sleep(2)
 
-    # Verify
+    # Verify (always read stdout — some commands return non-zero exit codes legitimately)
     all_clean = True
     print(f"    --- Verifying ---")
     for desc, cmd, expected in LOADGEN_VERIFY_COMMANDS_LINUX:
         result = executor.execute(cmd)
-        actual = result.stdout.strip() if result.success else "ERROR"
+        actual = result.stdout.strip()
         if actual == expected:
             print(f"    [PASS] {desc}: {actual}")
         else:
             print(f"    [FAIL] {desc}: expected={expected}, got={actual}")
+            all_clean = False
             all_clean = False
 
     return all_clean
