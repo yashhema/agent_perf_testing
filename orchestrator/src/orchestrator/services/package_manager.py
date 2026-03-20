@@ -180,9 +180,15 @@ class PackageDeployer:
         self._use_sudo = use_sudo
 
     def _sudo(self, cmd: str) -> str:
-        """Prefix a command with sudo if use_sudo is enabled."""
+        """Wrap a command with sudo if use_sudo is enabled.
+
+        Uses 'sudo bash -c' so that sudo applies to the entire command
+        chain (&&, ;, ||), not just the first command.
+        """
         if self._use_sudo:
-            return f"sudo {cmd}"
+            # Escape single quotes in the command for bash -c '...'
+            escaped = cmd.replace("'", "'\\''")
+            return f"sudo bash -c '{escaped}'"
         return cmd
 
     def deploy(self, executor: RemoteExecutor, package: ResolvedPackage) -> None:
