@@ -781,19 +781,37 @@ class BaselineOrchestrator:
                                     f"Emulator start on loadgen {loadgen.hostname} failed: {result.stderr}"
                                 )
 
-                    # Validate emulator responding on loadgen (via SSH to avoid firewall issues)
+                    # Validate emulator responding on loadgen
+                    # start.sh already does a 30s health check, so if we get here it should be up.
+                    # Do a quick verify — if start.sh passed, this is just a confirmation.
                     emu_port = self._config.emulator.emulator_api_port
-                    logger.info("Waiting for emulator on loadgen %s (port %d)...", loadgen.hostname, emu_port)
-                    time.sleep(5)  # Give emulator time to start
+                    logger.info("Verifying emulator on loadgen %s (port %d)...", loadgen.hostname, emu_port)
+
+                    # Check if emulator process is running
+                    proc_check = loadgen_exec.execute(f"pgrep -f '[e]mulator.jar' -c 2>/dev/null || echo 0")
+                    proc_count = proc_check.stdout.strip().split('\n')[-1].strip()
+                    logger.info("Emulator process count on %s: %s", loadgen.hostname, proc_count)
+
+                    # Check if port is listening
+                    port_check = loadgen_exec.execute(f"ss -tlnp | grep :{emu_port} || echo 'port not listening'")
+                    logger.info("Port %d status on %s: %s", emu_port, loadgen.hostname, port_check.stdout.strip())
+
+                    # Health check via curl/wget/python
                     health_result = loadgen_exec.execute(
-                        f"curl -sf http://localhost:{emu_port}/health || "
-                        f"curl -sf http://127.0.0.1:{emu_port}/health"
+                        f"curl -sf http://localhost:{emu_port}/health 2>&1 || "
+                        f"wget -qO- http://localhost:{emu_port}/health 2>&1 || "
+                        f"python3 -c \"import urllib.request; print(urllib.request.urlopen('http://localhost:{emu_port}/health').read().decode())\" 2>&1"
                     )
                     if health_result.success:
-                        logger.info("Emulator health check passed on loadgen %s (via SSH)", loadgen.hostname)
+                        logger.info("Emulator health check passed on loadgen %s", loadgen.hostname)
                     else:
+                        # Log everything for debugging
+                        log_check = loadgen_exec.execute("tail -20 /opt/emulator/emulator.log 2>/dev/null || echo 'no log'")
+                        logger.error("Emulator log on %s: %s", loadgen.hostname, log_check.stdout.strip())
                         raise RuntimeError(
-                            f"Emulator health check failed on loadgen {loadgen.hostname}: {health_result.stderr}"
+                            f"Emulator health check failed on loadgen {loadgen.hostname}. "
+                            f"proc_count={proc_count}, port_check={port_check.stdout.strip()}, "
+                            f"health_stdout={health_result.stdout.strip()}, health_stderr={health_result.stderr.strip()}"
                         )
             finally:
                 loadgen_exec.close()
