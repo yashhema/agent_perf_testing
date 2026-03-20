@@ -1,19 +1,20 @@
+# Default configuration template for the orchestrator.
+# Copy this file to orchestrator.yaml and fill in your environment-specific values.
+#
+#   cp orchestrator_default.yaml orchestrator.yaml
+
 calibration:
   observation_duration_sec: 30
   # Use last 20 of ~30 samples (skip first 10s settling time).
-  # Previous value of 5 caused noisy readings (50 threads > 100 threads in run 1).
   observation_reading_count: 20
   calibration_stability_ratio: 0.5
   calibration_confirmation_count: 2
   max_calibration_iterations: 50
-  # Upper bound for binary search. Previous value of 200 wasted iterations —
-  # on a 4-core VM, anything above ~6 threads already maxes CPU.
   max_thread_count: 30
   first_observation_settle_sec: 300  # 5-min JVM settle before first calibration reading
   # Stability check pass criteria:
   #   min_in_range_pct: minimum % of samples that must fall within target CPU range
   #   max_below_pct: maximum % of samples allowed below the target minimum
-  #   (above-max spikes are tolerable — means we're generating enough load)
   stability_min_in_range_pct: 55.0
   stability_max_below_pct: 25.0
 
@@ -38,9 +39,9 @@ emulator:
   emulator_api_port: 8080
 
 # Database: supports both PostgreSQL and SQL Server
-# PostgreSQL:        postgresql://orchestrator:orchestrator@localhost:5432/orchestrator
-# SQL Server:        mssql+pyodbc://user:pass@host/orchestrator?driver=ODBC+Driver+17+for+SQL+Server
-# SQL Server (trusted): mssql+pyodbc://@localhost/orchestrator?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes
+# PostgreSQL:           postgresql://user:pass@host:5432/dbname
+# SQL Server:           mssql+pyodbc://user:pass@host/dbname?driver=ODBC+Driver+17+for+SQL+Server
+# SQL Server (trusted): mssql+pyodbc://@host/dbname?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes
 database:
   url: "postgresql://orchestrator:orchestrator@localhost:5432/orchestrator"
   echo: false

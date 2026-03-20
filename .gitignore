@@ -34,13 +34,15 @@ _wizard_*.db
 _wizard_*.db-shm
 _wizard_*.db-wal
 
-# Credentials (keep local only)
+# Credentials and environment-specific config (keep local only)
 orchestrator/config/credentials.json
+orchestrator/config/orchestrator.yaml
+orchestrator/config/orchestrator_local.yaml
 
-# Generated/temporary output — keep small files, ignore large binaries
-orchestrator/artifacts/packages/
+# Generated/temporary output
 !orchestrator/artifacts/jmx/
 !orchestrator/artifacts/scripts/
+!orchestrator/artifacts/packages/
 orchestrator/generated/
 orchestrator/logs/
 orchestrator/results/
