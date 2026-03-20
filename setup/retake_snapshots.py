@@ -265,11 +265,21 @@ def install_prerequisites(executor, os_family, dry_run=False):
             print(f"    [ERROR] Failed to install Java 17")
             all_ok = False
         else:
+            # Set Java 17 as default via alternatives
+            _run_cmd(executor, "Set Java 17 as default",
+                "sudo alternatives --set java $(find /usr/lib/jvm/java-17-openjdk-*/bin/java -maxdepth 0 2>/dev/null | head -1) 2>&1",
+                warn_only=True)
             # Verify
-            ok, stdout = _run_cmd(executor, "Verify Java 17 installed",
+            ok, stdout = _run_cmd(executor, "Verify Java 17 is default",
                 "java -version 2>&1 | head -1")
             if ok:
-                print(f"    [OK] Java installed: {stdout}")
+                import re
+                m = re.search(r'"(\d+)', stdout)
+                if m and int(m.group(1)) >= 17:
+                    print(f"    [OK] Java 17 is default: {stdout}")
+                else:
+                    print(f"    [WARN] Java default still not 17: {stdout}")
+                    all_ok = False
 
     # 3. Install Python3 + pip (needed for various scripts, JMeter kill script, etc.)
     ok, _ = _run_cmd(executor, "Check Python3",
