@@ -243,6 +243,19 @@ def main():
                 loadgen_ok += 1
                 continue
 
+            # Check if clean snapshot already exists and is valid
+            if loadgen.clean_snapshot_id:
+                old_snap = session.get(SnapshotORM, loadgen.clean_snapshot_id)
+                if old_snap:
+                    try:
+                        exists = provider.snapshot_exists(loadgen.server_infra_ref, old_snap.provider_ref)
+                        if exists:
+                            print(f"  [SKIP] Clean snapshot already exists: '{old_snap.name}' (ID={old_snap.id})")
+                            loadgen_ok += 1
+                            continue
+                    except Exception:
+                        pass  # snapshot check failed, proceed to recreate
+
             try:
                 lg_cred = credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
                 lg_exec = create_executor(
@@ -296,7 +309,6 @@ def main():
                                 s.to_dict() for s in provider.list_snapshots(loadgen.server_infra_ref)
                             ]
                         else:
-                            # Old record gone, create new
                             snap_orm = None
                     else:
                         snap_orm = None
@@ -307,7 +319,7 @@ def main():
                             name=snap_name,
                             description=f"Clean loadgen snapshot for {loadgen.hostname}",
                             server_id=loadgen.id,
-                            parent_id=None,  # root-level snapshot
+                            parent_id=None,
                             group_id=None,
                             provider_snapshot_id=str(new_provider_id),
                             provider_ref=result,
@@ -318,7 +330,7 @@ def main():
                             is_archived=False,
                         )
                         session.add(snap_orm)
-                        session.flush()  # get the ID
+                        session.flush()
 
                     # Step 5: Link to server
                     loadgen.clean_snapshot_id = snap_orm.id
@@ -374,32 +386,35 @@ def main():
             print(f"  Target: {server.hostname} ({server.ip_address})")
             print(f"  Snapshot: '{snapshot.name}' (ID={snapshot.id}, provider={snapshot.provider_snapshot_id})")
 
-            if not snapshot.parent_id:
-                print(f"  SKIP: No parent snapshot — this is a root snapshot, cannot retake")
-                skip_count += 1
-                continue
-
-            parent = session.get(SnapshotORM, snapshot.parent_id)
-            if not parent:
-                print(f"  SKIP: Parent snapshot ID={snapshot.parent_id} not found in DB")
-                skip_count += 1
-                continue
-            if parent.is_archived:
-                print(f"  SKIP: Parent snapshot '{parent.name}' is archived")
-                skip_count += 1
-                continue
-
-            print(f"  Parent: '{parent.name}' (ID={parent.id}, provider={parent.provider_snapshot_id})")
+            has_parent = snapshot.parent_id is not None
+            parent = None
+            if has_parent:
+                parent = session.get(SnapshotORM, snapshot.parent_id)
+                if parent:
+                    print(f"  Parent: '{parent.name}' (ID={parent.id})")
+                else:
+                    print(f"  Parent ID={snapshot.parent_id} not found in DB — treating as root")
+                    has_parent = False
 
             if args.dry_run:
-                print(f"  [DRY RUN] Would: revert to parent -> cleanup -> delete old -> take new -> update DB")
+                if has_parent:
+                    print(f"  [DRY RUN] Would: revert to parent -> cleanup -> delete old -> take new -> update DB")
+                else:
+                    print(f"  [DRY RUN] Would: revert to snapshot -> cleanup in-place -> delete old -> take new -> update DB")
                 success_count += 1
                 continue
 
             try:
-                # Step 1: Revert to parent
-                print(f"  [1/7] Reverting to parent snapshot '{parent.name}'...")
-                new_ip = provider.restore_snapshot(server.server_infra_ref, parent.provider_ref)
+                # Step 1: Revert
+                if has_parent:
+                    # Has parent: revert to parent (clean base)
+                    print(f"  [1/7] Reverting to parent snapshot '{parent.name}'...")
+                    new_ip = provider.restore_snapshot(server.server_infra_ref, parent.provider_ref)
+                else:
+                    # Root snapshot: revert to itself, then clean in-place
+                    print(f"  [1/7] Reverting to snapshot '{snapshot.name}' (root — will clean in-place)...")
+                    new_ip = provider.restore_snapshot(server.server_infra_ref, snapshot.provider_ref)
+
                 provider.wait_for_vm_ready(server.server_infra_ref)
                 actual_ip = server.ip_address
                 if new_ip and new_ip != server.ip_address:
