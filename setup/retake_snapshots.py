@@ -181,6 +181,8 @@ def main():
                         help="Only clean and snapshot loadgens")
     parser.add_argument("--targets-only", action="store_true",
                         help="Only retake target snapshots")
+    parser.add_argument("--force", action="store_true",
+                        help="Force re-create loadgen snapshots even if one already exists")
 
     args = parser.parse_args()
 
@@ -282,14 +284,14 @@ def main():
                 loadgen_ok += 1
                 continue
 
-            # Check if clean snapshot already exists and is valid
-            if loadgen.clean_snapshot_id:
+            # Check if clean snapshot already exists and is valid (skip unless --force)
+            if loadgen.clean_snapshot_id and not args.force:
                 old_snap = session.get(SnapshotORM, loadgen.clean_snapshot_id)
                 if old_snap:
                     try:
                         exists = provider.snapshot_exists(loadgen.server_infra_ref, old_snap.provider_ref)
                         if exists:
-                            print(f"  [SKIP] Clean snapshot already exists: '{old_snap.name}' (ID={old_snap.id})")
+                            print(f"  [SKIP] Clean snapshot already exists: '{old_snap.name}' (ID={old_snap.id}) — use --force to recreate")
                             loadgen_ok += 1
                             continue
                     except Exception:

@@ -716,8 +716,12 @@ class BaselineOrchestrator:
                 password=loadgen_cred.password,
             )
             try:
-                # Kill stale JMeter from previous runs (safety net even after revert)
-                loadgen_exec.execute("pkill -f jmeter || true")
+                # Clean slate: kill stale processes and remove old installations
+                loadgen_exec.execute("pgrep -f '[j]meter' | xargs -r kill -9 2>/dev/null; true")
+                loadgen_exec.execute("rm -rf /opt/jmeter 2>/dev/null; sudo rm -rf /opt/jmeter 2>/dev/null; true")
+                loadgen_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
+                loadgen_exec.execute("rm -rf /opt/emulator 2>/dev/null; sudo rm -rf /opt/emulator 2>/dev/null; true")
+                logger.info("Loadgen %s: cleaned stale processes and directories", loadgen.hostname)
 
                 # Install JMeter
                 jmeter_packages = resolver.resolve(
