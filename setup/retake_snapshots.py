@@ -95,12 +95,13 @@ def clean_loadgen(executor, hostname, dry_run=False):
     print(f"    --- Verifying ---")
     for desc, cmd, expected in LOADGEN_VERIFY_COMMANDS_LINUX:
         result = executor.execute(cmd)
-        actual = result.stdout.strip()
+        # Take only the last non-empty line, strip all whitespace including \r
+        lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+        actual = lines[-1] if lines else ""
         if actual == expected:
             print(f"    [PASS] {desc}: {actual}")
         else:
-            print(f"    [FAIL] {desc}: expected={expected}, got={actual}")
-            all_clean = False
+            print(f"    [FAIL] {desc}: expected={expected!r}, got={actual!r} (raw={result.stdout!r})")
             all_clean = False
 
     return all_clean
