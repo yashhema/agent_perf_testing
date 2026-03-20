@@ -31,19 +31,19 @@ if ORCH_SRC not in sys.path:
 # Loadgen cleanup + snapshot
 # ---------------------------------------------------------------------------
 LOADGEN_CLEANUP_COMMANDS_LINUX = [
-    # Kill processes
-    ("Kill JMeter processes", "pkill -9 -f jmeter || true"),
-    ("Kill emulator processes", "sudo pkill -9 -f emulator || true"),
-    # Remove all installed artifacts
-    ("Remove JMeter", "sudo rm -rf /opt/jmeter"),
-    ("Remove emulator", "sudo rm -rf /opt/emulator"),
+    # Kill processes (use kill via pgrep to avoid sudo issues with pkill)
+    ("Kill JMeter processes", "pgrep -f '[j]meter' | xargs -r kill -9 2>/dev/null; echo done"),
+    ("Kill emulator processes", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done"),
+    # Remove all installed artifacts (no sudo — use the SSH user's permissions)
+    ("Remove JMeter", "rm -rf /opt/jmeter 2>&1 || echo 'trying sudo'; sudo rm -rf /opt/jmeter 2>&1; echo done"),
+    ("Remove emulator", "rm -rf /opt/emulator 2>&1 || echo 'trying sudo'; sudo rm -rf /opt/emulator 2>&1; echo done"),
     # Remove stale run/output dirs
-    ("Remove stale run dirs", "sudo rm -rf /tmp/jmeter* /tmp/emulator*"),
+    ("Remove stale run dirs", "rm -rf /tmp/jmeter* /tmp/emulator* 2>&1; echo done"),
 ]
 
 LOADGEN_VERIFY_COMMANDS_LINUX = [
-    ("No JMeter processes", "pgrep -f jmeter -c || echo 0", "0"),
-    ("No emulator processes", "pgrep -f emulator -c || echo 0", "0"),
+    ("No JMeter processes", "pgrep -f '[j]meter' -c 2>/dev/null || echo 0", "0"),
+    ("No emulator processes", "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0", "0"),
     ("JMeter dir gone", "test -d /opt/jmeter && echo EXISTS || echo GONE", "GONE"),
     ("Emulator dir gone", "test -d /opt/emulator && echo EXISTS || echo GONE", "GONE"),
 ]
@@ -76,9 +76,14 @@ def clean_loadgen(executor, hostname, dry_run=False):
     # Execute cleanup
     for desc, cmd in LOADGEN_CLEANUP_COMMANDS_LINUX:
         print(f"    {desc}...")
+        print(f"      cmd: {cmd}")
         result = executor.execute(cmd)
+        if result.stdout.strip():
+            print(f"      stdout: {result.stdout.strip()}")
+        if result.stderr.strip():
+            print(f"      stderr: {result.stderr.strip()}")
         if not result.success:
-            print(f"    [WARN] {desc} returned error: {result.stderr}")
+            print(f"    [WARN] {desc}: exit_code={result.exit_code}")
         else:
             print(f"    [OK] {desc}")
 
