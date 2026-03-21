@@ -645,7 +645,43 @@ class BaselineOrchestrator:
         emu_port = self._config.emulator.emulator_api_port
 
         if os_family == "windows":
-            # Windows: check firewall rule only
+            # Windows: check Java 17+ and firewall rule
+
+            # 1. Java 17+
+            try:
+                java_result = executor.execute(
+                    'powershell -Command "try { $v = & java -version 2>&1 | Out-String; Write-Host $v.Trim() } '
+                    'catch { Write-Host NOTFOUND }"'
+                )
+                java_out = java_result.stdout.strip()
+                if java_result.success and java_out and "NOTFOUND" not in java_out:
+                    import re
+                    m = re.search(r'"(1[7-9]|[2-9]\d)', java_out)
+                    if m:
+                        results.append({"target": label, "check": "java_version", "status": "pass",
+                                        "detail": f"Java 17+ ({java_out.splitlines()[0]})"})
+                    else:
+                        # Check standard install paths
+                        path_result = executor.execute(
+                            'powershell -Command "'
+                            "$found = Get-Item 'C:\\Program Files\\Microsoft\\jdk-17*\\bin\\java.exe' "
+                            "-ErrorAction SilentlyContinue | Select-Object -First 1; "
+                            'if ($found) { & $found.FullName -version 2>&1 | Out-String | Write-Host } '
+                            'else { Write-Host NOTFOUND }"'
+                        )
+                        if path_result.success and "NOTFOUND" not in path_result.stdout:
+                            results.append({"target": label, "check": "java_version", "status": "warn",
+                                            "detail": f"Java 17 installed but not default in PATH ({java_out.splitlines()[0]})"})
+                        else:
+                            results.append({"target": label, "check": "java_version", "status": "fail",
+                                            "detail": f"Java found but not 17+ ({java_out.splitlines()[0]})"})
+                else:
+                    results.append({"target": label, "check": "java_version", "status": "fail",
+                                    "detail": "Java not installed"})
+            except Exception as e:
+                results.append({"target": label, "check": "java_version", "status": "fail", "detail": str(e)})
+
+            # 2. Firewall rule
             try:
                 fw_result = executor.execute(
                     f'powershell -Command "(Get-NetFirewallRule -DisplayName \'Emulator {emu_port}\' '

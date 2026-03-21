@@ -220,16 +220,25 @@ def open_firewall(executor, os_family, port=FIREWALL_PORT, dry_run=False):
 # Step: Install prerequisites (Java 17, Python3+pip)
 # ---------------------------------------------------------------------------
 def install_prerequisites(executor, os_family, dry_run=False):
-    """Install Java 17 and Python3 prerequisites on Linux. Idempotent."""
-    if os_family == "windows":
-        print(f"    [SKIP] Prerequisites not needed for Windows")
-        return True
+    """Install Java 17 on Linux and Windows. Idempotent."""
+    import re
 
     if dry_run:
-        print(f"    [DRY RUN] Would install Java 17 + Python3 prerequisites")
+        print(f"    [DRY RUN] Would install Java 17 prerequisites")
         return True
 
     print(f"\n  --- Installing prerequisites ---")
+    all_ok = True
+
+    if os_family == "windows":
+        return _install_prereqs_windows(executor)
+    else:
+        return _install_prereqs_linux(executor)
+
+
+def _install_prereqs_linux(executor):
+    """Install Java 17 + Python3 on Linux (RHEL/Rocky). Idempotent."""
+    import re
     all_ok = True
 
     # 1. Ensure tar is available
@@ -238,13 +247,10 @@ def install_prerequisites(executor, os_family, dry_run=False):
         warn_only=True)
 
     # 2. Install Java 17 (required for Java emulator)
-    # Check if Java 17+ is already installed
+    needs_java17 = True
     ok, stdout = _run_cmd(executor, "Check Java version",
         'java -version 2>&1 | head -1')
-    needs_java17 = True
     if ok and stdout:
-        # Parse version string like: openjdk version "17.0.x" or "1.8.0_xxx"
-        import re
         m = re.search(r'"(\d+)', stdout)
         if m:
             major = int(m.group(1))
@@ -258,7 +264,6 @@ def install_prerequisites(executor, os_family, dry_run=False):
         ok, _ = _run_cmd(executor, "Install Java 17 (OpenJDK headless)",
             "sudo dnf install -y java-17-openjdk-headless 2>&1")
         if not ok:
-            # Try yum as fallback
             ok, _ = _run_cmd(executor, "Install Java 17 (yum fallback)",
                 "sudo yum install -y java-17-openjdk-headless 2>&1")
         if not ok:
@@ -273,7 +278,6 @@ def install_prerequisites(executor, os_family, dry_run=False):
             ok, stdout = _run_cmd(executor, "Verify Java 17 is default",
                 "java -version 2>&1 | head -1")
             if ok:
-                import re
                 m = re.search(r'"(\d+)', stdout)
                 if m and int(m.group(1)) >= 17:
                     print(f"    [OK] Java 17 is default: {stdout}")
@@ -281,13 +285,93 @@ def install_prerequisites(executor, os_family, dry_run=False):
                     print(f"    [WARN] Java default still not 17: {stdout}")
                     all_ok = False
 
-    # 3. Install Python3 + pip (needed for various scripts, JMeter kill script, etc.)
+    # 3. Install Python3 + pip (needed for JMeter kill script etc.)
     ok, _ = _run_cmd(executor, "Check Python3",
         "python3 --version 2>&1")
     if not ok:
         _run_cmd(executor, "Install Python3",
             "sudo dnf install -y python3 python3-pip 2>&1",
             warn_only=True)
+
+    return all_ok
+
+
+def _install_prereqs_windows(executor):
+    """Install Java 17 (Microsoft OpenJDK MSI) on Windows. Idempotent."""
+    all_ok = True
+
+    # Check if Java 17+ is already available
+    ok, stdout = _run_cmd(executor, "Check Java version",
+        'powershell -Command "try { $v = & java -version 2>&1 | Out-String; Write-Host $v.Trim() } catch { Write-Host NOTFOUND }"')
+
+    needs_java17 = True
+    if ok and stdout and "NOTFOUND" not in stdout:
+        import re
+        m = re.search(r'"(1[7-9]|[2-9]\d)', stdout)
+        if m:
+            print(f"    [OK] Java 17+ already installed: {stdout.splitlines()[0]}")
+            needs_java17 = False
+        else:
+            print(f"    Java found but not 17+: {stdout.splitlines()[0]}")
+
+    if not needs_java17:
+        return True
+
+    # Also check standard install paths before downloading
+    ok, stdout = _run_cmd(executor, "Check standard Java 17 paths",
+        'powershell -Command "'
+        "$found = Get-Item 'C:\\Program Files\\Microsoft\\jdk-17*\\bin\\java.exe' -ErrorAction SilentlyContinue | Select-Object -First 1; "
+        'if ($found) { Write-Host $found.FullName } else { Write-Host NOTFOUND }"')
+    if ok and "NOTFOUND" not in stdout:
+        print(f"    [OK] Java 17 found at: {stdout}")
+        # Add to PATH if not already there
+        _run_cmd(executor, "Refresh PATH with Java 17",
+            'powershell -Command "'
+            "$javaDir = (Get-Item 'C:\\Program Files\\Microsoft\\jdk-17*\\bin' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName; "
+            "if ($javaDir -and ($env:Path -notlike \\\"*$javaDir*\\\")) { "
+            "[Environment]::SetEnvironmentVariable('Path', $env:Path + ';' + $javaDir, 'Machine') }"
+            '"',
+            warn_only=True)
+        return True
+
+    # Download and install Microsoft OpenJDK 17 MSI
+    print(f"    Java 17 not found — downloading Microsoft OpenJDK 17...")
+    install_script = (
+        '$ErrorActionPreference = "Stop"; '
+        "$downloadDir = 'C:\\jdk_install'; "
+        "New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null; "
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+        "$msiUrl = 'https://aka.ms/download-jdk/microsoft-jdk-17-windows-x64.msi'; "
+        "$msiPath = Join-Path $downloadDir 'jdk17.msi'; "
+        "Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath -UseBasicParsing; "
+        "$fileSize = (Get-Item $msiPath).Length; "
+        "Write-Host \"Downloaded: $fileSize bytes\"; "
+        "if ($fileSize -lt 1000000) { throw 'Download too small' }; "
+        "$proc = Start-Process msiexec.exe -ArgumentList \"/i `\"$msiPath`\" /quiet /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJarFileRunWith,FeatureJavaHome\" -Wait -PassThru -NoNewWindow; "
+        "if ($proc.ExitCode -ne 0) { throw \"MSI failed: $($proc.ExitCode)\" }; "
+        "$machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine'); "
+        "$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
+        "$env:Path = \"$machinePath;$userPath\"; "
+        "Remove-Item $downloadDir -Force -Recurse -ErrorAction SilentlyContinue; "
+        "Write-Host 'Java 17 installed successfully'"
+    )
+
+    ok, stdout = _run_cmd(executor, "Download and install Microsoft OpenJDK 17 MSI",
+        f'powershell -Command "{install_script}"')
+    if not ok:
+        print(f"    [ERROR] Failed to install Java 17 on Windows")
+        return False
+
+    # Verify
+    ok, stdout = _run_cmd(executor, "Verify Java 17 installed",
+        'powershell -Command "'
+        "$javaExe = Get-Item 'C:\\Program Files\\Microsoft\\jdk-17*\\bin\\java.exe' -ErrorAction SilentlyContinue | Select-Object -First 1; "
+        'if ($javaExe) { & $javaExe.FullName -version 2>&1 | Out-String | Write-Host } else { Write-Host NOTFOUND }"')
+    if ok and "NOTFOUND" not in stdout:
+        print(f"    [OK] Java 17 installed on Windows: {stdout.splitlines()[0] if stdout else ''}")
+    else:
+        print(f"    [WARN] Could not verify Java 17 after install")
+        all_ok = False
 
     return all_ok
 
