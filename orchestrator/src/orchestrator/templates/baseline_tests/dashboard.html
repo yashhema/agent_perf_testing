@@ -457,11 +457,15 @@ async function renderLPProgress() {
     const comp = compByLp[lpId];
     const isCurrent = _run.current_load_profile_id === lpId;
 
+    const terminalStates = ['completed', 'failed', 'cancelled', 'created'];
+    const isActive = !terminalStates.includes(_run.state);
     let status;
     if (comp) {
       status = '<span class="badge bg-success">completed</span>';
-    } else if (isCurrent) {
+    } else if (isCurrent && isActive) {
       status = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.6rem;height:.6rem"></span>' + _run.state + '</span>';
+    } else if (isCurrent && _run.state === 'failed') {
+      status = '<span class="badge bg-danger">failed</span>';
     } else if (data) {
       status = '<span class="badge bg-success">stored</span>';
     } else {
