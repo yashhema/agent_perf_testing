@@ -168,7 +168,10 @@ def fail(
     """Transition to failed state with error message.
 
     Records failed_at_state before transitioning so retry knows where to resume.
+    Also marks any in-progress calibration records as failed.
     """
+    from orchestrator.models.orm import CalibrationResultORM
+
     # Save the current state before transitioning to failed
     failed_at = test_run.state
     # Must set error_message after transition() calls session.refresh(),
@@ -176,6 +179,15 @@ def fail(
     transition(session, test_run, BaselineTestState.failed)
     test_run.failed_at_state = failed_at.value if hasattr(failed_at, 'value') else str(failed_at)
     test_run.error_message = error_message
+
+    # Clean up any in-progress calibration records
+    stale_cals = session.query(CalibrationResultORM).filter(
+        CalibrationResultORM.baseline_test_run_id == test_run.id,
+        CalibrationResultORM.status == "in_progress",
+    ).all()
+    for cal in stale_cals:
+        cal.status = "failed"
+        cal.error_message = f"Test run failed: {error_message}"
     session.commit()
 
 

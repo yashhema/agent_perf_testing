@@ -35,6 +35,69 @@ app_config: AppConfig = AppConfig()
 credentials: CredentialsStore = CredentialsStore.__new__(CredentialsStore)
 
 
+def _cleanup_orphaned_runs():
+    """Mark any test runs left in active states as failed.
+
+    When the orchestrator is restarted (crash, Ctrl+C, deploy), test runs
+    that were mid-execution are left in active DB states with no process
+    driving them. This detects and fails them on startup so the UI shows
+    the correct state and the user can retry.
+    """
+    from orchestrator.models.database import SessionLocal
+    from orchestrator.models.orm import BaselineTestRunORM, CalibrationResultORM
+    from orchestrator.models.enums import BaselineTestState
+
+    active_states = {
+        BaselineTestState.validating,
+        BaselineTestState.deploying_loadgen,
+        BaselineTestState.deploying_calibration,
+        BaselineTestState.calibrating,
+        BaselineTestState.generating,
+        BaselineTestState.deploying_testing,
+        BaselineTestState.executing,
+        BaselineTestState.storing,
+        BaselineTestState.comparing,
+    }
+
+    session = SessionLocal()
+    try:
+        orphans = session.query(BaselineTestRunORM).filter(
+            BaselineTestRunORM.state.in_(active_states),
+        ).all()
+
+        for run in orphans:
+            logger.warning(
+                "Orphaned test run #%d '%s' found in state '%s' — marking as failed",
+                run.id, run.name, run.state.value,
+            )
+            run.failed_at_state = run.state.value
+            run.state = BaselineTestState.failed
+            run.error_message = (
+                f"Orchestrator restarted while test was in '{run.failed_at_state}' state. "
+                f"The test was interrupted and must be retried."
+            )
+
+            # Clean up in-progress calibration records
+            stale_cals = session.query(CalibrationResultORM).filter(
+                CalibrationResultORM.baseline_test_run_id == run.id,
+                CalibrationResultORM.status == "in_progress",
+            ).all()
+            for cal in stale_cals:
+                cal.status = "failed"
+                cal.error_message = "Orchestrator restarted — calibration interrupted"
+
+        if orphans:
+            session.commit()
+            logger.info("Cleaned up %d orphaned test run(s)", len(orphans))
+        else:
+            logger.info("No orphaned test runs found")
+    except Exception as e:
+        logger.error("Failed to clean up orphaned runs: %s", e)
+        session.rollback()
+    finally:
+        session.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
@@ -49,6 +112,9 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loading credentials from %s", app_config.credentials_path)
     credentials = CredentialsStore(app_config.credentials_path)
+
+    # Detect orphaned test runs from previous orchestrator instance
+    _cleanup_orphaned_runs()
 
     logger.info("Orchestrator startup complete")
     yield
