@@ -129,10 +129,10 @@
     <table class="table table-hover mb-0">
       <thead><tr>
         <th>Load Profile</th>
-        <th>Cycle</th>
+        <th>Phase</th>
         <th>Status</th>
         <th>Threads</th>
-        <th>Stats</th>
+        <th>CPU / Stats</th>
         <th>JTL</th>
         <th>Comparison</th>
       </tr></thead>
@@ -415,107 +415,121 @@ function renderTargetProgress() {
 
 async function renderLPProgress() {
   const tbody = document.getElementById('lp-progress-body');
-  // Get comparison results for this run
+
+  // Get data scoped to THIS test run only
   let comparisons = [];
+  let calProgress = [];
   try {
     comparisons = await API.get('/api/baseline-tests/' + RUN_ID + '/comparison-results');
   } catch {}
+  try {
+    calProgress = await API.get('/api/baseline-tests/' + RUN_ID + '/calibration-progress');
+  } catch {}
 
-  // Get stored profile data for first target's test snapshot
-  const targets = _run.targets || [];
-  const t0 = targets[0] || {};
-  let profileData = [];
-  if (t0.target_id && t0.test_snapshot_id) {
-    try {
-      profileData = await API.get(`/api/servers/${t0.target_id}/snapshots/${t0.test_snapshot_id}/profile-data`);
-    } catch {}
-  }
-
-  // Build lookup keyed by "lpId:cycle"
+  // Build lookups
+  // Calibration: keyed by lpId (one per LP, no cycles)
+  const calByLp = {};
+  calProgress.forEach(c => calByLp[c.load_profile_id] = c);
+  // Comparisons: keyed by "lpId:cycle"
   const compByKey = {};
   comparisons.forEach(c => compByKey[c.load_profile_id + ':' + (c.cycle || 1)] = c);
-  const dataByKey = {};
-  profileData.forEach(d => dataByKey[d.load_profile_id + ':' + (d.cycle || 1)] = d);
 
-  // Collect all LP+cycle combinations
-  const relevantKeys = new Set();
-  comparisons.forEach(c => relevantKeys.add(c.load_profile_id + ':' + (c.cycle || 1)));
-  profileData.forEach(d => relevantKeys.add(d.load_profile_id + ':' + (d.cycle || 1)));
+  // Get LP list from the test run's own load_profiles (not from snapshot data)
+  const runLps = _run.load_profiles || [];
+  const lpIds = runLps.map(lp => lp.load_profile_id);
 
-  // Add current LP + all expected cycles
-  const totalCycles = _run.cycle_count || 1;
-  const currentCycle = _run.current_cycle || 1;
-  if (_run.current_load_profile_id) {
-    for (let c = 1; c <= totalCycles; c++) {
-      relevantKeys.add(_run.current_load_profile_id + ':' + c);
-    }
-  }
-  // Also add all LPs that have any data, for all cycles
-  const seenLps = new Set();
-  relevantKeys.forEach(k => seenLps.add(parseInt(k.split(':')[0])));
-  seenLps.forEach(lpId => {
-    for (let c = 1; c <= totalCycles; c++) {
-      relevantKeys.add(lpId + ':' + c);
-    }
-  });
-
-  const sortedKeys = [...relevantKeys].sort((a, b) => {
-    const [lpA, cA] = a.split(':').map(Number);
-    const [lpB, cB] = b.split(':').map(Number);
-    return lpA !== lpB ? lpA - lpB : cA - cB;
-  });
-
-  if (sortedKeys.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Waiting for execution to start...</td></tr>';
+  if (lpIds.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No load profiles configured</td></tr>';
     return;
   }
 
+  const totalCycles = _run.cycle_count || 1;
+  const currentCycle = _run.current_cycle || 1;
   const terminalStates = ['completed', 'failed', 'cancelled', 'created'];
   const isActive = !terminalStates.includes(_run.state);
 
-  tbody.innerHTML = sortedKeys.map(key => {
-    const [lpId, cycle] = key.split(':').map(Number);
-    const name = lpName(lpId);
-    const data = dataByKey[key];
-    const comp = compByKey[key];
-    const isCurrent = _run.current_load_profile_id === lpId && currentCycle === cycle;
+  // Build rows: first calibration rows (one per LP), then execution rows (per LP x cycle)
+  let rows = '';
 
-    let status;
-    if (comp) {
-      status = '<span class="badge bg-success">completed</span>';
-    } else if (isCurrent && isActive) {
-      status = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.6rem;height:.6rem"></span>' + _run.state + '</span>';
-    } else if (isCurrent && _run.state === 'failed') {
+  // Calibration rows (no cycle — calibration is per LP per test)
+  const calStates = ['calibrating', 'deploying_calibration', 'generating'];
+  for (const lpId of lpIds) {
+    const cal = calByLp[lpId];
+    const name = lpName(lpId);
+    const isCurrentLp = _run.current_load_profile_id === lpId;
+
+    let status, threads;
+    if (cal && cal.status === 'completed') {
+      status = '<span class="badge bg-success">calibrated</span>';
+      threads = cal.thread_count || cal.current_thread_count || '-';
+    } else if (cal && cal.status === 'failed') {
       status = '<span class="badge bg-danger">failed</span>';
-    } else if (data) {
-      status = '<span class="badge bg-success">stored</span>';
+      threads = cal.current_thread_count || '-';
+    } else if (cal && cal.status === 'in_progress') {
+      status = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.5rem;height:.5rem"></span>calibrating</span>';
+      threads = cal.current_thread_count || '-';
+    } else if (isCurrentLp && isActive && calStates.includes(_run.state)) {
+      status = '<span class="badge bg-info">waiting</span>';
+      threads = '-';
     } else {
       status = '<span class="badge bg-secondary">pending</span>';
+      threads = '-';
     }
 
-    const threads = data ? data.thread_count : '-';
-    const stats = data && data.stats_data
-      ? '<i class="bi bi-check-circle-fill text-success"></i>'
-      : '<i class="bi bi-circle text-muted"></i>';
-    const jtl = data && data.jtl_data
-      ? '<i class="bi bi-check-circle-fill text-success"></i>'
-      : '<i class="bi bi-circle text-muted"></i>';
-    const compResult = comp
-      ? `${comp.verdict ? '<span class="badge bg-' + (comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning') + '">' + comp.verdict + '</span>' : '-'}`
-      : '-';
+    const cpu = cal && cal.last_observed_cpu != null ? cal.last_observed_cpu.toFixed(1) + '%' : '-';
 
-    const cycleLabel = totalCycles > 1 ? cycle + '/' + totalCycles : '1';
-
-    return `<tr${isCurrent ? ' class="table-active"' : ''}>
+    rows += `<tr${isCurrentLp && calStates.includes(_run.state) ? ' class="table-active"' : ''}>
       <td>${escHtml(name)}</td>
-      <td>${cycleLabel}</td>
+      <td class="text-muted">cal</td>
       <td>${status}</td>
       <td>${threads}</td>
-      <td>${stats}</td>
-      <td>${jtl}</td>
-      <td>${compResult}</td>
+      <td>${cpu}</td>
+      <td>-</td>
+      <td>-</td>
     </tr>`;
-  }).join('');
+  }
+
+  // Execution rows (per LP x cycle)
+  for (const lpId of lpIds) {
+    const cal = calByLp[lpId];
+    const name = lpName(lpId);
+
+    for (let cycle = 1; cycle <= totalCycles; cycle++) {
+      const comp = compByKey[lpId + ':' + cycle];
+      const isCurrentExec = _run.current_load_profile_id === lpId
+        && currentCycle === cycle
+        && ['deploying_testing', 'executing', 'storing', 'comparing'].includes(_run.state);
+
+      let status;
+      if (comp) {
+        const verdictColor = comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning';
+        status = '<span class="badge bg-success">done</span>';
+      } else if (isCurrentExec && isActive) {
+        status = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.5rem;height:.5rem"></span>' + _run.state + '</span>';
+      } else if (isCurrentExec && _run.state === 'failed') {
+        status = '<span class="badge bg-danger">failed</span>';
+      } else {
+        status = '<span class="badge bg-secondary">pending</span>';
+      }
+
+      const threads = cal && cal.status === 'completed' ? (cal.thread_count || '-') : '-';
+      const compResult = comp && comp.verdict
+        ? '<span class="badge bg-' + (comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning') + '">' + comp.verdict + '</span>'
+        : '-';
+
+      rows += `<tr${isCurrentExec ? ' class="table-active"' : ''}>
+        <td>${escHtml(name)}</td>
+        <td>${cycle}/${totalCycles}</td>
+        <td>${status}</td>
+        <td>${threads}</td>
+        <td>-</td>
+        <td>-</td>
+        <td>${compResult}</td>
+      </tr>`;
+    }
+  }
+
+  tbody.innerHTML = rows;
 }
 
 async function runSanityCheck() {
