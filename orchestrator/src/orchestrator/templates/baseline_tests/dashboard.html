@@ -316,8 +316,8 @@ function renderHeader() {
   }
   document.getElementById('run-actions').innerHTML = actions;
 
-  // Auto-refresh
-  const activeStates = ['validating','deploying_loadgen','deploying_calibration','calibrating','generating','deploying_testing','executing','storing','comparing'];
+  // Auto-refresh: poll in active states AND created (user may click Start any time)
+  const activeStates = ['created','validating','deploying_loadgen','deploying_calibration','calibrating','generating','deploying_testing','executing','storing','comparing'];
   if (activeStates.includes(_run.state)) {
     if (!_refreshTimer) _refreshTimer = setInterval(loadAll, 5000);
   } else {
