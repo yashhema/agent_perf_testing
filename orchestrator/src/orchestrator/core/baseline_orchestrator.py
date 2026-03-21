@@ -438,7 +438,45 @@ class BaselineOrchestrator:
         else:
             checks.append({"target": "system", "check": "cycle_count", "status": "pass", "detail": f"cycle_count={test_run.cycle_count}"})
 
-        # 3. Hypervisor connectivity
+        # 3. Package DB validation — check for bad characters in commands
+        try:
+            resolver = PackageResolver()
+            pkg_grp_ids = [lab.jmeter_package_grpid]
+            if lab.emulator_package_grp_id:
+                pkg_grp_ids.append(lab.emulator_package_grp_id)
+
+            # Get a sample server to resolve packages
+            sample_target = targets[0] if targets else None
+            if sample_target:
+                sample_server = sample_target[1]  # server from first target tuple
+                for grp_id in pkg_grp_ids:
+                    try:
+                        pkgs = resolver.resolve(session, [grp_id], sample_server)
+                        for pkg in pkgs:
+                            bad_fields = []
+                            for field_name in ("extraction_command", "run_command", "status_command",
+                                               "root_install_path", "install_command", "uninstall_command"):
+                                val = getattr(pkg, field_name, None)
+                                if val and ("\n" in val or "\r" in val):
+                                    bad_fields.append(field_name)
+                            if bad_fields:
+                                all_passed = False
+                                checks.append({"target": "system", "check": "package_db_values", "status": "fail",
+                                               "detail": f"Package '{pkg.group_name}' (member {pkg.member_id}): "
+                                                         f"newline/CR in fields: {', '.join(bad_fields)}. "
+                                                         f"Fix in DB — these will break SSH commands."})
+                            else:
+                                checks.append({"target": "system", "check": "package_db_values", "status": "pass",
+                                               "detail": f"Package '{pkg.group_name}': all command fields clean"})
+                    except Exception as e:
+                        all_passed = False
+                        checks.append({"target": "system", "check": "package_db_values", "status": "fail",
+                                       "detail": f"Package group {grp_id} resolution failed: {e}"})
+        except Exception as e:
+            all_passed = False
+            checks.append({"target": "system", "check": "package_db_values", "status": "fail", "detail": str(e)})
+
+        # 4. Hypervisor connectivity
         try:
             hyp_cred = self._credentials.get_hypervisor_credential(lab.hypervisor_type.value)
             provider = create_hypervisor_provider(
