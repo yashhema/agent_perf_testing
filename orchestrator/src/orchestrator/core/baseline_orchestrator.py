@@ -939,10 +939,10 @@ class BaselineOrchestrator:
                         deployer.deploy_all(loadgen_exec, emu_packages)
                         logger.info("Deployed emulator to loadgen %s", loadgen.hostname)
 
-                    # Start emulator on loadgen
+                    # Start emulator on loadgen (512 MB heap — JMeter needs the rest)
                     for pkg in emu_packages:
                         if pkg.run_command:
-                            lg_start_cmd = f"sudo {pkg.run_command}" if loadgen.os_family.value != "windows" else pkg.run_command
+                            lg_start_cmd = f"sudo {pkg.run_command} 512" if loadgen.os_family.value != "windows" else pkg.run_command
                             logger.info("Starting emulator on loadgen %s: %s", loadgen.hostname, lg_start_cmd)
                             result = loadgen_exec.execute(lg_start_cmd, timeout_sec=60)
                             if not result.success:
@@ -975,7 +975,7 @@ class BaselineOrchestrator:
                         logger.info("Emulator health check passed on loadgen %s", loadgen.hostname)
                     else:
                         # Log everything for debugging
-                        log_check = loadgen_exec.execute("tail -20 /opt/emulator/emulator.log 2>/dev/null || echo 'no log'")
+                        log_check = loadgen_exec.execute("tail -20 ~/emulator.log 2>/dev/null || tail -20 /opt/emulator/emulator.log 2>/dev/null || echo 'no log'")
                         logger.error("Emulator log on %s: %s", loadgen.hostname, log_check.stdout.strip())
                         raise RuntimeError(
                             f"Emulator health check failed on loadgen {loadgen.hostname}. "
