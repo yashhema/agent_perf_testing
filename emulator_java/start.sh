@@ -6,25 +6,21 @@
 #   bash start.sh 512       # Use 512 MB heap — for loadgens
 #   bash start.sh 0         # No -Xmx flag (JVM default) — fallback
 
-EMULATOR_DIR="/opt/emulator"
-LOG_DIR="${HOME}"
-LOG_FILE="${LOG_DIR}/emulator.log"
+EMULATOR_DIR="/data/emulator"
+LOG_FILE="/data/emulator.log"
 
 cd "$EMULATOR_DIR" || { echo "ERROR: $EMULATOR_DIR not found"; exit 1; }
 
-# Create required directories (output/stats on /data if mounted, else local)
-if mountpoint -q /data 2>/dev/null; then
-    mkdir -p /data/output /data/stats 2>/dev/null || true
-else
-    mkdir -p "$EMULATOR_DIR/output" "$EMULATOR_DIR/stats" 2>/dev/null || true
-fi
+# Create required directories
+mkdir -p /data/output /data/stats 2>/dev/null || true
+mkdir -p "$EMULATOR_DIR/output" "$EMULATOR_DIR/stats" 2>/dev/null || true
 
-# Firewall - open port 8080
+# Firewall - open port 8080 (needs sudo)
 if command -v firewall-cmd &>/dev/null; then
-    firewall-cmd --add-port=8080/tcp --permanent 2>/dev/null
-    firewall-cmd --reload 2>/dev/null
+    sudo firewall-cmd --add-port=8080/tcp --permanent 2>/dev/null
+    sudo firewall-cmd --reload 2>/dev/null
 elif command -v ufw &>/dev/null; then
-    ufw allow 8080/tcp 2>/dev/null
+    sudo ufw allow 8080/tcp 2>/dev/null
 fi
 
 # Kill existing process on port 8080

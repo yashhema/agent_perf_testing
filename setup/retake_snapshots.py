@@ -48,23 +48,23 @@ OUTPUT_FOLDERS = ["/data/output1", "/data/output2", "/data/output3"]
 LOADGEN_CLEANUP_COMMANDS_LINUX = [
     ("Kill JMeter processes", "pgrep -f '[j]meter' | xargs -r kill -9 2>/dev/null; echo done"),
     ("Kill emulator processes", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done"),
-    ("Remove JMeter", "sudo rm -rf /opt/jmeter /opt/jmeter-pkg 2>&1; echo done"),
-    ("Remove emulator", "sudo rm -rf /opt/emulator /opt/emulator-pkg 2>&1; echo done"),
+    ("Remove JMeter", "rm -rf /data/jmeter /data/jmeter-pkg 2>&1; echo done"),
+    ("Remove emulator", "rm -rf /data/emulator /data/emulator-pkg 2>&1; echo done"),
     ("Remove stale run dirs", "rm -rf /tmp/jmeter* /tmp/emulator* 2>&1; echo done"),
 ]
 
 LOADGEN_VERIFY_COMMANDS_LINUX = [
     ("No JMeter processes", "pgrep -f '[j]meter' -c 2>/dev/null || echo 0", "0"),
     ("No emulator processes", "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0", "0"),
-    ("JMeter dir gone", "test -d /opt/jmeter && echo EXISTS || echo GONE", "GONE"),
-    ("Emulator dir gone", "test -d /opt/emulator && echo EXISTS || echo GONE", "GONE"),
+    ("JMeter dir gone", "test -d /data/jmeter && echo EXISTS || echo GONE", "GONE"),
+    ("Emulator dir gone", "test -d /data/emulator && echo EXISTS || echo GONE", "GONE"),
 ]
 
 TARGET_CLEANUP_COMMANDS = {
     "linux": [
         ("Disable emulator service", "systemctl stop emulator 2>/dev/null; systemctl disable emulator 2>/dev/null; echo done"),
-        ("Kill emulator processes", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; sleep 1; sudo pgrep -f '[e]mulator' | xargs -r sudo kill -9 2>/dev/null; echo done"),
-        ("Clean emulator output", "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; echo done"),
+        ("Kill emulator processes", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; sleep 1; pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done"),
+        ("Clean emulator output", "rm -rf /data/emulator/output/* /data/emulator/stats/* 2>/dev/null; echo done"),
     ],
     "windows": [
         ("Kill emulator", 'powershell -Command "Stop-Process -Name *emulator* -Force -ErrorAction SilentlyContinue"'),
@@ -79,8 +79,8 @@ TARGET_CLEANUP_COMMANDS = {
 TARGET_VERIFY_COMMANDS = {
     "linux": [
         ("No emulator processes", "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0", "0"),
-        ("No emulator output files", "find /opt/emulator/output -type f 2>/dev/null | head -1 | wc -l", "0"),
-        ("No emulator stats files", "find /opt/emulator/stats -type f 2>/dev/null | head -1 | wc -l", "0"),
+        ("No emulator output files", "find /data/emulator/output -type f 2>/dev/null | head -1 | wc -l", "0"),
+        ("No emulator stats files", "find /data/emulator/stats -type f 2>/dev/null | head -1 | wc -l", "0"),
     ],
     "windows": [
         ("No emulator processes", 'powershell -Command "(Get-Process -Name *emulator* -ErrorAction SilentlyContinue | Measure-Object).Count"', "0"),

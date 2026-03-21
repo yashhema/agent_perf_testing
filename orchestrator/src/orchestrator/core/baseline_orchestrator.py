@@ -75,22 +75,14 @@ class BaselineOrchestrator:
         self._jtl_parser = JtlParser()
 
     @staticmethod
-    def _sudo_upload(executor, local_path: str, remote_path: str) -> None:
-        """Upload a file via SFTP to /tmp, then sudo mv to final path.
-        For Windows paths (backslash), uploads directly (no sudo needed).
-        """
+    def _ensure_upload(executor, local_path: str, remote_path: str) -> None:
+        """Upload a file via SFTP, creating parent directory if needed."""
         if remote_path.startswith("/"):
-            import os
-            filename = os.path.basename(remote_path)
-            tmp = f"/tmp/_upload_{filename}"
             remote_dir = remote_path.rsplit("/", 1)[0]
-            executor.execute(f"sudo mkdir -p {remote_dir}")
-            executor.upload(local_path, tmp)
-            result = executor.execute(f"sudo mv {tmp} {remote_path} && sudo chmod 644 {remote_path}")
-            if not result.success:
-                raise RuntimeError(f"sudo mv failed for {remote_path}: {result.stderr}")
-        else:
-            executor.upload(local_path, remote_path)
+            executor.execute(f"mkdir -p {remote_dir}")
+        elif "\\" in remote_path:
+            pass  # Windows — PowerShell handles dirs
+        executor.upload(local_path, remote_path)
 
     # ------------------------------------------------------------------
     # Iteration helpers
@@ -310,7 +302,7 @@ class BaselineOrchestrator:
             dirs_to_check = [r"C:\emulator\output", r"C:\emulator\stats"]
             proc_cmd = 'powershell -Command "Get-Process -Name *emulator* -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.Id }"'
         else:
-            dirs_to_check = ["/opt/emulator/output", "/opt/emulator/stats"]
+            dirs_to_check = ["/data/emulator/output", "/data/emulator/stats"]
             # Use [e]mulator trick to avoid matching the grep/pgrep command itself.
             # Use -c to get a count instead of PIDs (cleaner check).
             proc_cmd = "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0"
@@ -382,7 +374,7 @@ class BaselineOrchestrator:
             pass
 
         # Check for stale run dirs from previous tests
-        result = executor.execute("ls -d /opt/jmeter/runs/baseline_* 2>/dev/null | head -5")
+        result = executor.execute("ls -d /data/jmeter/runs/baseline_* 2>/dev/null | head -5")
         if result.success and result.stdout.strip():
             dirs = result.stdout.strip().split("\n")
             # Filter out the current test's dir
@@ -535,7 +527,7 @@ class BaselineOrchestrator:
                                    "detail": f"SSH to {loadgen.ip_address} OK"})
 
                     # JMeter binary
-                    jmeter_check = loadgen_exec.execute("/opt/jmeter/bin/jmeter --version")
+                    jmeter_check = loadgen_exec.execute("/data/jmeter/bin/jmeter --version")
                     if jmeter_check.success:
                         checks.append({"target": lg_label, "check": "jmeter_binary", "status": "pass",
                                        "detail": "jmeter --version OK"})
@@ -835,7 +827,7 @@ class BaselineOrchestrator:
         lab, scenario, targets, load_profiles, duration_overrides = self._load_context(session, test_run)
 
         resolver = PackageResolver()
-        deployer = PackageDeployer()
+        deployer = PackageDeployer(use_sudo=False)
         needs_pool = scenario.template_type in self._POOL_HEAP_PERCENT
 
         # Create hypervisor provider for loadgen revert
@@ -890,14 +882,14 @@ class BaselineOrchestrator:
                 loadgen_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
 
                 # Remove old dirs — try multiple approaches
-                for d in ["/opt/jmeter", "/opt/emulator"]:
-                    loadgen_exec.execute(f"sudo rm -rf {d} 2>&1 || rm -rf {d} 2>&1 || true")
+                for d in ["/data/jmeter", "/data/emulator"]:
+                    loadgen_exec.execute(f"rm -rf {d} 2>&1 || true")
                     # Verify it's actually gone
                     check = loadgen_exec.execute(f"test -e {d} && echo EXISTS || echo GONE")
                     status = check.stdout.strip().split('\n')[-1].strip()
                     if status == "EXISTS":
                         # Last resort: try removing contents and the dir separately
-                        loadgen_exec.execute(f"sudo rm -rf {d}/* 2>&1; sudo rmdir {d} 2>&1 || true")
+                        loadgen_exec.execute(f"rm -rf {d}/* 2>&1; rmdir {d} 2>&1 || true")
                         check2 = loadgen_exec.execute(f"test -e {d} && echo EXISTS || echo GONE")
                         status2 = check2.stdout.strip().split('\n')[-1].strip()
                         if status2 == "EXISTS":
@@ -921,7 +913,7 @@ class BaselineOrchestrator:
                     logger.info("Deployed JMeter to %s", loadgen.hostname)
 
                 # Validate JMeter binary
-                jmeter_check = loadgen_exec.execute("/opt/jmeter/bin/jmeter --version")
+                jmeter_check = loadgen_exec.execute("/data/jmeter/bin/jmeter --version")
                 if not jmeter_check.success:
                     raise RuntimeError(f"JMeter validation failed on {loadgen.hostname}: {jmeter_check.stderr}")
 
@@ -942,7 +934,7 @@ class BaselineOrchestrator:
                     # Start emulator on loadgen (512 MB heap — JMeter needs the rest)
                     for pkg in emu_packages:
                         if pkg.run_command:
-                            lg_start_cmd = f"sudo {pkg.run_command} 512" if loadgen.os_family.value != "windows" else pkg.run_command
+                            lg_start_cmd = f"{pkg.run_command} 512" if loadgen.os_family.value != "windows" else pkg.run_command
                             logger.info("Starting emulator on loadgen %s: %s", loadgen.hostname, lg_start_cmd)
                             result = loadgen_exec.execute(lg_start_cmd, timeout_sec=60)
                             if not result.success:
@@ -975,7 +967,7 @@ class BaselineOrchestrator:
                         logger.info("Emulator health check passed on loadgen %s", loadgen.hostname)
                     else:
                         # Log everything for debugging
-                        log_check = loadgen_exec.execute("tail -20 ~/emulator.log 2>/dev/null || tail -20 /opt/emulator/emulator.log 2>/dev/null || echo 'no log'")
+                        log_check = loadgen_exec.execute("tail -20 ~/emulator.log 2>/dev/null || tail -20 /data/emulator/emulator.log 2>/dev/null || echo 'no log'")
                         logger.error("Emulator log on %s: %s", loadgen.hostname, log_check.stdout.strip())
                         raise RuntimeError(
                             f"Emulator health check failed on loadgen {loadgen.hostname}. "
@@ -1010,7 +1002,7 @@ class BaselineOrchestrator:
         current_lp = session.get(LoadProfileORM, current_lp_id)
 
         resolver = PackageResolver()
-        deployer = PackageDeployer()
+        deployer = PackageDeployer(use_sudo=False)
         orchestrator_url = self._get_orchestrator_url()
 
         hyp_cred = self._credentials.get_hypervisor_credential(lab.hypervisor_type.value)
@@ -1045,17 +1037,17 @@ class BaselineOrchestrator:
                 # Kill stale JMeter for this target's IP (every target, not just first per loadgen)
                 jmeter_ctrl = JMeterController(
                     executor=loadgen_exec,
-                    jmeter_bin="/opt/jmeter/bin/jmeter",
+                    jmeter_bin="/data/jmeter/bin/jmeter",
                     os_family=loadgen.os_family.value,
                 )
                 jmeter_ctrl.kill_for_target(server.ip_address)
 
-                run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
+                run_dir = f"/data/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
 
                 # Create/clean run dir
-                loadgen_exec.execute(f"sudo rm -rf {run_dir}")
-                loadgen_exec.execute(f"sudo mkdir -p {run_dir}")
-                loadgen_exec.execute(f"sudo chown -R {loadgen_cred.username} /opt/jmeter/runs/baseline_{test_run.id}")
+                loadgen_exec.execute(f"rm -rf {run_dir}")
+                loadgen_exec.execute(f"mkdir -p {run_dir}")
+
 
                 # Upload JMX template
                 jmx_template_name = f"{scenario.template_type.value}.jmx"
@@ -1064,8 +1056,8 @@ class BaselineOrchestrator:
 
                 # Upload kill script
                 local_kill_script = str(artifacts_dir / "scripts" / "jmeter_kill.py")
-                self._sudo_upload(loadgen_exec, local_kill_script, "/opt/jmeter/bin/jmeter_kill.py")
-                loadgen_exec.execute("sudo chmod +x /opt/jmeter/bin/jmeter_kill.py")
+                self._ensure_upload(loadgen_exec, local_kill_script, "/data/jmeter/bin/jmeter_kill.py")
+                loadgen_exec.execute("chmod +x /data/jmeter/bin/jmeter_kill.py")
 
                 # Upload calibration CSV
                 self._deploy_calibration_csv(
@@ -1075,7 +1067,7 @@ class BaselineOrchestrator:
                 # Validate files
                 self._validate_remote_file(loadgen_exec, f"{run_dir}/test.jmx", "JMX template")
                 self._validate_remote_file(loadgen_exec, f"{run_dir}/calibration_ops.csv", "Calibration CSV")
-                self._validate_remote_file(loadgen_exec, "/opt/jmeter/bin/jmeter_kill.py", "Kill script")
+                self._validate_remote_file(loadgen_exec, "/data/jmeter/bin/jmeter_kill.py", "Kill script")
             finally:
                 loadgen_exec.close()
 
@@ -1149,8 +1141,7 @@ class BaselineOrchestrator:
                         )
                     else:
                         target_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
-                        target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; "
-                                            "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; true")
+                        target_exec.execute("rm -rf /data/emulator/output/* /data/emulator/stats/* 2>/dev/null; true")
 
                     self._check_dirty_snapshot(target_exec, thread_session.get(ServerORM, server_id), snap_name)
 
@@ -1161,7 +1152,7 @@ class BaselineOrchestrator:
                         deployer.deploy_all(target_exec, emu_packages)
                         for pkg in emu_packages:
                             if pkg.run_command:
-                                start_cmd = f"sudo {pkg.run_command}" if server_os_family != "windows" else pkg.run_command
+                                start_cmd = pkg.run_command
                                 result = target_exec.execute(start_cmd, timeout_sec=60)
                                 if not result.success:
                                     raise RuntimeError(f"Emulator start failed on {server_hostname}: {result.stderr}")
@@ -1277,7 +1268,7 @@ class BaselineOrchestrator:
                     elif server_os_family == "windows":
                         out_folders = ["C:\\emulator\\output"]
                     else:
-                        out_folders = ["/opt/emulator/output"]
+                        out_folders = ["/data/emulator/output"]
                     em_client.set_config(
                         output_folders=out_folders,
                         partner={"fqdn": partner_fqdn, "port": emulator_port},
@@ -1287,7 +1278,7 @@ class BaselineOrchestrator:
 
                     jmeter_ctrl = JMeterController(
                         executor=loadgen_exec,
-                        jmeter_bin="/opt/jmeter/bin/jmeter",
+                        jmeter_bin="/data/jmeter/bin/jmeter",
                         os_family=loadgen_os_family,
                     )
                     jmeter_ctrl.kill_for_target(server_ip)
@@ -1297,7 +1288,7 @@ class BaselineOrchestrator:
                         BaselineOrchestrator._setup_pool(em_client, scenario_template)
                         extra_props = BaselineOrchestrator._build_work_extra_properties()
 
-                    run_dir = f"/opt/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
+                    run_dir = f"/data/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
 
                     lp = thread_session.get(LoadProfileORM, lp_id)
                     server_orm = thread_session.get(ServerORM, server_id)
@@ -1417,7 +1408,7 @@ class BaselineOrchestrator:
                     password=loadgen_cred.password,
                 )
                 try:
-                    run_dir = f"/opt/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
+                    run_dir = f"/data/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
 
                     cal = thread_session.query(CalibrationResultORM).filter(
                         CalibrationResultORM.baseline_test_run_id == test_run_id,
@@ -1520,7 +1511,7 @@ class BaselineOrchestrator:
         current_cycle = test_run.current_cycle
 
         resolver = PackageResolver()
-        deployer = PackageDeployer()
+        deployer = PackageDeployer(use_sudo=False)
         orchestrator_url = self._get_orchestrator_url()
         artifacts_dir = Path(self._config.artifacts_dir)
 
@@ -1554,12 +1545,12 @@ class BaselineOrchestrator:
                     password=loadgen_cred.password,
                 )
                 try:
-                    run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
+                    run_dir = f"/data/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
 
                     # Clean run dir (remove previous LP's artifacts)
-                    loadgen_exec.execute(f"sudo rm -rf {run_dir}")
-                    loadgen_exec.execute(f"sudo mkdir -p {run_dir}")
-                    loadgen_exec.execute(f"sudo chown -R {loadgen_cred.username} /opt/jmeter/runs/baseline_{test_run.id}")
+                    loadgen_exec.execute(f"rm -rf {run_dir}")
+                    loadgen_exec.execute(f"mkdir -p {run_dir}")
+    
 
                     # Upload JMX template
                     jmx_template_name = f"{scenario.template_type.value}.jmx"
@@ -1568,8 +1559,8 @@ class BaselineOrchestrator:
 
                     # Upload kill script
                     local_kill_script = str(artifacts_dir / "scripts" / "jmeter_kill.py")
-                    self._sudo_upload(loadgen_exec, local_kill_script, "/opt/jmeter/bin/jmeter_kill.py")
-                    loadgen_exec.execute("sudo chmod +x /opt/jmeter/bin/jmeter_kill.py")
+                    self._ensure_upload(loadgen_exec, local_kill_script, "/data/jmeter/bin/jmeter_kill.py")
+                    loadgen_exec.execute("chmod +x /data/jmeter/bin/jmeter_kill.py")
 
                     # Upload ops sequence CSV from local copy (or stored data for compare)
                     if test_run.test_type == BaselineTestType.compare and compare_snapshot:
@@ -1589,7 +1580,7 @@ class BaselineOrchestrator:
                         loadgen_exec, f"{run_dir}/ops_sequence_{current_lp.name}.csv",
                         f"Ops sequence for {current_lp.name}",
                     )
-                    self._validate_remote_file(loadgen_exec, "/opt/jmeter/bin/jmeter_kill.py", "Kill script")
+                    self._validate_remote_file(loadgen_exec, "/data/jmeter/bin/jmeter_kill.py", "Kill script")
                 finally:
                     loadgen_exec.close()
 
@@ -1607,12 +1598,12 @@ class BaselineOrchestrator:
                 password=loadgen_cred.password,
             )
             try:
-                run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
+                run_dir = f"/data/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
 
                 # Kill stale JMeter for this target's IP
                 jmeter_ctrl = JMeterController(
                     executor=loadgen_exec,
-                    jmeter_bin="/opt/jmeter/bin/jmeter",
+                    jmeter_bin="/data/jmeter/bin/jmeter",
                     os_family=loadgen.os_family.value,
                 )
                 jmeter_ctrl.kill_for_target(server.ip_address)
@@ -1664,8 +1655,7 @@ class BaselineOrchestrator:
                         )
                     else:
                         target_exec.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
-                        target_exec.execute("rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; "
-                                            "sudo rm -rf /opt/emulator/output/* /opt/emulator/stats/* 2>/dev/null; true")
+                        target_exec.execute("rm -rf /data/emulator/output/* /data/emulator/stats/* 2>/dev/null; true")
 
                     self._check_dirty_snapshot(target_exec, thread_session.get(ServerORM, server_id), snap_name)
 
@@ -1676,7 +1666,7 @@ class BaselineOrchestrator:
                         deployer.deploy_all(target_exec, emu_packages)
                         for pkg in emu_packages:
                             if pkg.run_command:
-                                start_cmd = f"sudo {pkg.run_command}" if server_os_family != "windows" else pkg.run_command
+                                start_cmd = pkg.run_command
                                 result = target_exec.execute(start_cmd, timeout_sec=60)
                                 if not result.success:
                                     raise RuntimeError(f"Emulator start failed on {server_hostname}: {result.stderr}")
@@ -1789,7 +1779,7 @@ class BaselineOrchestrator:
             elif server.os_family.value == "windows":
                 out_folders = ["C:\\emulator\\output"]
             else:
-                out_folders = ["/opt/emulator/output"]
+                out_folders = ["/data/emulator/output"]
             em_client.set_config(
                 output_folders=out_folders,
                 partner={"fqdn": partner_fqdn, "port": emulator_port},
@@ -1842,11 +1832,11 @@ class BaselineOrchestrator:
             )
             jmeter_ctrl = JMeterController(
                 executor=loadgen_exec,
-                jmeter_bin="/opt/jmeter/bin/jmeter",
+                jmeter_bin="/data/jmeter/bin/jmeter",
                 os_family=loadgen.os_family.value,
             )
 
-            run_dir = f"/opt/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
+            run_dir = f"/data/jmeter/runs/baseline_{test_run.id}/lg_{loadgen.id}/target_{server.id}"
 
             target_resources.append({
                 "target_orm": target_orm,
