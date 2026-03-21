@@ -747,25 +747,64 @@ class BaselineOrchestrator:
         except Exception as e:
             results.append({"target": label, "check": "firewall_port", "status": "fail", "detail": str(e)})
 
-        # 4. Data disk mounted at /data (Linux only)
+        # 4. Data disk: /data exists, writable, output folders exist (Linux only)
         if os_family != "windows":
             try:
-                mount_result = executor.execute("mountpoint -q /data && echo MOUNTED || echo NOTMOUNTED")
-                status = mount_result.stdout.strip().split('\n')[-1].strip()
-                if "MOUNTED" in status:
+                # Check /data exists and is a directory
+                dir_check = executor.execute("test -d /data && echo EXISTS || echo MISSING")
+                if "MISSING" in dir_check.stdout:
+                    results.append({"target": label, "check": "data_disk", "status": "fail",
+                                    "detail": "/data directory does not exist"})
+                else:
+                    # Check writable by current user
+                    write_check = executor.execute(
+                        "echo test > /data/_sanity_write_test && rm /data/_sanity_write_test && echo WRITABLE || echo NOWRITE"
+                    )
+                    write_status = write_check.stdout.strip().split('\n')[-1].strip()
+                    if "WRITABLE" not in write_status:
+                        results.append({"target": label, "check": "data_writable", "status": "fail",
+                                        "detail": f"/data not writable by SSH user: {write_check.stderr.strip()}"})
+                    else:
+                        results.append({"target": label, "check": "data_writable", "status": "pass",
+                                        "detail": "/data writable by SSH user"})
+
                     # Check output folders exist
                     check_cmd = " && ".join(f"test -d {f}" for f in ["/data/output1", "/data/output2", "/data/output3"])
                     dir_result = executor.execute(f"{check_cmd} && echo DIRS_OK || echo DIRS_MISSING")
                     dir_status = dir_result.stdout.strip().split('\n')[-1].strip()
                     if "DIRS_OK" in dir_status:
-                        results.append({"target": label, "check": "data_disk", "status": "pass",
-                                        "detail": "/data mounted, output folders exist"})
+                        results.append({"target": label, "check": "data_folders", "status": "pass",
+                                        "detail": "/data/output1,2,3 exist"})
                     else:
-                        results.append({"target": label, "check": "data_disk", "status": "fail",
-                                        "detail": "/data mounted but output folders missing"})
-                else:
-                    results.append({"target": label, "check": "data_disk", "status": "fail",
-                                    "detail": "/data not mounted"})
+                        results.append({"target": label, "check": "data_folders", "status": "fail",
+                                        "detail": "output folders missing in /data"})
+
+                    # Check can create deployment dirs (jmeter-pkg, emulator-pkg)
+                    deploy_check = executor.execute(
+                        "mkdir -p /data/_sanity_deploy_test && rm -rf /data/_sanity_deploy_test && echo OK || echo FAIL"
+                    )
+                    deploy_status = deploy_check.stdout.strip().split('\n')[-1].strip()
+                    if "OK" in deploy_status:
+                        results.append({"target": label, "check": "data_deploy_writable", "status": "pass",
+                                        "detail": "can create dirs under /data"})
+                    else:
+                        results.append({"target": label, "check": "data_deploy_writable", "status": "fail",
+                                        "detail": f"cannot create dirs under /data: {deploy_check.stderr.strip()}"})
+
+                    # Check disk space (warn if < 10GB free)
+                    df_check = executor.execute("df --output=avail /data 2>/dev/null | tail -1")
+                    try:
+                        avail_kb = int(df_check.stdout.strip())
+                        avail_gb = avail_kb / (1024 * 1024)
+                        if avail_gb < 10:
+                            results.append({"target": label, "check": "data_space", "status": "warn",
+                                            "detail": f"/data has only {avail_gb:.1f} GB free"})
+                        else:
+                            results.append({"target": label, "check": "data_space", "status": "pass",
+                                            "detail": f"/data has {avail_gb:.1f} GB free"})
+                    except (ValueError, TypeError):
+                        results.append({"target": label, "check": "data_space", "status": "warn",
+                                        "detail": f"could not parse disk space: {df_check.stdout.strip()}"})
             except Exception as e:
                 results.append({"target": label, "check": "data_disk", "status": "fail", "detail": str(e)})
 
