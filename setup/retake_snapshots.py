@@ -408,7 +408,7 @@ def setup_data_disk(executor, os_family, ssh_user, dry_run=False):
     # Check if already mounted
     ok, stdout = _run_cmd(executor, f"Check if {DATA_MOUNT} is mounted",
         f"mountpoint -q {DATA_MOUNT} 2>/dev/null && echo MOUNTED || echo NOTMOUNTED")
-    if "MOUNTED" in stdout:
+    if stdout.strip().splitlines()[-1].strip() == "MOUNTED":
         print(f"    [OK] {DATA_MOUNT} already mounted")
     else:
         # Check if disk has a filesystem
