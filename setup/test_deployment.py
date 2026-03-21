@@ -224,12 +224,15 @@ def test_one_machine(label, server, executor, session, credentials, resolver, de
 
 def main():
     parser = argparse.ArgumentParser(description="Test deployment on all machines for a test run")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("name", nargs="?", default=None, help="Test run name")
-    group.add_argument("--test-id", type=int, default=None, help="Test run ID")
+    parser.add_argument("name", nargs="?", default=None, help="Test run name (partial match)")
+    parser.add_argument("--test-id", type=int, default=None, help="Test run ID")
     parser.add_argument("--loadgens-only", action="store_true")
     parser.add_argument("--targets-only", action="store_true")
     args = parser.parse_args()
+
+    if not args.name and not args.test_id:
+        parser.error("Provide a test name or --test-id")
+
 
     from orchestrator.models.database import SessionLocal, init_db
     from orchestrator.models.orm import (
