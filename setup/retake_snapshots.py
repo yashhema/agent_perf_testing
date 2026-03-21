@@ -531,7 +531,11 @@ def cleanup_target(executor, hostname, os_family, dry_run=False):
 # Step: Validate snapshot (revert to new snapshot and verify everything)
 # ---------------------------------------------------------------------------
 def validate_snapshot(provider, server, snapshot_ref, credentials, sudo_user, os_family, wait_for_ssh_fn):
-    """Revert to the snapshot we just took, verify sudo + firewall + cleanliness."""
+    """Revert to the snapshot we just took, verify sudo + firewall + cleanliness + /data.
+
+    Returns (all_ok, checks) where checks is a list of (name, passed, detail).
+    """
+    checks = []
     print(f"\n  --- Validating snapshot (revert + verify) ---")
 
     # Revert to the new snapshot
@@ -558,70 +562,85 @@ def validate_snapshot(provider, server, snapshot_ref, credentials, sudo_user, os
     )
 
     all_ok = True
+
+    def _check(name, passed, detail=""):
+        nonlocal all_ok
+        checks.append((name, passed, detail))
+        icon = "PASS" if passed else "FAIL"
+        print(f"    [{icon}] {name}{': ' + detail if detail else ''}")
+        if not passed:
+            all_ok = False
+
     try:
-        # 1. Verify sudo (Linux only)
+        # 1. Sudo (Linux)
         if os_family != "windows":
             result = executor.execute("sudo -n whoami 2>&1")
-            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-            got = lines[-1] if lines else ""
-            if result.success and "root" in got:
-                print(f"    [PASS] Passwordless sudo works")
-            else:
-                print(f"    [FAIL] Passwordless sudo broken — got: {got!r}")
-                all_ok = False
+            got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else ""
+            _check("sudo", result.success and "root" in got, got)
 
-        # 2. Verify firewall
+        # 2. Firewall
         if os_family == "windows":
             result = executor.execute(
-                f'powershell -Command "'
-                f"(Get-NetFirewallRule -DisplayName 'Emulator {FIREWALL_PORT}' "
-                f'-ErrorAction SilentlyContinue | Measure-Object).Count"'
-            )
-            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-            got = lines[-1] if lines else "0"
-            if got != "0":
-                print(f"    [PASS] Windows firewall rule exists for port {FIREWALL_PORT}")
-            else:
-                print(f"    [FAIL] Windows firewall rule missing for port {FIREWALL_PORT}")
-                all_ok = False
+                f'powershell -Command "(Get-NetFirewallRule -DisplayName \'Emulator {FIREWALL_PORT}\' '
+                f'-ErrorAction SilentlyContinue | Measure-Object).Count"')
+            got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else "0"
+            _check("firewall", got != "0", f"port {FIREWALL_PORT}")
         else:
             result = executor.execute(
                 f"sudo firewall-cmd --list-ports 2>/dev/null | grep -q {FIREWALL_PORT} && echo OPEN || "
-                f"sudo iptables -C INPUT -p tcp --dport {FIREWALL_PORT} -j ACCEPT 2>/dev/null && echo OPEN || "
-                f"echo CLOSED"
-            )
-            status = result.stdout.strip().split('\n')[-1].strip()
-            if "OPEN" in status:
-                print(f"    [PASS] Firewall port {FIREWALL_PORT} is open")
-            else:
-                print(f"    [FAIL] Firewall port {FIREWALL_PORT} is NOT open — got: {status!r}")
-                all_ok = False
+                f"sudo iptables -C INPUT -p tcp --dport {FIREWALL_PORT} -j ACCEPT 2>/dev/null && echo OPEN || echo CLOSED")
+            got = result.stdout.strip().split('\n')[-1].strip()
+            _check("firewall", "OPEN" in got, f"port {FIREWALL_PORT}")
 
-        # 3. Verify cleanliness (use appropriate verify commands)
-        # For loadgens: check jmeter + emulator dirs gone
-        # For targets: check emulator processes + output
-        # We check both sets — whichever applies will pass, the other is harmless
-        print(f"    --- Verifying cleanliness ---")
-        # Common process checks
-        for desc, cmd, expected in [
-            ("No JMeter processes", "pgrep -f '[j]meter' -c 2>/dev/null || echo 0", "0"),
-            ("No emulator processes", "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0", "0"),
-        ]:
-            if os_family == "windows":
-                continue
-            result = executor.execute(cmd)
-            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-            actual = lines[-1] if lines else ""
-            if actual == expected:
-                print(f"    [PASS] {desc}: {actual}")
-            else:
-                print(f"    [FAIL] {desc}: expected={expected!r}, got={actual!r}")
-                all_ok = False
+        # 3. Cleanliness
+        if os_family != "windows":
+            for desc, cmd, expected in [
+                ("no_jmeter_procs", "pgrep -f '[j]meter' -c 2>/dev/null || echo 0", "0"),
+                ("no_emulator_procs", "pgrep -f '[e]mulator' -c 2>/dev/null || echo 0", "0"),
+            ]:
+                result = executor.execute(cmd)
+                got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else ""
+                _check(desc, got == expected, got)
+
+        # 4. Java 17+
+        if os_family != "windows":
+            import re
+            result = executor.execute("java -version 2>&1 | head -1")
+            java_out = result.stdout.strip()
+            m = re.search(r'"(\d+)', java_out)
+            major = int(m.group(1)) if m else 0
+            _check("java_17+", major >= 17, java_out)
+
+        # 5. /data checks (Linux)
+        if os_family != "windows":
+            result = executor.execute(f"mountpoint -q {DATA_MOUNT} && echo YES || echo NO")
+            got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else "NO"
+            _check("data_mounted", got == "YES")
+
+            result = executor.execute(f"echo test > {DATA_MOUNT}/_val_test && rm {DATA_MOUNT}/_val_test && echo OK || echo FAIL")
+            got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else "FAIL"
+            _check("data_writable", got == "OK", result.stderr.strip() if got != "OK" else "")
+
+            for folder in OUTPUT_FOLDERS:
+                result = executor.execute(f"test -d {folder} && echo YES || echo NO")
+                got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else "NO"
+                _check(f"folder_{folder.split('/')[-1]}", got == "YES")
+
+            result = executor.execute(f"df --output=avail {DATA_MOUNT} 2>/dev/null | tail -1")
+            try:
+                avail_gb = int(result.stdout.strip()) / (1024 * 1024)
+                _check("data_space", avail_gb >= 50, f"{avail_gb:.1f} GB")
+            except (ValueError, TypeError):
+                _check("data_space", False, "could not parse")
+
+            result = executor.execute(f"mkdir -p {DATA_MOUNT}/_val_dir && rm -rf {DATA_MOUNT}/_val_dir && echo OK || echo FAIL")
+            got = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else "FAIL"
+            _check("data_mkdir", got == "OK")
 
     finally:
         executor.close()
 
-    return all_ok
+    return all_ok, checks
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +677,7 @@ def retake_one(
     if dry_run:
         print(f"  [DRY RUN] Would: revert -> fix sudo -> open firewall -> cleanup -> "
               f"delete old snap -> take new -> update DB -> validate")
-        return True
+        return True, []
 
     # --- Step 1: Revert ---
     print(f"  [1/{TOTAL_STEPS}] Reverting to '{revert_name}'...")
@@ -692,7 +711,7 @@ def retake_one(
         print(f"  [3/{TOTAL_STEPS}] Fixing passwordless sudo...")
         if not fix_sudo(executor, cred.password, sudo_user, os_family, dry_run):
             print(f"  [ERROR] Failed to fix sudo on {server.hostname}")
-            return False
+            return False, []
 
         # --- Step 4: Open firewall ---
         print(f"  [4/{TOTAL_STEPS}] Opening firewall port {FIREWALL_PORT}...")
@@ -708,7 +727,7 @@ def retake_one(
         print(f"  [6/{TOTAL_STEPS}] Setting up data disk...")
         if not setup_data_disk(executor, os_family, cred.username, dry_run):
             print(f"  [ERROR] Data disk setup failed on {server.hostname} — aborting retake")
-            return False
+            return False, []
         # Update output_folders in DB for this target
         if target_orm is not None and os_family != "windows":
             new_folders = ",".join(OUTPUT_FOLDERS)
@@ -725,7 +744,7 @@ def retake_one(
         is_clean = cleanup_fn(executor, server.hostname, os_family)
         if not is_clean:
             print(f"  [ERROR] {server.hostname} not clean after cleanup — aborting retake")
-            return False
+            return False, []
         print(f"  [8/{TOTAL_STEPS}] Verification passed")
 
     finally:
@@ -776,7 +795,7 @@ def retake_one(
     print(f"  [12/{TOTAL_STEPS}] Validating snapshot (revert to new + verify)...")
     # Re-read snapshot from DB to use the updated provider_ref
     session.refresh(snapshot)
-    valid = validate_snapshot(
+    valid, val_checks = validate_snapshot(
         provider, server, snapshot.provider_ref, credentials,
         sudo_user, os_family, wait_for_ssh_fn,
     )
@@ -785,7 +804,7 @@ def retake_one(
     else:
         print(f"  [WARN] {label} {server.hostname}: snapshot validation had failures (see above)")
 
-    return True
+    return True, val_checks
 
 
 # ---------------------------------------------------------------------------
@@ -898,6 +917,8 @@ def main():
         port=lab.hypervisor_manager_port,
         credential=hyp_cred,
     )
+
+    validation_results = {}  # {hostname: [(check, passed, detail), ...]}
 
     # ===================================================================
     # PHASE 1: Loadgens
@@ -1027,10 +1048,11 @@ def main():
                     # Validate
                     print(f"  [7] Validating snapshot (revert + verify)...")
                     session.refresh(snap_orm)
-                    valid = validate_snapshot(
+                    valid, val_checks = validate_snapshot(
                         provider, loadgen, snap_orm.provider_ref, credentials,
                         args.sudo_user, loadgen.os_family.value, wait_for_ssh,
                     )
+                    validation_results[f"loadgen:{loadgen.hostname}"] = val_checks
                     if valid:
                         print(f"  [OK] Loadgen {loadgen.hostname}: snapshot validated")
                     else:
@@ -1053,7 +1075,7 @@ def main():
             print(f"  Snapshot: '{snap_orm.name}' (ID={snap_orm.id})")
 
             try:
-                ok = retake_one(
+                ok, val_checks = retake_one(
                     label="Loadgen",
                     server=loadgen,
                     snapshot=snap_orm,
@@ -1067,6 +1089,7 @@ def main():
                     dry_run=args.dry_run,
                     wait_for_ssh_fn=wait_for_ssh,
                 )
+                validation_results[f"loadgen:{loadgen.hostname}"] = val_checks
                 if ok:
                     loadgen_ok += 1
                 else:
@@ -1130,7 +1153,7 @@ def main():
                 revert_name = f"{snapshot.name} (root — clean in-place)"
 
             try:
-                ok = retake_one(
+                ok, val_checks = retake_one(
                     label="Target",
                     server=server,
                     snapshot=snapshot,
@@ -1145,6 +1168,7 @@ def main():
                     dry_run=args.dry_run,
                     wait_for_ssh_fn=wait_for_ssh,
                 )
+                validation_results[f"target:{server.hostname}"] = val_checks
                 if ok:
                     success_count += 1
                 else:
@@ -1162,14 +1186,62 @@ def main():
         print(f"\n  Targets: {success_count} ok, {fail_count} failed, {skip_count} skipped")
 
     # ===================================================================
-    # Summary
+    # Validation Summary Table
     # ===================================================================
-    print(f"\n{'='*60}")
+    print(f"\n\n{'='*80}")
+    print(f"  VALIDATION SUMMARY")
+    print(f"{'='*80}")
+
+    if validation_results:
+        # Header
+        all_checks = set()
+        for checks in validation_results.values():
+            for name, _, _ in checks:
+                all_checks.add(name)
+        check_names = sorted(all_checks)
+
+        # Table header
+        col_w = 18
+        header = f"  {'Server':<30}"
+        for c in check_names:
+            header += f" {c:<{col_w}}"
+        print(header)
+        print(f"  {'-'*30}" + f" {'-'*col_w}" * len(check_names))
+
+        # Table rows
+        for server_label, checks in validation_results.items():
+            check_map = {name: (passed, detail) for name, passed, detail in checks}
+            row = f"  {server_label:<30}"
+            for c in check_names:
+                if c in check_map:
+                    passed, detail = check_map[c]
+                    icon = "PASS" if passed else "FAIL"
+                    cell = f"{icon}"
+                    if detail and not passed:
+                        cell += f" ({detail[:10]})"
+                    row += f" {cell:<{col_w}}"
+                else:
+                    row += f" {'-':<{col_w}}"
+            print(row)
+
+        # Failed checks detail
+        any_fail = False
+        for server_label, checks in validation_results.items():
+            fails = [(name, detail) for name, passed, detail in checks if not passed]
+            if fails:
+                if not any_fail:
+                    print(f"\n  FAILURES:")
+                    any_fail = True
+                for name, detail in fails:
+                    print(f"    {server_label} / {name}: {detail}")
+    else:
+        print(f"  No validation results (dry run or all failed before validation)")
+
+    print(f"\n{'='*80}")
     print(f"  DONE")
-    print(f"  All snapshots now include: passwordless sudo + firewall port {FIREWALL_PORT}")
     if not args.targets_only:
         print(f"  Run sanity check from the UI to confirm all green.")
-    print(f"{'='*60}")
+    print(f"{'='*80}")
 
     session.close()
 
