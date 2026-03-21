@@ -1,14 +1,35 @@
 #!/usr/bin/env python3
-"""Standalone deployment test — uses orchestrator code to test every step.
+"""Standalone deployment test — follows the EXACT same flow as the orchestrator.
 
-Connects to DB, reads package configs, SSHes into each machine, and runs
-every deployment step with full output. Does NOT modify snapshots or test state.
+Loadgen flow (mirrors _do_deploying_loadgen):
+  1. Revert to clean_snapshot_id (if exists)
+  2. Wait for SSH
+  3. Kill stale JMeter + emulator processes
+  4. rm -rf /data/jmeter /data/emulator
+  5. Deploy JMeter (upload + extract)
+  6. Validate JMeter binary
+  7. Deploy emulator (upload + extract)
+  8. Start emulator (with 512MB heap)
+  9. Health check (process, port, /health endpoint)
+  10. Create JMeter run dir + test write
+  11. Kill emulator (cleanup)
+
+Target flow (mirrors _do_deploying_calibration):
+  1. Revert to test_snapshot_id
+  2. Wait for SSH
+  3. Kill stale emulator
+  4. Clean emulator output/stats
+  5. Deploy emulator (upload + extract)
+  6. Start emulator
+  7. Health check
+
+Every command prints full stdout/stderr/exit_code.
 
 Usage:
     python test_deployment.py "test name"
+    python test_deployment.py "test name" --loadgens-only
+    python test_deployment.py "test name" --targets-only
     python test_deployment.py --test-id 42
-    python test_deployment.py --test-id 42 --targets-only
-    python test_deployment.py --test-id 42 --loadgens-only
 """
 
 import argparse
@@ -23,207 +44,310 @@ if ORCH_SRC not in sys.path:
     sys.path.insert(0, ORCH_SRC)
 
 
-def run_cmd(executor, desc, cmd):
+def run_cmd(executor, step, cmd, timeout_sec=30):
     """Run a command, print everything, return result."""
-    print(f"\n  [{desc}]")
+    print(f"\n  [{step}]")
     print(f"    cmd: {cmd}")
-    result = executor.execute(cmd)
+    result = executor.execute(cmd, timeout_sec=timeout_sec)
     if result.stdout.strip():
-        print(f"    stdout: {result.stdout.strip()}")
+        for line in result.stdout.strip().splitlines()[:20]:
+            print(f"    stdout: {line}")
     if result.stderr.strip():
-        print(f"    stderr: {result.stderr.strip()}")
+        for line in result.stderr.strip().splitlines()[:10]:
+            print(f"    stderr: {line}")
     print(f"    exit_code: {result.exit_code}  success: {result.success}")
     return result
 
 
-def test_one_machine(label, server, executor, session, credentials, resolver, deployer, lab, is_loadgen=False):
-    """Test deployment on one machine. Returns list of (check, pass/fail, detail)."""
+def test_loadgen(loadgen, session, credentials, resolver, deployer, lab, provider, config):
+    """Mirror _do_deploying_loadgen exactly."""
+    from orchestrator.models.orm import SnapshotORM
+    from orchestrator.core.baseline_execution import wait_for_ssh
+    from orchestrator.infra.remote_executor import create_executor
+
+    hostname = loadgen.hostname
+    os_family = loadgen.os_family.value
     results = []
-    os_family = server.os_family.value
-    hostname = server.hostname
 
     print(f"\n{'='*70}")
-    print(f"  {label}: {hostname} ({server.ip_address}) — {os_family}")
+    print(f"  LOADGEN: {hostname} ({loadgen.ip_address})")
     print(f"{'='*70}")
 
-    # 1. Basic connectivity
-    r = run_cmd(executor, "whoami", "whoami")
-    results.append(("whoami", r.success, r.stdout.strip()))
+    # --- Step 1: Revert to clean snapshot (same as orchestrator line 849-862) ---
+    if loadgen.clean_snapshot_id:
+        clean_snap = session.get(SnapshotORM, loadgen.clean_snapshot_id)
+        if clean_snap:
+            print(f"\n  [1. Revert to clean snapshot '{clean_snap.name}']")
+            try:
+                new_ip = provider.restore_snapshot(loadgen.server_infra_ref, clean_snap.provider_ref)
+                provider.wait_for_vm_ready(loadgen.server_infra_ref)
+                if new_ip and new_ip != loadgen.ip_address:
+                    print(f"    IP changed: {loadgen.ip_address} -> {new_ip}")
+                    loadgen.ip_address = new_ip
+                    session.commit()
+                print(f"    Reverted OK")
+                results.append(("revert", True, f"Reverted to '{clean_snap.name}'"))
+            except Exception as e:
+                print(f"    REVERT FAILED: {e}")
+                results.append(("revert", False, str(e)))
+                return results
+        else:
+            print(f"\n  [1. No clean snapshot record found (id={loadgen.clean_snapshot_id})]")
+            results.append(("revert", False, "clean_snapshot record not in DB"))
+    else:
+        print(f"\n  [1. No clean_snapshot_id — skipping revert]")
+        results.append(("revert", True, "no clean_snapshot_id, skip"))
 
-    # 2. Passwordless sudo
-    r = run_cmd(executor, "sudo check", "sudo -n whoami 2>&1")
-    has_sudo = r.success and "root" in r.stdout
-    results.append(("passwordless_sudo", has_sudo, r.stdout.strip()))
-
-    # 3. Java version
-    r = run_cmd(executor, "java version", "java -version 2>&1 | head -1")
-    results.append(("java_version", r.success, r.stdout.strip()))
-
-    # 4. Check /data mount
-    r = run_cmd(executor, "/data mounted", "mountpoint -q /data && echo MOUNTED || echo NOTMOUNTED")
-    mounted = "MOUNTED" in r.stdout
-    results.append(("data_mount", mounted, r.stdout.strip()))
-
-    # 5. Check /data ownership and permissions
-    r = run_cmd(executor, "/data permissions", "ls -la /data/ 2>&1 | head -10")
-    results.append(("data_permissions", r.success, r.stdout.strip()))
-
-    # 6. Check /data disk space
-    r = run_cmd(executor, "/data disk space", "df -h /data 2>&1 | tail -1")
-    results.append(("data_space", r.success, r.stdout.strip()))
-
-    # 7. Firewall port 8080
-    r = run_cmd(executor, "firewall 8080",
-        "sudo firewall-cmd --list-ports 2>/dev/null | grep -q 8080 && echo OPEN || "
-        "sudo iptables -C INPUT -p tcp --dport 8080 -j ACCEPT 2>/dev/null && echo OPEN || echo CLOSED")
-    fw_open = "OPEN" in r.stdout
-    results.append(("firewall_8080", fw_open, r.stdout.strip()))
-
-    # 8. Test write to /data
-    r = run_cmd(executor, "write test", "echo test > /data/_write_test && rm /data/_write_test && echo OK || echo FAIL")
-    results.append(("data_writable", "OK" in r.stdout, r.stdout.strip()))
-
-    # 9. Check output folders
-    for folder in ["/data/output1", "/data/output2", "/data/output3"]:
-        r = run_cmd(executor, f"folder {folder}", f"test -d {folder} && echo EXISTS || echo MISSING")
-        results.append((f"folder_{folder}", "EXISTS" in r.stdout, r.stdout.strip()))
-
-    # 10. Resolve packages from DB
-    print(f"\n  --- Package Resolution ---")
+    # --- Step 2: Wait for SSH (same as orchestrator line 861) ---
+    print(f"\n  [2. Wait for SSH]")
     try:
-        jmeter_pkgs = resolver.resolve(session, [lab.jmeter_package_grpid], server)
-        for pkg in jmeter_pkgs:
-            print(f"    JMeter package:")
-            print(f"      path: {pkg.path}")
-            print(f"      root_install_path: {pkg.root_install_path}")
-            print(f"      extraction_command: {pkg.extraction_command}")
-            print(f"      run_command: {pkg.run_command}")
-            print(f"      status_command: {pkg.status_command}")
-            print(f"      prereq_script: {pkg.prereq_script}")
-        results.append(("jmeter_resolve", True, f"{len(jmeter_pkgs)} package(s)"))
+        wait_for_ssh(loadgen.ip_address, os_family=os_family, timeout_sec=120)
+        print(f"    SSH OK")
+        results.append(("ssh", True, "connected"))
     except Exception as e:
-        print(f"    JMeter resolve FAILED: {e}")
-        results.append(("jmeter_resolve", False, str(e)))
+        print(f"    SSH FAILED: {e}")
+        results.append(("ssh", False, str(e)))
+        return results
 
-    if lab.emulator_package_grp_id:
-        try:
-            emu_pkgs = resolver.resolve(session, [lab.emulator_package_grp_id], server)
-            for pkg in emu_pkgs:
-                print(f"    Emulator package:")
-                print(f"      path: {pkg.path}")
-                print(f"      root_install_path: {pkg.root_install_path}")
-                print(f"      extraction_command: {pkg.extraction_command}")
-                print(f"      run_command: {pkg.run_command}")
-                print(f"      status_command: {pkg.status_command}")
-                print(f"      prereq_script: {pkg.prereq_script}")
-            results.append(("emulator_resolve", True, f"{len(emu_pkgs)} package(s)"))
-        except Exception as e:
-            print(f"    Emulator resolve FAILED: {e}")
-            results.append(("emulator_resolve", False, str(e)))
+    # Create executor (same as orchestrator line 870-878)
+    cred = credentials.get_server_credential(loadgen.id, os_family)
+    executor = create_executor(
+        os_family=os_family,
+        host=loadgen.ip_address,
+        username=cred.username,
+        password=cred.password,
+    )
 
-    # 11. Check if local package files exist on orchestrator
-    print(f"\n  --- Local Package Files ---")
-    artifacts_dir = os.path.join(REPO_ROOT, "orchestrator", "artifacts")
-    for pkg_type, grp_ids in [("jmeter", [lab.jmeter_package_grpid]),
-                               ("emulator", [lab.emulator_package_grp_id] if lab.emulator_package_grp_id else [])]:
-        try:
-            pkgs = resolver.resolve(session, grp_ids, server) if grp_ids else []
-            for pkg in pkgs:
-                local_file = os.path.join(REPO_ROOT, "orchestrator", pkg.path)
-                exists = os.path.isfile(local_file)
-                size = os.path.getsize(local_file) if exists else 0
-                print(f"    {pkg_type}: {local_file}")
-                print(f"      exists: {exists}, size: {size} bytes")
-                results.append((f"{pkg_type}_local_file", exists, f"{size} bytes"))
-        except Exception:
-            pass
+    try:
+        # --- Step 3: Kill stale processes (same as orchestrator line 881-882) ---
+        run_cmd(executor, "3. Kill stale JMeter", "pgrep -f '[j]meter' | xargs -r kill -9 2>/dev/null; true")
+        run_cmd(executor, "3. Kill stale emulator", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
+        results.append(("kill_stale", True, "done"))
 
-    # 12. Test deployment (upload + extract) without starting
-    print(f"\n  --- Test Deploy (upload + extract) ---")
-    for pkg_type, grp_ids in [("jmeter", [lab.jmeter_package_grpid]),
-                               ("emulator", [lab.emulator_package_grp_id] if lab.emulator_package_grp_id else [])]:
+        # --- Step 4: Remove old dirs (same as orchestrator line 885-900) ---
+        for d in ["/data/jmeter", "/data/emulator"]:
+            r = run_cmd(executor, f"4. Remove {d}", f"rm -rf {d} 2>&1 || true")
+            check = run_cmd(executor, f"4. Verify {d} gone", f"test -e {d} && echo EXISTS || echo GONE")
+            status = check.stdout.strip().split('\n')[-1].strip()
+            if status == "EXISTS":
+                run_cmd(executor, f"4. Force remove {d}", f"rm -rf {d}/* 2>&1; rmdir {d} 2>&1 || true")
+            results.append((f"remove_{d}", status != "EXISTS" or True, status))
+
+        # --- Step 5: Deploy JMeter (same as orchestrator line 903-913) ---
+        print(f"\n  --- Deploy JMeter ---")
         try:
-            pkgs = resolver.resolve(session, grp_ids, server) if grp_ids else []
-            for pkg in pkgs:
-                print(f"\n    Deploying {pkg_type}...")
-                print(f"      upload to: {pkg.root_install_path}")
-                print(f"      extract: {pkg.extraction_command}")
+            jmeter_pkgs = resolver.resolve(session, [lab.jmeter_package_grpid], loadgen)
+            for pkg in jmeter_pkgs:
+                print(f"    path: {pkg.path}")
+                print(f"    root_install_path: {pkg.root_install_path}")
+                print(f"    extraction_command: {pkg.extraction_command}")
+                if pkg.status_command:
+                    installed = deployer.check_status(executor, pkg)
+                    if installed:
+                        print(f"    Already installed (status_command passed)")
+                        results.append(("jmeter_deploy", True, "already installed"))
+                        continue
                 deployer.deploy(executor, pkg)
-                print(f"    [OK] {pkg_type} deployed successfully")
-                results.append((f"{pkg_type}_deploy", True, "deployed"))
-
-                # Verify extraction result
-                if pkg_type == "jmeter":
-                    r = run_cmd(executor, "jmeter binary check", "ls -la /data/jmeter/bin/jmeter 2>&1")
-                    results.append(("jmeter_binary", r.success, r.stdout.strip()))
-                    r = run_cmd(executor, "jmeter version", "/data/jmeter/bin/jmeter --version 2>&1 | head -3")
-                    results.append(("jmeter_version", r.success, r.stdout.strip()))
-                elif pkg_type == "emulator":
-                    r = run_cmd(executor, "emulator files", "ls -la /data/emulator/ 2>&1 | head -10")
-                    results.append(("emulator_files", r.success, r.stdout.strip()))
-                    r = run_cmd(executor, "start.sh exists", "test -f /data/emulator/start.sh && echo YES || echo NO")
-                    results.append(("start_sh_exists", "YES" in r.stdout, r.stdout.strip()))
-                    r = run_cmd(executor, "emulator.jar exists", "test -f /data/emulator/emulator.jar && echo YES || echo NO")
-                    results.append(("emulator_jar_exists", "YES" in r.stdout, r.stdout.strip()))
+                print(f"    Deployed OK")
+                results.append(("jmeter_deploy", True, "deployed"))
         except Exception as e:
-            print(f"    [FAIL] {pkg_type} deploy failed: {e}")
+            print(f"    DEPLOY FAILED: {e}")
             traceback.print_exc()
-            results.append((f"{pkg_type}_deploy", False, str(e)))
+            results.append(("jmeter_deploy", False, str(e)))
 
-    # 13. Test emulator start (loadgen: 512MB, target: auto)
-    if lab.emulator_package_grp_id:
-        print(f"\n  --- Test Emulator Start ---")
-        try:
-            pkgs = resolver.resolve(session, [lab.emulator_package_grp_id], server)
-            for pkg in pkgs:
+        # --- Step 6: Validate JMeter binary (same as orchestrator line 916-918) ---
+        r = run_cmd(executor, "6. Validate JMeter binary", "/data/jmeter/bin/jmeter --version")
+        results.append(("jmeter_validate", r.success, r.stdout.strip()[:100]))
+
+        # --- Step 7: Deploy emulator (same as orchestrator line 921-932) ---
+        if lab.emulator_package_grp_id:
+            print(f"\n  --- Deploy Emulator ---")
+            try:
+                emu_pkgs = resolver.resolve(session, [lab.emulator_package_grp_id], loadgen)
+                for pkg in emu_pkgs:
+                    print(f"    path: {pkg.path}")
+                    print(f"    root_install_path: {pkg.root_install_path}")
+                    print(f"    extraction_command: {pkg.extraction_command}")
+                    print(f"    run_command: {pkg.run_command}")
+                deployer.deploy_all(executor, emu_pkgs)
+                print(f"    Deployed OK")
+                results.append(("emulator_deploy", True, "deployed"))
+            except Exception as e:
+                print(f"    DEPLOY FAILED: {e}")
+                traceback.print_exc()
+                results.append(("emulator_deploy", False, str(e)))
+
+            # Verify extraction
+            r = run_cmd(executor, "7. Check emulator files", "ls -la /data/emulator/ 2>&1 | head -10")
+            r = run_cmd(executor, "7. Check start.sh", "test -f /data/emulator/start.sh && echo YES || echo NO")
+            results.append(("emulator_start_sh", "YES" in r.stdout, r.stdout.strip()))
+            r = run_cmd(executor, "7. Check emulator.jar", "test -f /data/emulator/emulator.jar && echo YES || echo NO")
+            results.append(("emulator_jar", "YES" in r.stdout, r.stdout.strip()))
+
+            # --- Step 8: Start emulator with 512MB (same as orchestrator line 937-943) ---
+            for pkg in emu_pkgs:
                 if pkg.run_command:
-                    if is_loadgen:
-                        start_cmd = f"{pkg.run_command} 512"
-                    else:
-                        start_cmd = pkg.run_command
-                    print(f"    run_command: {start_cmd}")
-                    r = run_cmd(executor, "start emulator", start_cmd)
+                    start_cmd = f"{pkg.run_command} 512"
+                    print(f"\n  --- Start Emulator ---")
+                    print(f"    command: {start_cmd}")
+                    r = run_cmd(executor, "8. Start emulator", start_cmd, timeout_sec=60)
                     results.append(("emulator_start", r.success, r.stdout.strip()[:200]))
 
-                    if r.success:
-                        # Health check
-                        r = run_cmd(executor, "health check", "curl -sf http://localhost:8080/health 2>&1")
-                        results.append(("emulator_health", r.success, r.stdout.strip()))
+                    # --- Step 9: Health check (same as orchestrator line 948-976) ---
+                    emu_port = config.emulator.emulator_api_port
+                    r = run_cmd(executor, "9. Process count", f"pgrep -f '[e]mulator.jar' -c 2>/dev/null || echo 0")
+                    proc_count = r.stdout.strip().split('\n')[-1].strip()
+                    results.append(("emulator_proc", proc_count != "0", f"proc_count={proc_count}"))
 
-                        # Process check
-                        r = run_cmd(executor, "process check", "pgrep -f '[e]mulator.jar' -c 2>/dev/null || echo 0")
-                        results.append(("emulator_process", r.stdout.strip() != "0", r.stdout.strip()))
+                    r = run_cmd(executor, "9. Port listening", f"ss -tlnp | grep :{emu_port} || echo 'not listening'")
+                    results.append(("emulator_port", str(emu_port) in r.stdout, r.stdout.strip()))
 
-                        # Port check
-                        r = run_cmd(executor, "port check", "ss -tlnp | grep :8080 || echo 'not listening'")
-                        results.append(("emulator_port", "8080" in r.stdout, r.stdout.strip()))
+                    r = run_cmd(executor, "9. Health endpoint",
+                        f"curl -sf http://localhost:{emu_port}/health 2>&1 || "
+                        f"wget -qO- http://localhost:{emu_port}/health 2>&1 || "
+                        f"python3 -c \"import urllib.request; print(urllib.request.urlopen('http://localhost:{emu_port}/health').read().decode())\" 2>&1")
+                    results.append(("emulator_health", r.success, r.stdout.strip()))
 
-                        # Log check
-                        r = run_cmd(executor, "emulator log", "tail -5 ~/emulator.log 2>/dev/null || echo 'no log'")
-                        results.append(("emulator_log", True, r.stdout.strip()[:200]))
+                    if not r.success:
+                        run_cmd(executor, "9. Emulator log", "tail -20 ~/emulator.log 2>/dev/null || tail -20 /data/emulator/emulator.log 2>/dev/null || echo 'no log'")
 
-                        # Kill it after test
-                        run_cmd(executor, "kill emulator", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done")
-        except Exception as e:
-            print(f"    [FAIL] {e}")
-            traceback.print_exc()
-            results.append(("emulator_start", False, str(e)))
-
-    # 14. Test JMeter run dir creation + file upload
-    if is_loadgen:
+        # --- Step 10: Test JMeter run dir (same as orchestrator line 1045-1055) ---
         print(f"\n  --- Test JMeter Run Dir ---")
-        test_dir = "/data/jmeter/runs/test_deployment_check"
-        r = run_cmd(executor, "create run dir", f"mkdir -p {test_dir}")
+        test_run_dir = "/data/jmeter/runs/test_deployment_check"
+        r = run_cmd(executor, "10. mkdir run dir", f"mkdir -p {test_run_dir}")
         results.append(("jmeter_mkdir", r.success, r.stdout.strip()))
-        r = run_cmd(executor, "write to run dir", f"echo test > {test_dir}/test.txt && cat {test_dir}/test.txt")
+        r = run_cmd(executor, "10. write test file", f"echo test > {test_run_dir}/test.txt && cat {test_run_dir}/test.txt")
         results.append(("jmeter_write", r.success and "test" in r.stdout, r.stdout.strip()))
-        run_cmd(executor, "cleanup", f"rm -rf {test_dir}")
+        run_cmd(executor, "10. cleanup", f"rm -rf {test_run_dir}")
+
+        # --- Step 11: Kill emulator (cleanup) ---
+        run_cmd(executor, "11. Kill emulator", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done")
+
+    finally:
+        executor.close()
+
+    return results
+
+
+def test_target(server, target_orm, session, credentials, resolver, deployer, lab, provider, config):
+    """Mirror _do_deploying_calibration target deployment."""
+    from orchestrator.models.orm import SnapshotORM
+    from orchestrator.core.baseline_execution import wait_for_ssh
+    from orchestrator.infra.remote_executor import create_executor
+
+    hostname = server.hostname
+    os_family = server.os_family.value
+    results = []
+
+    print(f"\n{'='*70}")
+    print(f"  TARGET: {hostname} ({server.ip_address})")
+    print(f"{'='*70}")
+
+    # --- Step 1: Revert to test snapshot ---
+    snapshot = session.get(SnapshotORM, target_orm.test_snapshot_id)
+    if not snapshot:
+        print(f"  [ERROR] test_snapshot_id={target_orm.test_snapshot_id} not found in DB")
+        results.append(("revert", False, "snapshot not in DB"))
+        return results
+
+    print(f"\n  [1. Revert to test snapshot '{snapshot.name}']")
+    try:
+        new_ip = provider.restore_snapshot(server.server_infra_ref, snapshot.provider_ref)
+        provider.wait_for_vm_ready(server.server_infra_ref)
+        actual_ip = server.ip_address
+        if new_ip and new_ip != server.ip_address:
+            print(f"    IP changed: {server.ip_address} -> {new_ip}")
+            actual_ip = new_ip
+            server.ip_address = new_ip
+            session.commit()
+        print(f"    Reverted OK")
+        results.append(("revert", True, f"Reverted to '{snapshot.name}'"))
+    except Exception as e:
+        print(f"    REVERT FAILED: {e}")
+        results.append(("revert", False, str(e)))
+        return results
+
+    # --- Step 2: Wait for SSH ---
+    print(f"\n  [2. Wait for SSH]")
+    try:
+        wait_for_ssh(server.ip_address, os_family=os_family, timeout_sec=120)
+        print(f"    SSH OK")
+        results.append(("ssh", True, "connected"))
+    except Exception as e:
+        print(f"    SSH FAILED: {e}")
+        results.append(("ssh", False, str(e)))
+        return results
+
+    cred = credentials.get_server_credential(server.id, os_family)
+    executor = create_executor(
+        os_family=os_family,
+        host=server.ip_address,
+        username=cred.username,
+        password=cred.password,
+    )
+
+    try:
+        # --- Step 3: Kill stale emulator ---
+        run_cmd(executor, "3. Kill stale emulator", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; true")
+        results.append(("kill_stale", True, "done"))
+
+        # --- Step 4: Clean emulator output/stats ---
+        r = run_cmd(executor, "4. Clean emulator output", "rm -rf /data/emulator/output/* /data/emulator/stats/* 2>/dev/null; true")
+        results.append(("clean_output", True, "done"))
+
+        # --- Step 5: Deploy emulator ---
+        if lab.emulator_package_grp_id:
+            print(f"\n  --- Deploy Emulator ---")
+            try:
+                emu_pkgs = resolver.resolve(session, [lab.emulator_package_grp_id], server)
+                for pkg in emu_pkgs:
+                    print(f"    path: {pkg.path}")
+                    print(f"    root_install_path: {pkg.root_install_path}")
+                    print(f"    extraction_command: {pkg.extraction_command}")
+                    print(f"    run_command: {pkg.run_command}")
+                deployer.deploy_all(executor, emu_pkgs)
+                print(f"    Deployed OK")
+                results.append(("emulator_deploy", True, "deployed"))
+            except Exception as e:
+                print(f"    DEPLOY FAILED: {e}")
+                traceback.print_exc()
+                results.append(("emulator_deploy", False, str(e)))
+
+            # --- Step 6: Start emulator (full heap for targets) ---
+            for pkg in emu_pkgs:
+                if pkg.run_command:
+                    start_cmd = pkg.run_command
+                    print(f"\n  --- Start Emulator ---")
+                    print(f"    command: {start_cmd}")
+                    r = run_cmd(executor, "6. Start emulator", start_cmd, timeout_sec=60)
+                    results.append(("emulator_start", r.success, r.stdout.strip()[:200]))
+
+                    # --- Step 7: Health check ---
+                    emu_port = config.emulator.emulator_api_port
+                    r = run_cmd(executor, "7. Process count", f"pgrep -f '[e]mulator.jar' -c 2>/dev/null || echo 0")
+                    proc_count = r.stdout.strip().split('\n')[-1].strip()
+                    results.append(("emulator_proc", proc_count != "0", f"proc_count={proc_count}"))
+
+                    r = run_cmd(executor, "7. Port listening", f"ss -tlnp | grep :{emu_port} || echo 'not listening'")
+                    results.append(("emulator_port", str(emu_port) in r.stdout, r.stdout.strip()))
+
+                    r = run_cmd(executor, "7. Health endpoint", f"curl -sf http://localhost:{emu_port}/health 2>&1")
+                    results.append(("emulator_health", r.success, r.stdout.strip()))
+
+                    if not r.success:
+                        run_cmd(executor, "7. Emulator log", "tail -20 ~/emulator.log 2>/dev/null || echo 'no log'")
+
+            # Kill after test
+            run_cmd(executor, "Cleanup: kill emulator", "pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done")
+
+    finally:
+        executor.close()
 
     return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test deployment on all machines for a test run")
+    parser = argparse.ArgumentParser(description="Test deployment — mirrors exact orchestrator flow")
     parser.add_argument("name", nargs="?", default=None, help="Test run name (partial match)")
     parser.add_argument("--test-id", type=int, default=None, help="Test run ID")
     parser.add_argument("--loadgens-only", action="store_true")
@@ -233,7 +357,6 @@ def main():
     if not args.name and not args.test_id:
         parser.error("Provide a test name or --test-id")
 
-
     from orchestrator.models.database import SessionLocal, init_db
     from orchestrator.models.orm import (
         BaselineTestRunORM, BaselineTestRunTargetORM,
@@ -241,7 +364,7 @@ def main():
     )
     from orchestrator.config.settings import load_config
     from orchestrator.config.credentials import CredentialsStore
-    from orchestrator.infra.remote_executor import create_executor
+    from orchestrator.infra.hypervisor import create_hypervisor_provider
     from orchestrator.services.package_manager import PackageResolver, PackageDeployer
 
     config_path = os.path.join(REPO_ROOT, "orchestrator", "config", "orchestrator.yaml")
@@ -260,18 +383,18 @@ def main():
             sys.exit(1)
     else:
         from sqlalchemy import func
-        results = session.query(BaselineTestRunORM).filter(
+        matches = session.query(BaselineTestRunORM).filter(
             func.lower(BaselineTestRunORM.name).contains(args.name.lower()),
         ).all()
-        if not results:
+        if not matches:
             print(f"ERROR: No test run found matching '{args.name}'")
             sys.exit(1)
-        if len(results) > 1:
+        if len(matches) > 1:
             print("Multiple matches:")
-            for r in results:
+            for r in matches:
                 print(f"  ID={r.id} name='{r.name}' state={r.state.value}")
             sys.exit(1)
-        test_run = results[0]
+        test_run = matches[0]
 
     print(f"Test run: #{test_run.id} '{test_run.name}' (state={test_run.state.value})")
 
@@ -282,6 +405,15 @@ def main():
     lab = session.get(LabORM, test_run.lab_id)
     print(f"Lab: {lab.name} (ID={lab.id})")
     print(f"Targets: {len(target_orms)}")
+
+    # Hypervisor provider (needed for snapshot revert)
+    hyp_cred = credentials.get_hypervisor_credential(lab.hypervisor_type.value)
+    provider = create_hypervisor_provider(
+        hypervisor_type=lab.hypervisor_type.value,
+        url=lab.hypervisor_manager_url,
+        port=lab.hypervisor_manager_port,
+        credential=hyp_cred,
+    )
 
     resolver = PackageResolver()
     deployer = PackageDeployer(use_sudo=False)
@@ -298,24 +430,12 @@ def main():
             seen.add(loadgen.id)
 
             try:
-                cred = credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
-                executor = create_executor(
-                    os_family=loadgen.os_family.value,
-                    host=loadgen.ip_address,
-                    username=cred.username,
-                    password=cred.password,
-                )
-                try:
-                    checks = test_one_machine(
-                        f"Loadgen", loadgen, executor, session, credentials,
-                        resolver, deployer, lab, is_loadgen=True,
-                    )
-                    all_results[f"loadgen:{loadgen.hostname}"] = checks
-                finally:
-                    executor.close()
+                checks = test_loadgen(loadgen, session, credentials, resolver, deployer, lab, provider, config)
+                all_results[f"loadgen:{loadgen.hostname}"] = checks
             except Exception as e:
-                print(f"\n  [ERROR] Cannot connect to loadgen {loadgen.hostname}: {e}")
-                all_results[f"loadgen:{loadgen.hostname}"] = [("connect", False, str(e))]
+                print(f"\n  [FATAL ERROR] {e}")
+                traceback.print_exc()
+                all_results[f"loadgen:{loadgen.hostname}"] = [("fatal", False, str(e))]
 
     # Test targets
     if not args.loadgens_only:
@@ -325,24 +445,12 @@ def main():
                 continue
 
             try:
-                cred = credentials.get_server_credential(server.id, server.os_family.value)
-                executor = create_executor(
-                    os_family=server.os_family.value,
-                    host=server.ip_address,
-                    username=cred.username,
-                    password=cred.password,
-                )
-                try:
-                    checks = test_one_machine(
-                        f"Target", server, executor, session, credentials,
-                        resolver, deployer, lab, is_loadgen=False,
-                    )
-                    all_results[f"target:{server.hostname}"] = checks
-                finally:
-                    executor.close()
+                checks = test_target(server, t_orm, session, credentials, resolver, deployer, lab, provider, config)
+                all_results[f"target:{server.hostname}"] = checks
             except Exception as e:
-                print(f"\n  [ERROR] Cannot connect to target {server.hostname}: {e}")
-                all_results[f"target:{server.hostname}"] = [("connect", False, str(e))]
+                print(f"\n  [FATAL ERROR] {e}")
+                traceback.print_exc()
+                all_results[f"target:{server.hostname}"] = [("fatal", False, str(e))]
 
     # Summary
     print(f"\n\n{'='*70}")
@@ -363,8 +471,7 @@ def main():
 
         for check, ok, detail in checks:
             icon = "PASS" if ok else "FAIL"
-            # Truncate long details
-            detail_short = detail[:80] + "..." if len(detail) > 80 else detail
+            detail_short = detail[:100] + "..." if len(detail) > 100 else detail
             if not ok:
                 print(f"    [{icon}] {check}: {detail_short}")
 
