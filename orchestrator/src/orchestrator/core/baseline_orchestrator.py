@@ -755,6 +755,28 @@ class BaselineOrchestrator:
         except Exception as e:
             results.append({"target": label, "check": "firewall_port", "status": "fail", "detail": str(e)})
 
+        # 4. Data disk mounted at /data (Linux only)
+        if os_family != "windows":
+            try:
+                mount_result = executor.execute("mountpoint -q /data && echo MOUNTED || echo NOTMOUNTED")
+                status = mount_result.stdout.strip().split('\n')[-1].strip()
+                if "MOUNTED" in status:
+                    # Check output folders exist
+                    check_cmd = " && ".join(f"test -d {f}" for f in ["/data/output1", "/data/output2", "/data/output3"])
+                    dir_result = executor.execute(f"{check_cmd} && echo DIRS_OK || echo DIRS_MISSING")
+                    dir_status = dir_result.stdout.strip().split('\n')[-1].strip()
+                    if "DIRS_OK" in dir_status:
+                        results.append({"target": label, "check": "data_disk", "status": "pass",
+                                        "detail": "/data mounted, output folders exist"})
+                    else:
+                        results.append({"target": label, "check": "data_disk", "status": "fail",
+                                        "detail": "/data mounted but output folders missing"})
+                else:
+                    results.append({"target": label, "check": "data_disk", "status": "fail",
+                                    "detail": "/data not mounted"})
+            except Exception as e:
+                results.append({"target": label, "check": "data_disk", "status": "fail", "detail": str(e)})
+
         return results
 
     # ------------------------------------------------------------------

@@ -7,12 +7,13 @@ Both loadgens and targets follow the same unified flow:
   3. Fix passwordless sudo (Linux only — echo pass | sudo -S)
   4. Open firewall port 8080
   5. Install prerequisites (Java 17 for emulator, Python3+pip if needed)
-  6. Cleanup (kill processes, rm dirs)
-  7. Verify cleanliness
-  8. Delete old snapshot from hypervisor
-  9. Take new snapshot
- 10. Update DB record
- 11. VALIDATE: Revert to new snapshot, verify sudo + firewall + cleanliness
+  6. Setup data disk (/dev/sdc -> /data, create output folders, update DB)
+  7. Cleanup (kill processes, rm dirs)
+  8. Verify cleanliness
+  9. Delete old snapshot from hypervisor
+ 10. Take new snapshot
+ 11. Update DB record
+ 12. VALIDATE: Revert to new snapshot, verify sudo + firewall + cleanliness
 
 Usage:
     python retake_snapshots.py "Win2022 CrowdStrike v7.18 baseline" --sudo-user svc_account
@@ -37,6 +38,9 @@ if ORCH_SRC not in sys.path:
 
 
 FIREWALL_PORT = 8080
+DATA_DISK = "/dev/sdc"
+DATA_MOUNT = "/data"
+OUTPUT_FOLDERS = ["/data/output1", "/data/output2", "/data/output3"]
 
 # ---------------------------------------------------------------------------
 # Cleanup commands
@@ -379,6 +383,75 @@ def _install_prereqs_windows(executor):
 # ---------------------------------------------------------------------------
 # Step: Cleanup
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Step: Setup data disk (/dev/sdc -> /data) for Linux targets
+# ---------------------------------------------------------------------------
+def setup_data_disk(executor, os_family, ssh_user, dry_run=False):
+    """Format /dev/sdc, mount to /data, create output folders. Linux only. Idempotent."""
+    if os_family == "windows":
+        print(f"    [SKIP] Data disk setup not applicable for Windows")
+        return True
+
+    if dry_run:
+        print(f"    [DRY RUN] Would format {DATA_DISK}, mount to {DATA_MOUNT}, create output folders")
+        return True
+
+    print(f"\n  --- Setting up data disk {DATA_DISK} -> {DATA_MOUNT} ---")
+
+    # Check if disk exists
+    ok, stdout = _run_cmd(executor, f"Check {DATA_DISK} exists",
+        f"lsblk {DATA_DISK} 2>&1 | head -2")
+    if not ok:
+        print(f"    [SKIP] {DATA_DISK} not found — skipping data disk setup")
+        return True  # Not an error — machine may not have this disk
+
+    # Check if already mounted
+    ok, stdout = _run_cmd(executor, f"Check if {DATA_MOUNT} is mounted",
+        f"mountpoint -q {DATA_MOUNT} 2>/dev/null && echo MOUNTED || echo NOTMOUNTED")
+    if "MOUNTED" in stdout:
+        print(f"    [OK] {DATA_MOUNT} already mounted")
+    else:
+        # Check if disk has a filesystem
+        ok, stdout = _run_cmd(executor, f"Check filesystem on {DATA_DISK}",
+            f"sudo file -s {DATA_DISK} 2>&1")
+        if ok and ": data" in stdout:
+            # Raw disk — format it
+            _run_cmd(executor, f"Format {DATA_DISK} as ext4",
+                f"sudo mkfs.ext4 -F {DATA_DISK} 2>&1")
+        else:
+            print(f"    Filesystem already exists: {stdout}")
+
+        # Create mount point and mount
+        _run_cmd(executor, f"Create {DATA_MOUNT} mount point",
+            f"sudo mkdir -p {DATA_MOUNT}")
+        ok, _ = _run_cmd(executor, f"Mount {DATA_DISK} to {DATA_MOUNT}",
+            f"sudo mount {DATA_DISK} {DATA_MOUNT} 2>&1")
+        if not ok:
+            print(f"    [ERROR] Failed to mount {DATA_DISK}")
+            return False
+
+        # Add to fstab if not already there
+        _run_cmd(executor, "Add to /etc/fstab (idempotent)",
+            f"grep -q '{DATA_DISK}' /etc/fstab || echo '{DATA_DISK} {DATA_MOUNT} ext4 defaults 0 2' | sudo tee -a /etc/fstab",
+            warn_only=True)
+
+    # Create output folders and set ownership
+    for folder in OUTPUT_FOLDERS:
+        _run_cmd(executor, f"Create {folder}",
+            f"sudo mkdir -p {folder}")
+
+    _run_cmd(executor, f"Set ownership of {DATA_MOUNT}",
+        f"sudo chown -R {ssh_user}:{ssh_user} {DATA_MOUNT}")
+
+    # Verify
+    ok, stdout = _run_cmd(executor, f"Verify {DATA_MOUNT} mounted",
+        f"df -h {DATA_MOUNT} | tail -1")
+    if ok:
+        print(f"    [OK] Data disk ready: {stdout}")
+
+    return True
+
+
 def cleanup_loadgen(executor, hostname, dry_run=False):
     """Kill all processes and rm -rf JMeter + emulator from a loadgen. Returns True if clean."""
     print(f"\n  --- Cleaning loadgen: {hostname} ---")
@@ -528,19 +601,21 @@ def retake_one(
     session,
     sudo_user,
     cleanup_fn,        # callable(executor, hostname, os_family?, dry_run?) -> bool
+    target_orm=None,   # BaselineTestRunTargetORM (if target — for output_folders update)
     dry_run=False,
     wait_for_ssh_fn=None,
 ):
     """
     Unified retake flow:
       1. Revert  2. SSH  3. Fix sudo  4. Open firewall
-      5. Cleanup  6. Verify  7. Delete old snap  8. Take new snap
-      9. Update DB  10. Validate (revert to new + verify)
+      5. Install prereqs  6. Setup data disk  7. Cleanup  8. Verify
+      9. Delete old snap  10. Take new snap  11. Update DB
+      12. Validate (revert to new + verify)
 
     Returns True on success, False on failure.
     """
     os_family = server.os_family.value
-    TOTAL_STEPS = 11
+    TOTAL_STEPS = 12
 
     if dry_run:
         print(f"  [DRY RUN] Would: revert -> fix sudo -> open firewall -> cleanup -> "
@@ -591,27 +666,41 @@ def retake_one(
         if not install_prerequisites(executor, os_family, dry_run):
             print(f"  [WARN] Some prerequisites may have failed on {server.hostname} — continuing")
 
-        # --- Step 6: Cleanup ---
-        print(f"  [6/{TOTAL_STEPS}] Running cleanup on {server.hostname}...")
+        # --- Step 6: Setup data disk ---
+        print(f"  [6/{TOTAL_STEPS}] Setting up data disk...")
+        setup_data_disk(executor, os_family, cred.username, dry_run)
+        # Update output_folders in DB for this target
+        if target_orm is not None and os_family != "windows":
+            new_folders = ",".join(OUTPUT_FOLDERS)
+            if target_orm.output_folders != new_folders:
+                old_val = target_orm.output_folders
+                target_orm.output_folders = new_folders
+                session.commit()
+                print(f"    [DB] Updated output_folders: {old_val!r} -> {new_folders!r}")
+            else:
+                print(f"    [DB] output_folders already set: {new_folders}")
+
+        # --- Step 7: Cleanup ---
+        print(f"  [7/{TOTAL_STEPS}] Running cleanup on {server.hostname}...")
         is_clean = cleanup_fn(executor, server.hostname, os_family)
         if not is_clean:
             print(f"  [ERROR] {server.hostname} not clean after cleanup — aborting retake")
             return False
-        print(f"  [7/{TOTAL_STEPS}] Verification passed")
+        print(f"  [8/{TOTAL_STEPS}] Verification passed")
 
     finally:
         executor.close()
 
-    # --- Step 8: Delete old snapshot from hypervisor ---
-    print(f"  [8/{TOTAL_STEPS}] Deleting old snapshot '{snapshot.name}' from hypervisor...")
+    # --- Step 9: Delete old snapshot from hypervisor ---
+    print(f"  [9/{TOTAL_STEPS}] Deleting old snapshot '{snapshot.name}' from hypervisor...")
     try:
         provider.delete_snapshot(server.server_infra_ref, snapshot.provider_ref)
         print(f"         Deleted")
     except Exception as e:
         print(f"         Delete failed (non-fatal, may already be gone): {e}")
 
-    # --- Step 9: Take new snapshot ---
-    print(f"  [9/{TOTAL_STEPS}] Taking new snapshot '{snapshot.name}'...")
+    # --- Step 10: Take new snapshot ---
+    print(f"  [10/{TOTAL_STEPS}] Taking new snapshot '{snapshot.name}'...")
     result = provider.create_snapshot(
         server.server_infra_ref,
         snapshot_name=snapshot.name,
@@ -624,8 +713,8 @@ def retake_one(
     )
     print(f"         Created: provider_id={new_provider_id}")
 
-    # --- Step 10: Update DB record in-place ---
-    print(f"  [10/{TOTAL_STEPS}] Updating DB record (ID={snapshot.id})...")
+    # --- Step 11: Update DB record in-place ---
+    print(f"  [11/{TOTAL_STEPS}] Updating DB record (ID={snapshot.id})...")
     old_provider_id = snapshot.provider_snapshot_id
     snapshot.provider_snapshot_id = str(new_provider_id)
     snapshot.provider_ref = result
@@ -643,8 +732,8 @@ def retake_one(
     else:
         print(f"         [WARN] Snapshot not found on hypervisor after creation!")
 
-    # --- Step 11: Validate by reverting to new snapshot ---
-    print(f"  [11/{TOTAL_STEPS}] Validating snapshot (revert to new + verify)...")
+    # --- Step 12: Validate by reverting to new snapshot ---
+    print(f"  [12/{TOTAL_STEPS}] Validating snapshot (revert to new + verify)...")
     # Re-read snapshot from DB to use the updated provider_ref
     session.refresh(snapshot)
     valid = validate_snapshot(
@@ -1012,6 +1101,7 @@ def main():
                     session=session,
                     sudo_user=args.sudo_user,
                     cleanup_fn=_cleanup_target_wrapper,
+                    target_orm=t_orm,
                     dry_run=args.dry_run,
                     wait_for_ssh_fn=wait_for_ssh,
                 )
