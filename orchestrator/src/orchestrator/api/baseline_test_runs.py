@@ -33,6 +33,7 @@ from orchestrator.models.orm import (
     BaselineTestRunLoadProfileORM,
     BaselineTestRunORM,
     BaselineTestRunTargetORM,
+    CalibrationResultORM,
     ComparisonResultORM,
     LabORM,
     LoadProfileORM,
@@ -290,6 +291,40 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
         "current_lp": current_lp_name,
         "current_cycle": test_run.current_cycle,
     }
+
+
+@router.get("/{run_id}/calibration-progress")
+def get_calibration_progress(run_id: int, session: Session = Depends(get_session)):
+    """Get live calibration progress for all targets in a baseline test run."""
+    results = session.query(CalibrationResultORM).filter(
+        CalibrationResultORM.baseline_test_run_id == run_id,
+    ).all()
+    out = []
+    for r in results:
+        server = session.get(ServerORM, r.server_id)
+        lp = session.get(LoadProfileORM, r.load_profile_id)
+        out.append({
+            "id": r.id,
+            "server_id": r.server_id,
+            "server_hostname": server.hostname if server else "unknown",
+            "load_profile": lp.name if lp else "unknown",
+            "status": r.status,
+            "phase": r.phase,
+            "thread_count": r.thread_count,
+            "current_thread_count": r.current_thread_count,
+            "current_iteration": r.current_iteration,
+            "last_observed_cpu": r.last_observed_cpu,
+            "target_cpu_min": r.target_cpu_min,
+            "target_cpu_max": r.target_cpu_max,
+            "stability_check_num": r.stability_check_num,
+            "stability_checks_total": r.stability_checks_total,
+            "stability_pct_in_range": r.stability_pct_in_range,
+            "stability_attempt": r.stability_attempt,
+            "message": r.message,
+            "error_message": r.error_message,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        })
+    return out
 
 
 @router.post("/{run_id}/sanity-check")

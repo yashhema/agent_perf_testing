@@ -20,6 +20,14 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 
+# Suppress noisy library logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("paramiko").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+# Suppress uvicorn access logs (GET /api/... every few seconds from UI polling)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Global app state — populated during lifespan

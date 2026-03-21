@@ -89,6 +89,12 @@
   </ThreadGroup>
   <hashTree>
 
+    <!-- Think time between requests (500ms) -->
+    <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think Time" enabled="true">
+      <stringProp name="ConstantTimer.delay">500</stringProp>
+    </ConstantTimer>
+    <hashTree/>
+
     <!-- CSV Data Set Config — reads stress activity sequence -->
     <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="Stress Sequence CSV" enabled="true">
       <stringProp name="delimiter">,</stringProp>

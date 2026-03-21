@@ -93,6 +93,12 @@
   </ThreadGroup>
   <hashTree>
 
+    <!-- Think time between requests (500ms) -->
+    <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think Time" enabled="true">
+      <stringProp name="ConstantTimer.delay">500</stringProp>
+    </ConstantTimer>
+    <hashTree/>
+
     <!-- CSV Data Set Config — reads ops_sequence CSV -->
     <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="Ops Sequence CSV" enabled="true">
       <stringProp name="delimiter">,</stringProp>

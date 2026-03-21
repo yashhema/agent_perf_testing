@@ -152,6 +152,77 @@ let _loadProfiles = [];
 let _snapshots = {};
 let _refreshTimer = null;
 
+async function renderCalibrationProgress() {
+  const panel = document.getElementById('cal-progress-panel');
+  const body = document.getElementById('cal-progress-body');
+  const calStates = ['calibrating', 'deploying_calibration'];
+
+  if (!calStates.includes(_run.state) && _run.state !== 'generating') {
+    // Hide panel if not in calibration-related state
+    // But keep showing if completed/failed so user can see final result
+    if (!['completed', 'failed'].includes(_run.state)) {
+      panel.classList.add('d-none');
+      return;
+    }
+  }
+
+  try {
+    const data = await API.get('/api/baseline-tests/' + RUN_ID + '/calibration-progress');
+    if (!data || data.length === 0) {
+      panel.classList.add('d-none');
+      return;
+    }
+
+    panel.classList.remove('d-none');
+    let html = '<table class="table table-sm mb-0"><thead><tr>'
+      + '<th>Server</th><th>LP</th><th>Phase</th><th>Threads</th>'
+      + '<th>CPU</th><th>Target</th><th>Stability</th><th>Status</th>'
+      + '</tr></thead><tbody>';
+
+    for (const r of data) {
+      const statusBadge = r.status === 'completed'
+        ? '<span class="badge bg-success">done</span>'
+        : r.status === 'failed'
+          ? '<span class="badge bg-danger">failed</span>'
+          : '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.5rem;height:.5rem"></span>running</span>';
+
+      const cpu = r.last_observed_cpu != null ? r.last_observed_cpu.toFixed(1) + '%' : '-';
+      const target = r.target_cpu_min != null ? r.target_cpu_min.toFixed(0) + '-' + r.target_cpu_max.toFixed(0) + '%' : '-';
+      const threads = r.current_thread_count != null ? r.current_thread_count : (r.thread_count || '-');
+      const phase = r.phase || '-';
+      const stability = r.stability_pct_in_range != null ? r.stability_pct_in_range.toFixed(1) + '% in range' : '-';
+      const attempt = r.stability_attempt ? ' (attempt ' + r.stability_attempt + ')' : '';
+
+      html += '<tr>'
+        + '<td>' + escHtml(r.server_hostname) + '</td>'
+        + '<td>' + escHtml(r.load_profile) + '</td>'
+        + '<td><code>' + escHtml(phase) + '</code>' + attempt + '</td>'
+        + '<td><strong>' + threads + '</strong></td>'
+        + '<td>' + cpu + '</td>'
+        + '<td>' + target + '</td>'
+        + '<td>' + stability + '</td>'
+        + '<td>' + statusBadge + '</td>'
+        + '</tr>';
+
+      // Show message row if present
+      if (r.message) {
+        html += '<tr><td colspan="8" class="small text-muted border-0 pt-0 pb-1">'
+          + '<i class="bi bi-info-circle me-1"></i>' + escHtml(r.message) + '</td></tr>';
+      }
+      if (r.error_message) {
+        html += '<tr><td colspan="8" class="small text-danger border-0 pt-0 pb-1">'
+          + '<i class="bi bi-exclamation-triangle me-1"></i>' + escHtml(r.error_message) + '</td></tr>';
+      }
+    }
+
+    html += '</tbody></table>';
+    body.innerHTML = html;
+  } catch (e) {
+    // Endpoint may not exist yet — hide panel silently
+    panel.classList.add('d-none');
+  }
+}
+
 async function loadAll() {
   try {
     if (_servers.length === 0) {
@@ -166,6 +237,7 @@ async function loadAll() {
     renderDiscovery();
     renderTargetProgress();
     await renderLPProgress();
+    await renderCalibrationProgress();
   } catch (e) { showToast(e.message, 'danger'); }
 }
 

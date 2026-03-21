@@ -511,8 +511,11 @@ class CalibrationEngine:
                 session.commit()
 
                 logger.info(
-                    "Stability check %d/%d: thread_count=%d for %ds",
-                    check_num, confirmation_count, thread_count, stability_duration,
+                    "[CALIBRATION] %s | LP=%s | attempt %d/%d | check %d/%d | "
+                    "thread_count=%d | duration=%ds | target=%.0f-%.0f%%",
+                    ctx.server.hostname, ctx.load_profile.name,
+                    attempt + 1, max_decrements, check_num, confirmation_count,
+                    thread_count, stability_duration, target_min, target_max,
                 )
 
                 stable, pct_in_range, avg_cpu, pct_below = self._run_stability_check(
@@ -533,6 +536,24 @@ class CalibrationEngine:
                         # At minimum threads and CPU is too low — try incrementing
                         new_tc = thread_count + 1
                         direction = "Incrementing"
+                    elif thread_count == 1 and pct_below <= 10.0:
+                        # At minimum threads and CPU is STILL too high — cannot go lower
+                        logger.error(
+                            "[CALIBRATION] %s | FAILED | thread_count=1 still gives avg_cpu=%.1f%% "
+                            "(target=%.0f-%.0f%%) — workload too heavy for this VM. "
+                            "Consider adding think time to JMX or reducing operation intensity.",
+                            ctx.server.hostname, avg_cpu, target_min, target_max,
+                        )
+                        cal_record.message = (
+                            f"FAILED: Even 1 thread gives {avg_cpu:.1f}% CPU "
+                            f"(target {target_min:.0f}-{target_max:.0f}%). "
+                            f"Workload too heavy — add think time or reduce intensity."
+                        )
+                        session.commit()
+                        raise CalibrationError(
+                            f"Cannot calibrate {ctx.server.hostname}: "
+                            f"1 thread gives {avg_cpu:.1f}% CPU, target is {target_min:.0f}-{target_max:.0f}%"
+                        )
                     else:
                         new_tc = max(1, thread_count - 1)
                         direction = "Decrementing"
@@ -546,14 +567,21 @@ class CalibrationEngine:
                     session.commit()
 
                     logger.warning(
-                        "Stability check %d failed at thread_count=%d "
-                        "(below_min=%.1f%%), %s to %d threads",
-                        check_num, thread_count, pct_below, direction.lower(), new_tc,
+                        "[CALIBRATION] %s | FAIL | thread_count=%d | avg_cpu=%.1f%% | "
+                        "in_range=%.1f%% | %s to %d threads",
+                        ctx.server.hostname, thread_count, avg_cpu,
+                        pct_in_range, direction.lower(), new_tc,
                     )
                     thread_count = new_tc
                     all_passed = False
                     break
                 else:
+                    logger.info(
+                        "[CALIBRATION] %s | PASS | check %d/%d | thread_count=%d | "
+                        "avg_cpu=%.1f%% | in_range=%.1f%%",
+                        ctx.server.hostname, check_num, confirmation_count,
+                        thread_count, avg_cpu, pct_in_range,
+                    )
                     cal_record.message = (
                         f"Stability check {check_num}/{confirmation_count} PASSED: "
                         f"{pct_in_range:.1f}% in range, avg CPU={avg_cpu:.1f}%"
@@ -561,8 +589,10 @@ class CalibrationEngine:
                     session.commit()
 
             if all_passed:
-                logger.info("All %d stability checks passed at thread_count=%d",
-                            confirmation_count, thread_count)
+                logger.info(
+                    "[CALIBRATION] %s | PASS | thread_count=%d | all %d stability checks passed",
+                    ctx.server.hostname, thread_count, confirmation_count,
+                )
                 return thread_count
 
         error_msg = (

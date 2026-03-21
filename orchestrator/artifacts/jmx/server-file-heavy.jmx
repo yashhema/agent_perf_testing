@@ -108,6 +108,12 @@
   </ThreadGroup>
   <hashTree>
 
+    <!-- Think time between requests (500ms) -->
+    <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think Time" enabled="true">
+      <stringProp name="ConstantTimer.delay">500</stringProp>
+    </ConstantTimer>
+    <hashTree/>
+
     <!-- 48% — /work (CPU burn + pool touch) -->
     <ThroughputController guiclass="ThroughputControllerGui" testclass="ThroughputController" testname="Work (48%)" enabled="true">
       <intProp name="ThroughputController.style">1</intProp>
@@ -246,7 +252,7 @@ vars.put("make_zip", zipRoll &lt;= zipPercent ? "true" : "false")
           <collectionProp name="Arguments.arguments">
             <elementProp name="" elementType="HTTPArgument">
               <boolProp name="HTTPArgument.always_encode">false</boolProp>
-              <stringProp name="Argument.value">{"duration_ms": 5000, "intensity": 1.0}</stringProp>
+              <stringProp name="Argument.value">{"duration_ms": 500, "intensity": 0.8}</stringProp>
               <stringProp name="Argument.metadata">=</stringProp>
               <boolProp name="HTTPArgument.use_equals">true</boolProp>
               <stringProp name="Argument.name"/>
