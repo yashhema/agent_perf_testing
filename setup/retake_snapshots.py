@@ -402,8 +402,8 @@ def setup_data_disk(executor, os_family, ssh_user, dry_run=False):
     ok, stdout = _run_cmd(executor, f"Check {DATA_DISK} exists",
         f"lsblk {DATA_DISK} 2>&1 | head -2")
     if not ok:
-        print(f"    [SKIP] {DATA_DISK} not found — skipping data disk setup")
-        return True  # Not an error — machine may not have this disk
+        print(f"    [ERROR] {DATA_DISK} not found — cannot proceed without data disk")
+        return False
 
     # Check if already mounted
     ok, stdout = _run_cmd(executor, f"Check if {DATA_MOUNT} is mounted",
@@ -416,8 +416,11 @@ def setup_data_disk(executor, os_family, ssh_user, dry_run=False):
             f"sudo file -s {DATA_DISK} 2>&1")
         if ok and ": data" in stdout:
             # Raw disk — format it
-            _run_cmd(executor, f"Format {DATA_DISK} as ext4",
+            ok, _ = _run_cmd(executor, f"Format {DATA_DISK} as ext4",
                 f"sudo mkfs.ext4 -F {DATA_DISK} 2>&1")
+            if not ok:
+                print(f"    [ERROR] Failed to format {DATA_DISK}")
+                return False
         else:
             print(f"    Filesystem already exists: {stdout}")
 
@@ -435,22 +438,55 @@ def setup_data_disk(executor, os_family, ssh_user, dry_run=False):
             f"grep -q '{DATA_DISK}' /etc/fstab || echo '{DATA_DISK} {DATA_MOUNT} ext4 defaults 0 2' | sudo tee -a /etc/fstab",
             warn_only=True)
 
-    # Create output folders and set ownership
+    # Verify mount is on the actual disk (not root filesystem)
+    ok, stdout = _run_cmd(executor, f"Verify {DATA_MOUNT} is on {DATA_DISK}",
+        f"df {DATA_MOUNT} 2>/dev/null | grep -q '{DATA_DISK}' && echo ON_DISK || echo ON_ROOT")
+    if "ON_ROOT" in stdout:
+        print(f"    [ERROR] {DATA_MOUNT} is on root filesystem, not {DATA_DISK}")
+        return False
+
+    # Verify disk space (should be ~200GB)
+    ok, stdout = _run_cmd(executor, f"Check disk space on {DATA_MOUNT}",
+        f"df --output=avail {DATA_MOUNT} 2>/dev/null | tail -1")
+    try:
+        avail_kb = int(stdout.strip())
+        avail_gb = avail_kb / (1024 * 1024)
+        if avail_gb < 50:
+            print(f"    [ERROR] {DATA_MOUNT} has only {avail_gb:.1f} GB — expected ~200GB")
+            return False
+        print(f"    {avail_gb:.1f} GB free on {DATA_MOUNT}")
+    except (ValueError, TypeError):
+        print(f"    [WARN] Could not parse disk space: {stdout}")
+
+    # Create output folders
     for folder in OUTPUT_FOLDERS:
-        _run_cmd(executor, f"Create {folder}",
+        ok, _ = _run_cmd(executor, f"Create {folder}",
             f"sudo mkdir -p {folder}")
+        if not ok:
+            print(f"    [ERROR] Failed to create {folder}")
+            return False
 
-    _run_cmd(executor, f"Set ownership of {DATA_MOUNT}",
+    # Set ownership and permissions
+    ok, _ = _run_cmd(executor, f"Set ownership of {DATA_MOUNT}",
         f"sudo chown -R {ssh_user} {DATA_MOUNT}")
-    _run_cmd(executor, f"Set permissions on {DATA_MOUNT}",
+    if not ok:
+        print(f"    [ERROR] Failed to chown {DATA_MOUNT}")
+        return False
+
+    ok, _ = _run_cmd(executor, f"Set permissions on {DATA_MOUNT}",
         f"sudo chmod -R 755 {DATA_MOUNT}")
+    if not ok:
+        print(f"    [ERROR] Failed to chmod {DATA_MOUNT}")
+        return False
 
-    # Verify
-    ok, stdout = _run_cmd(executor, f"Verify {DATA_MOUNT} mounted",
-        f"df -h {DATA_MOUNT} | tail -1")
-    if ok:
-        print(f"    [OK] Data disk ready: {stdout}")
+    # Final verify: writable by ssh user
+    ok, stdout = _run_cmd(executor, f"Verify {DATA_MOUNT} writable by {ssh_user}",
+        f"echo test > {DATA_MOUNT}/_write_test && rm {DATA_MOUNT}/_write_test && echo WRITABLE || echo NOWRITE")
+    if "WRITABLE" not in stdout:
+        print(f"    [ERROR] {DATA_MOUNT} not writable by {ssh_user} after chown/chmod")
+        return False
 
+    print(f"    [OK] Data disk ready")
     return True
 
 
@@ -670,7 +706,9 @@ def retake_one(
 
         # --- Step 6: Setup data disk ---
         print(f"  [6/{TOTAL_STEPS}] Setting up data disk...")
-        setup_data_disk(executor, os_family, cred.username, dry_run)
+        if not setup_data_disk(executor, os_family, cred.username, dry_run):
+            print(f"  [ERROR] Data disk setup failed on {server.hostname} — aborting retake")
+            return False
         # Update output_folders in DB for this target
         if target_orm is not None and os_family != "windows":
             new_folders = ",".join(OUTPUT_FOLDERS)
