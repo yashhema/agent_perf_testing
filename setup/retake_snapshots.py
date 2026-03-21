@@ -441,7 +441,7 @@ def setup_data_disk(executor, os_family, ssh_user, dry_run=False):
             f"sudo mkdir -p {folder}")
 
     _run_cmd(executor, f"Set ownership of {DATA_MOUNT}",
-        f"sudo chown -R {ssh_user}:{ssh_user} {DATA_MOUNT}")
+        f"sudo chown -R {ssh_user} {DATA_MOUNT}")
     _run_cmd(executor, f"Set permissions on {DATA_MOUNT}",
         f"sudo chmod -R 755 {DATA_MOUNT}")
 
