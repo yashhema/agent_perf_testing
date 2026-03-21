@@ -129,6 +129,7 @@
     <table class="table table-hover mb-0">
       <thead><tr>
         <th>Load Profile</th>
+        <th>Cycle</th>
         <th>Status</th>
         <th>Threads</th>
         <th>Stats</th>
@@ -136,7 +137,7 @@
         <th>Comparison</th>
       </tr></thead>
       <tbody id="lp-progress-body">
-        <tr><td colspan="6" class="text-center text-muted py-3">Loading...</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>
       </tbody>
     </table>
   </div>
@@ -430,35 +431,55 @@ async function renderLPProgress() {
     } catch {}
   }
 
-  const compByLp = {};
-  comparisons.forEach(c => compByLp[c.load_profile_id] = c);
-  const dataByLp = {};
-  profileData.forEach(d => dataByLp[d.load_profile_id] = d);
+  // Build lookup keyed by "lpId:cycle"
+  const compByKey = {};
+  comparisons.forEach(c => compByKey[c.load_profile_id + ':' + (c.cycle || 1)] = c);
+  const dataByKey = {};
+  profileData.forEach(d => dataByKey[d.load_profile_id + ':' + (d.cycle || 1)] = d);
 
-  // Determine which LPs are selected for this run (we can infer from API data)
-  // Use load profiles from the run's load_profiles if available
-  const runLpIds = _loadProfiles.map(l => l.id); // fallback: show all
-  // Better: get from comparison results + profile data + current_load_profile_id
-  const relevantLpIds = new Set();
-  comparisons.forEach(c => relevantLpIds.add(c.load_profile_id));
-  profileData.forEach(d => relevantLpIds.add(d.load_profile_id));
-  if (_run.current_load_profile_id) relevantLpIds.add(_run.current_load_profile_id);
-  // If none found, show all
-  const lpIds = relevantLpIds.size > 0 ? [...relevantLpIds] : [];
+  // Collect all LP+cycle combinations
+  const relevantKeys = new Set();
+  comparisons.forEach(c => relevantKeys.add(c.load_profile_id + ':' + (c.cycle || 1)));
+  profileData.forEach(d => relevantKeys.add(d.load_profile_id + ':' + (d.cycle || 1)));
 
-  if (lpIds.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Waiting for execution to start...</td></tr>';
+  // Add current LP + all expected cycles
+  const totalCycles = _run.cycle_count || 1;
+  const currentCycle = _run.current_cycle || 1;
+  if (_run.current_load_profile_id) {
+    for (let c = 1; c <= totalCycles; c++) {
+      relevantKeys.add(_run.current_load_profile_id + ':' + c);
+    }
+  }
+  // Also add all LPs that have any data, for all cycles
+  const seenLps = new Set();
+  relevantKeys.forEach(k => seenLps.add(parseInt(k.split(':')[0])));
+  seenLps.forEach(lpId => {
+    for (let c = 1; c <= totalCycles; c++) {
+      relevantKeys.add(lpId + ':' + c);
+    }
+  });
+
+  const sortedKeys = [...relevantKeys].sort((a, b) => {
+    const [lpA, cA] = a.split(':').map(Number);
+    const [lpB, cB] = b.split(':').map(Number);
+    return lpA !== lpB ? lpA - lpB : cA - cB;
+  });
+
+  if (sortedKeys.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Waiting for execution to start...</td></tr>';
     return;
   }
 
-  tbody.innerHTML = lpIds.map(lpId => {
-    const name = lpName(lpId);
-    const data = dataByLp[lpId];
-    const comp = compByLp[lpId];
-    const isCurrent = _run.current_load_profile_id === lpId;
+  const terminalStates = ['completed', 'failed', 'cancelled', 'created'];
+  const isActive = !terminalStates.includes(_run.state);
 
-    const terminalStates = ['completed', 'failed', 'cancelled', 'created'];
-    const isActive = !terminalStates.includes(_run.state);
+  tbody.innerHTML = sortedKeys.map(key => {
+    const [lpId, cycle] = key.split(':').map(Number);
+    const name = lpName(lpId);
+    const data = dataByKey[key];
+    const comp = compByKey[key];
+    const isCurrent = _run.current_load_profile_id === lpId && currentCycle === cycle;
+
     let status;
     if (comp) {
       status = '<span class="badge bg-success">completed</span>';
@@ -483,8 +504,11 @@ async function renderLPProgress() {
       ? `${comp.verdict ? '<span class="badge bg-' + (comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning') + '">' + comp.verdict + '</span>' : '-'}`
       : '-';
 
+    const cycleLabel = totalCycles > 1 ? cycle + '/' + totalCycles : '1';
+
     return `<tr${isCurrent ? ' class="table-active"' : ''}>
       <td>${escHtml(name)}</td>
+      <td>${cycleLabel}</td>
       <td>${status}</td>
       <td>${threads}</td>
       <td>${stats}</td>
