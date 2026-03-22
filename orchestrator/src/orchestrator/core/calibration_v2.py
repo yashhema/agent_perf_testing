@@ -234,10 +234,57 @@ class DistributionCalibrationEngine(CalibrationEngine):
                 upper = T
                 break  # Found upper bound
             else:
-                # In range — lucky hit
-                logger.info("[CAL-V2] %s | BRACKET | T=%d in range, skipping bisect",
-                            ctx.server.hostname, T)
-                return (T, T)
+                # In range — but is it reliably near midpoint?
+                distance_from_mid = abs(avg_cpu - target_mid)
+                range_half = (target_max - target_min) / 2
+
+                if distance_from_mid <= range_half * 0.5:
+                    # Within 50% of midpoint — do a longer confirmation
+                    # Don't start new JMeter — just wait 90 more seconds and
+                    # fetch 90 samples from the SAME running emulator stats
+                    logger.info(
+                        "[CAL-V2] %s | BRACKET | T=%d avg=%.1f%% near midpoint %.0f%%, "
+                        "running 90s confirmation...",
+                        ctx.server.hostname, T, avg_cpu, target_mid,
+                    )
+                    import time as _time
+                    # Run another observation — JMeter was already stopped by _run_observation,
+                    # so start a fresh one for 120s
+                    confirm_cpu = self._run_observation(ctx, T, ramp_up_sec, extra_settle_sec=30)
+                    self._cleanup_iteration(ctx, iteration=iteration + 100, phase="bracket_confirm")
+
+                    if confirm_cpu is not None and target_min <= confirm_cpu <= target_max:
+                        confirm_dist = abs(confirm_cpu - target_mid)
+                        logger.info(
+                            "[CAL-V2] %s | BRACKET | T=%d confirmed: avg=%.1f%% (dist from mid=%.1f%%)",
+                            ctx.server.hostname, T, confirm_cpu, confirm_dist,
+                        )
+                        return (T, T)
+                    else:
+                        # Confirmation failed — treat as bracket bound
+                        logger.info(
+                            "[CAL-V2] %s | BRACKET | T=%d confirmation: avg=%.1f%% NOT in range, continuing",
+                            ctx.server.hostname, T, confirm_cpu if confirm_cpu else 0,
+                        )
+                        if confirm_cpu and confirm_cpu < target_min:
+                            lower = T
+                        elif confirm_cpu and confirm_cpu > target_max:
+                            upper = T
+                            break
+                        else:
+                            lower = T  # unreliable, keep going
+                else:
+                    # In range but near edge — not reliable with 20 samples
+                    logger.info(
+                        "[CAL-V2] %s | BRACKET | T=%d avg=%.1f%% in range but near edge "
+                        "(dist=%.1f%% from mid=%.0f%%), treating as bracket bound",
+                        ctx.server.hostname, T, avg_cpu, distance_from_mid, target_mid,
+                    )
+                    if avg_cpu < target_mid:
+                        lower = T  # below midpoint, need more threads
+                    else:
+                        upper = T  # above midpoint, this is our upper
+                        break
 
             # Double for next probe
             T = min(T * 2, max_threads)
