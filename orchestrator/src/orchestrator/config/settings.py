@@ -17,7 +17,7 @@ class CalibrationConfig:
     calibration_stability_ratio: float = 0.5
     calibration_confirmation_count: int = 2
     max_calibration_iterations: int = 50
-    max_thread_count: int = 30
+    max_thread_count: int = 50
     stability_min_in_range_pct: float = 55.0
     stability_max_below_pct: float = 25.0
     first_observation_settle_sec: int = 300  # extra settle time for first observation (JVM warmup)

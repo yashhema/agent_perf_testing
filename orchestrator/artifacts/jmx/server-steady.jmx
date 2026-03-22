@@ -48,7 +48,7 @@
       </elementProp>
       <elementProp name="CPU_MS" elementType="Argument">
         <stringProp name="Argument.name">CPU_MS</stringProp>
-        <stringProp name="Argument.value">${__P(cpu_ms,10)}</stringProp>
+        <stringProp name="Argument.value">${__P(cpu_ms,50)}</stringProp>
         <stringProp name="Argument.metadata">=</stringProp>
       </elementProp>
       <elementProp name="INTENSITY" elementType="Argument">
