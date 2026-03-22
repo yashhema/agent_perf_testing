@@ -77,13 +77,12 @@ ORCHESTRATOR_FILES = {
     "orchestrator/migrations/add_clean_snapshot_id.sql": "orchestrator/migrations/add_clean_snapshot_id.sql",
     "orchestrator/seed_packages.py": "orchestrator/seed_packages.py",
     # JMX templates + scripts (small files, not binary packages)
-    "orchestrator/artifacts/jmx/server-normal.jmx": "orchestrator/artifacts/jmx/server-normal.jmx",
-    "orchestrator/artifacts/jmx/server-file-heavy.jmx": "orchestrator/artifacts/jmx/server-file-heavy.jmx",
     "orchestrator/artifacts/jmx/server-steady.jmx": "orchestrator/artifacts/jmx/server-steady.jmx",
     "orchestrator/artifacts/jmx/server-stress.jmx": "orchestrator/artifacts/jmx/server-stress.jmx",
     "orchestrator/artifacts/scripts/jmeter_kill.py": "orchestrator/artifacts/scripts/jmeter_kill.py",
     "orchestrator/src/orchestrator/templates/snapshots/manager.html": "orchestrator/src/orchestrator/templates/snapshots/manager.html",
     # Core
+    "orchestrator/src/orchestrator/core/orchestrator.py": "orchestrator/src/orchestrator/core/orchestrator.py",
     "orchestrator/src/orchestrator/core/baseline_state_machine.py": "orchestrator/src/orchestrator/core/baseline_state_machine.py",
     "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
     "orchestrator/src/orchestrator/core/baseline_execution.py": "orchestrator/src/orchestrator/core/baseline_execution.py",
@@ -111,6 +110,10 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/seed.py": "orchestrator/src/orchestrator/seed.py",
     # Config files (orchestrator.yaml is local-only, sync the template instead)
     "orchestrator/config/orchestrator_default.yaml": "orchestrator/config/orchestrator_default.yaml",
+    # db-assets generators (used by orchestrator for CSV generation)
+    "db-assets/generator/__init__.py": "db-assets/generator/__init__.py",
+    "db-assets/generator/generators/__init__.py": "db-assets/generator/generators/__init__.py",
+    "db-assets/generator/generators/ops_sequence_generator.py": "db-assets/generator/generators/ops_sequence_generator.py",
 }
 
 EMULATOR_JAVA_FILES = {

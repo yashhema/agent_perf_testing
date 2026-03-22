@@ -193,10 +193,15 @@ class DistributionCalibrationEngine(CalibrationEngine):
 
         T = 1
         iteration = 0
-        settle = self._config.first_observation_settle_sec
+        first_settle = self._config.first_observation_settle_sec
+        bracket_settle = self._config.bracket_settle_sec
 
         while T <= max_threads:
             iteration += 1
+            # First observation gets longer settle (JVM cold start);
+            # subsequent observations still get bracket_settle (post-revert warmup)
+            settle = first_settle if iteration == 1 else bracket_settle
+
             cal_record.phase = "bracket"
             cal_record.current_iteration = iteration
             cal_record.current_thread_count = T
@@ -212,7 +217,6 @@ class DistributionCalibrationEngine(CalibrationEngine):
 
             avg_cpu = self._run_observation(ctx, T, ramp_up_sec, extra_settle_sec=settle)
             self._cleanup_iteration(ctx, iteration=iteration, phase="bracket")
-            settle = 0  # Only first observation gets settle time
 
             if avg_cpu is None:
                 logger.warning("[CAL-V2] %s | BRACKET | T=%d observation failed, retrying",

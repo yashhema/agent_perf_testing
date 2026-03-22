@@ -8,6 +8,11 @@ configured ratios and seeded deterministically so that:
   - Different load profiles get different sequences
   - Base and Initial phases use the SAME sequence (for valid comparison)
 
+All server generators (Normal, Steady, FileHeavy) output a unified CSV
+schema so they can share a single JMX template (server-steady.jmx):
+  seq_id, op_type, size_bracket, target_size_kb, output_format,
+  output_folder_idx, is_confidential, make_zip, source_file_ids
+
 Usage (programmatic — called by orchestrator):
     gen = ServerNormalOpsGenerator("run-001", "low")
     ops = gen.generate(count=288000)
@@ -25,12 +30,33 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
+# Unified CSV columns for all server generators (shared with server-steady.jmx)
+SERVER_FIELDNAMES = [
+    'seq_id', 'op_type', 'size_bracket', 'target_size_kb',
+    'output_format', 'output_folder_idx', 'is_confidential',
+    'make_zip', 'source_file_ids',
+]
+
+# Empty file columns template — reused by all generators for non-file ops
+_EMPTY_FILE_COLS = {
+    'size_bracket': '',
+    'target_size_kb': '',
+    'output_format': '',
+    'output_folder_idx': '',
+    'is_confidential': '',
+    'make_zip': '',
+    'source_file_ids': '',
+}
+
+
 class OpsSequenceGenerator:
     """Base class for operation sequence generators.
 
-    Provides deterministic seeding and sequence length calculation.
-    Subclasses implement generate() and write_csv() for each template type.
+    Provides deterministic seeding, sequence length calculation,
+    and shared write_csv for the unified server CSV schema.
     """
+
+    FIELDNAMES = SERVER_FIELDNAMES
 
     def __init__(self, test_run_id: str, load_profile: str):
         """Initialize with deterministic seed.
@@ -68,13 +94,29 @@ class OpsSequenceGenerator:
         ops_per_thread = (duration_sec * 1000) / avg_op_duration_ms
         return int(ops_per_thread * thread_count * 1.2)
 
+    def write_csv(self, operations: List[Dict], output_path: str) -> str:
+        """Write operations to CSV file.
+
+        Args:
+            operations: List from generate()
+            output_path: Filesystem path for the CSV
+
+        Returns:
+            The output_path written to
+        """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(operations)
+        return output_path
+
 
 class ServerNormalOpsGenerator(OpsSequenceGenerator):
-    """Generate operation sequence for server-normal.jmx.
+    """Generate operation sequence for server-normal template.
 
-    CSV columns: seq_id, op_type
     Distribution: 40% cpu, 30% mem, 30% disk
-    (Anomaly/stress testing is a separate end-test phase, not mixed into load.)
+    File columns are always empty (these ops don't use the /file endpoint).
     """
 
     OP_POOL = (
@@ -83,8 +125,6 @@ class ServerNormalOpsGenerator(OpsSequenceGenerator):
         ['disk'] * 30
     )
 
-    FIELDNAMES = ['seq_id', 'op_type']
-
     def generate(self, count: int) -> List[Dict]:
         """Generate deterministic operation sequence.
 
@@ -92,7 +132,7 @@ class ServerNormalOpsGenerator(OpsSequenceGenerator):
             count: Number of operations to generate
 
         Returns:
-            List of dicts with seq_id and op_type
+            List of dicts with unified CSV columns
         """
         operations = []
         for seq_id in range(1, count + 1):
@@ -100,37 +140,28 @@ class ServerNormalOpsGenerator(OpsSequenceGenerator):
             operations.append({
                 'seq_id': seq_id,
                 'op_type': op_type,
+                **_EMPTY_FILE_COLS,
             })
         return operations
 
-    def write_csv(self, operations: List[Dict], output_path: str) -> str:
-        """Write operations to CSV file.
-
-        Args:
-            operations: List from generate()
-            output_path: Filesystem path for the CSV
-
-        Returns:
-            The output_path written to
-        """
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
-            writer.writeheader()
-            writer.writerows(operations)
-        return output_path
-
 
 class ServerSteadyOpsGenerator(OpsSequenceGenerator):
-    """Generate operation sequence for server-steady.jmx.
+    """Generate operation sequence for server-steady template.
 
-    CSV columns: seq_id, op_type
-    Distribution: 100% work (single combined CPU burn + memory pool touch)
+    Distribution: 68% work, 10% file, 20% networkclient,
+                  1% cpu_spike, 1% suspicious
+
+    File ops use simple defaults (is_confidential=false, make_zip=false,
+    other file columns empty so the emulator picks randomly).
     """
 
-    OP_POOL = ['work']
-
-    FIELDNAMES = ['seq_id', 'op_type']
+    OP_POOL = (
+        ['work'] * 68 +
+        ['file'] * 10 +
+        ['networkclient'] * 20 +
+        ['cpu_spike'] * 1 +
+        ['suspicious'] * 1
+    )
 
     def generate(self, count: int) -> List[Dict]:
         """Generate deterministic operation sequence.
@@ -139,53 +170,48 @@ class ServerSteadyOpsGenerator(OpsSequenceGenerator):
             count: Number of operations to generate
 
         Returns:
-            List of dicts with seq_id and op_type
+            List of dicts with unified CSV columns
         """
         operations = []
         for seq_id in range(1, count + 1):
-            operations.append({
-                'seq_id': seq_id,
-                'op_type': 'work',
-            })
+            op_type = self.rng.choice(self.OP_POOL)
+            row = {'seq_id': seq_id, 'op_type': op_type}
+
+            if op_type == 'file':
+                row.update({
+                    'size_bracket': '',
+                    'target_size_kb': '',
+                    'output_format': '',
+                    'output_folder_idx': '',
+                    'is_confidential': 'false',
+                    'make_zip': 'false',
+                    'source_file_ids': '',
+                })
+            else:
+                row.update(_EMPTY_FILE_COLS)
+
+            operations.append(row)
         return operations
-
-    def write_csv(self, operations: List[Dict], output_path: str) -> str:
-        """Write operations to CSV file.
-
-        Args:
-            operations: List from generate()
-            output_path: Filesystem path for the CSV
-
-        Returns:
-            The output_path written to
-        """
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
-            writer.writeheader()
-            writer.writerows(operations)
-        return output_path
 
 
 class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
-    """Generate operation sequence for server-file-heavy.jmx.
+    """Generate operation sequence for server-file-heavy template.
 
-    CSV columns: seq_id, op_type, size_bracket, target_size_kb,
-                 output_format, output_folder_idx, is_confidential,
-                 make_zip, source_file_ids
+    Distribution: 48% work, 30% file, 20% networkclient,
+                  1% cpu_spike, 1% suspicious
 
-    Distribution: 35% cpu, 35% mem, 30% file
-    (Anomaly/stress testing is a separate end-test phase.)
-
-    For file operations, all parameters are pre-determined in the CSV so that
-    the same CSV produces identical file I/O patterns across base and initial
-    phases. Non-file rows have empty file columns.
+    File ops get full deterministic parameters (size_bracket, target_size_kb,
+    output_format, output_folder_idx, is_confidential, make_zip,
+    source_file_ids) so that the same CSV produces identical file I/O
+    patterns across base and initial phases.
     """
 
     OP_POOL = (
-        ['cpu'] * 35 +
-        ['mem'] * 35 +
-        ['file'] * 30
+        ['work'] * 48 +
+        ['file'] * 30 +
+        ['networkclient'] * 20 +
+        ['cpu_spike'] * 1 +
+        ['suspicious'] * 1
     )
 
     SIZE_BRACKETS = {
@@ -205,18 +231,12 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
 
     OUTPUT_FORMATS = ['txt', 'csv', 'doc', 'xls', 'pdf']
 
-    FIELDNAMES = [
-        'seq_id', 'op_type', 'size_bracket', 'target_size_kb',
-        'output_format', 'output_folder_idx', 'is_confidential',
-        'make_zip', 'source_file_ids',
-    ]
-
     def __init__(
         self,
         test_run_id: str,
         load_profile: str,
-        normal_files: List[str],
-        confidential_files: List[str],
+        normal_files: Optional[List[str]] = None,
+        confidential_files: Optional[List[str]] = None,
         num_output_folders: int = 4,
     ):
         """Initialize with source file lists.
@@ -224,13 +244,14 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
         Args:
             test_run_id: Unique test run identifier
             load_profile: Load profile name
-            normal_files: List of normal source file IDs (e.g., ["rfc791", "rfc793"])
+            normal_files: List of normal source file IDs (e.g., ["rfc791", "rfc793"]).
+                If empty/None, file ops get empty file columns (emulator random fallback).
             confidential_files: List of confidential source file IDs (e.g., ["conf001"])
             num_output_folders: Number of output folder indices (0..N-1)
         """
         super().__init__(test_run_id, load_profile)
-        self.normal_files = normal_files
-        self.confidential_files = confidential_files
+        self.normal_files = normal_files or []
+        self.confidential_files = confidential_files or []
         self.num_output_folders = num_output_folders
 
     def generate(
@@ -255,7 +276,8 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
             op_type = self.rng.choice(self.OP_POOL)
             row: Dict = {'seq_id': seq_id, 'op_type': op_type}
 
-            if op_type == 'file':
+            if op_type == 'file' and self.normal_files:
+                # Deterministic file params — requires source file lists
                 size_bracket = self.rng.choice(self.SIZE_POOL)
                 size_range = self.SIZE_BRACKETS[size_bracket]
                 target_size_kb = self.rng.randint(size_range[0], size_range[1])
@@ -277,16 +299,15 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
                     'make_zip': str(make_zip).lower(),
                     'source_file_ids': ';'.join(source_files),
                 })
-            else:
+            elif op_type == 'file':
+                # No source files available — empty file cols, emulator random fallback
                 row.update({
-                    'size_bracket': '',
-                    'target_size_kb': '',
-                    'output_format': '',
-                    'output_folder_idx': '',
-                    'is_confidential': '',
-                    'make_zip': '',
-                    'source_file_ids': '',
+                    **_EMPTY_FILE_COLS,
+                    'is_confidential': 'false',
+                    'make_zip': 'false',
                 })
+            else:
+                row.update(_EMPTY_FILE_COLS)
 
             operations.append(row)
         return operations
@@ -321,23 +342,6 @@ class ServerFileHeavyOpsGenerator(OpsSequenceGenerator):
         else:
             selected = [self.rng.choice(self.normal_files) for _ in range(num_files)]
         return selected
-
-    def write_csv(self, operations: List[Dict], output_path: str) -> str:
-        """Write merged operations to CSV file.
-
-        Args:
-            operations: List from generate()
-            output_path: Filesystem path for the CSV
-
-        Returns:
-            The output_path written to
-        """
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
-            writer.writeheader()
-            writer.writerows(operations)
-        return output_path
 
 
 class DbLoadOpsGenerator(OpsSequenceGenerator):
@@ -497,23 +501,6 @@ class DbLoadOpsGenerator(OpsSequenceGenerator):
 
             operations.append(row)
         return operations
-
-    def write_csv(self, operations: List[Dict], output_path: str) -> str:
-        """Write merged DB operations to CSV file.
-
-        Args:
-            operations: List from generate()
-            output_path: Filesystem path for the CSV
-
-        Returns:
-            The output_path written to
-        """
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
-            writer.writeheader()
-            writer.writerows(operations)
-        return output_path
 
 
 class StressActivitySequenceGenerator(OpsSequenceGenerator):

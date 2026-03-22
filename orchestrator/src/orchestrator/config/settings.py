@@ -12,8 +12,8 @@ import yaml
 
 @dataclass
 class CalibrationConfig:
-    observation_duration_sec: int = 30
-    observation_reading_count: int = 20
+    observation_duration_sec: int = 180
+    observation_reading_count: int = 120
     calibration_stability_ratio: float = 0.5
     calibration_confirmation_count: int = 2
     max_calibration_iterations: int = 50
@@ -21,6 +21,7 @@ class CalibrationConfig:
     stability_min_in_range_pct: float = 55.0
     stability_max_below_pct: float = 25.0
     first_observation_settle_sec: int = 300  # extra settle time for first observation (JVM warmup)
+    bracket_settle_sec: int = 30  # settle time for every bracket observation (post-revert JVM warmup)
     method: str = "v1"  # "v1" = binary search (original), "v2" = distribution-aware (bracketed bisect)
 
 

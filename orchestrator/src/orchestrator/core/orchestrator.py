@@ -415,11 +415,11 @@ class Orchestrator:
 
     @staticmethod
     def _resolve_jmx_filename(scenario: ScenarioORM) -> str:
-        """Map scenario.template_type to the JMX filename in artifacts/jmx/."""
-        jmx_map = {
-            "server-normal": "server-normal.jmx",
-            "server-file-heavy": "server-file-heavy.jmx",
-        }
+        """Map scenario.template_type to the JMX filename in artifacts/jmx/.
+
+        All server templates (server-normal, server-steady, server-file-heavy)
+        use the unified server-steady.jmx — the CSV determines the op mix.
+        """
         template_val = scenario.template_type.value if hasattr(scenario.template_type, "value") else str(scenario.template_type)
 
         if template_val == "db-load":
@@ -427,7 +427,7 @@ class Orchestrator:
             db_suffix = db_type.value if db_type and hasattr(db_type, "value") else (db_type or "postgresql")
             return f"db-load-{db_suffix}.jmx"
 
-        return jmx_map.get(template_val, "server-normal.jmx")
+        return "server-steady.jmx"
 
     def _deploy_calibration_csv(
         self,

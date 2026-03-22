@@ -555,3 +555,60 @@ All changes to src/ code are documented here with date, file, and summary.
     firewall port 8080 open (firewall-cmd/iptables on Linux, Get-NetFirewallRule on Windows)
   - Runs after snapshot revert to validate actual snapshot state
 
+--- CSV-driven JMX unification + calibration fixes (2026-03-22) ---
+
+2026-03-22  db-assets/generator/generators/ops_sequence_generator.py
+  - Unified all server generators to output same CSV schema (SERVER_FIELDNAMES):
+    seq_id, op_type, size_bracket, target_size_kb, output_format,
+    output_folder_idx, is_confidential, make_zip, source_file_ids
+  - Moved write_csv() to base OpsSequenceGenerator (shared by all server generators)
+  - ServerNormalOpsGenerator: 40/30/30 cpu/mem/disk, file cols always empty
+  - ServerSteadyOpsGenerator: changed from 100% work to 68/10/20/1/1
+    work/file/networkclient/cpu_spike/suspicious
+  - ServerFileHeavyOpsGenerator: changed from 35/35/30 cpu/mem/file to 48/30/20/1/1
+    work/file/networkclient/cpu_spike/suspicious; made normal_files/confidential_files
+    optional (None = emulator random fallback)
+
+2026-03-22  orchestrator/artifacts/jmx/server-steady.jmx
+  - Rewritten as unified CSV-driven JMX for ALL server templates
+  - CSVDataSet reads full 9-column schema from ops_sequence CSV
+  - SwitchController dispatches on op_type to 8 samplers:
+    cpu, mem, disk, work, file, networkclient, cpu_spike, suspicious
+  - File sampler sends all params from CSV (size_bracket, target_size_kb, etc.)
+    with __javaScript fallback to null for empty values
+  - Added OPS_SEQUENCE user variable
+
+2026-03-22  orchestrator/artifacts/jmx/server-normal.jmx — DELETED
+  - Replaced by unified server-steady.jmx
+
+2026-03-22  orchestrator/artifacts/jmx/server-file-heavy.jmx — DELETED
+  - Replaced by unified server-steady.jmx
+
+2026-03-22  orchestrator/artifacts/jmx/calibration.jmx — DELETED
+  - Separate calibration JMX abandoned; calibration uses test.jmx (= server-steady.jmx)
+
+2026-03-22  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - _do_deploying_calibration: removed calibration.jmx upload (lines 1134-1136)
+  - All server templates now upload server-steady.jmx as test.jmx
+  - CalibrationContext jmx_path changed from calibration.jmx back to test.jmx
+  - _create_generator_for_template: added ServerSteadyOpsGenerator for server_steady,
+    fixed ServerFileHeavyOpsGenerator to pass well-known file IDs
+    (_NORMAL_FILE_IDS, _CONFIDENTIAL_FILE_IDS class attrs)
+
+2026-03-22  orchestrator/src/orchestrator/core/orchestrator.py
+  - _resolve_jmx_filename: all server templates now resolve to server-steady.jmx
+    (removed server-normal/server-file-heavy jmx_map)
+
+2026-03-22  orchestrator/src/orchestrator/config/settings.py
+  - CalibrationConfig: observation_duration_sec 30 -> 90, observation_reading_count 20 -> 60
+  - Added bracket_settle_sec: int = 30 (settle time for every bracket observation)
+
+2026-03-22  orchestrator/src/orchestrator/core/calibration_v2.py
+  - Bracket phase: every observation now gets settle time (bracket_settle_sec=30s),
+    not just the first. First observation still gets first_observation_settle_sec=300s.
+
+2026-03-22  setup/sync_setup.py
+  - Removed server-normal.jmx and server-file-heavy.jmx from sync list
+  - Added db-assets generator files to sync list:
+    generator/__init__.py, generators/__init__.py, generators/ops_sequence_generator.py
+

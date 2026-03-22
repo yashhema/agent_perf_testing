@@ -1126,9 +1126,8 @@ class BaselineOrchestrator:
                 loadgen_exec.execute(f"mkdir -p {run_dir}")
 
 
-                # Upload JMX template
-                jmx_template_name = f"{scenario.template_type.value}.jmx"
-                local_jmx = str(artifacts_dir / "jmx" / jmx_template_name)
+                # Upload JMX template (unified server-steady.jmx for all server templates)
+                local_jmx = str(artifacts_dir / "jmx" / "server-steady.jmx")
                 loadgen_exec.upload(local_jmx, f"{run_dir}/test.jmx")
 
                 # Upload kill script
@@ -2288,32 +2287,52 @@ class BaselineOrchestrator:
     # ------------------------------------------------------------------
     # Helper: create generator based on template_type
     # ------------------------------------------------------------------
+    # Well-known source file IDs matching emulator package contents.
+    # Same IDs used by SequenceGenerationService._get_normal_file_ids().
+    _NORMAL_FILE_IDS = [
+        "rfc791", "rfc793", "rfc2616", "rfc7230", "rfc7231",
+        "rfc7540", "rfc8446", "rfc9110", "sample_doc_001", "sample_doc_002",
+    ]
+    _CONFIDENTIAL_FILE_IDS = ["conf001", "conf002", "conf003"]
+
     @staticmethod
     def _create_generator_for_template(
         scenario: ScenarioORM, test_run_id: str, load_profile_name: str,
     ):
-        """Instantiate the correct ops sequence generator based on template_type."""
+        """Instantiate the correct ops sequence generator based on template_type.
+
+        All server generators output the unified CSV schema (seq_id, op_type,
+        + file columns) compatible with server-steady.jmx.
+        """
         import sys
         gen_root = str(Path(__file__).resolve().parents[4] / "db-assets")
         if gen_root not in sys.path:
             sys.path.insert(0, gen_root)
         from generator.generators.ops_sequence_generator import (
             ServerNormalOpsGenerator,
+            ServerSteadyOpsGenerator,
             ServerFileHeavyOpsGenerator,
             DbLoadOpsGenerator,
         )
         from orchestrator.models.enums import TemplateType
 
         template = scenario.template_type
-        if template == TemplateType.server_file_heavy:
+        if template == TemplateType.server_steady:
+            return ServerSteadyOpsGenerator(
+                test_run_id=test_run_id, load_profile=load_profile_name,
+            )
+        elif template == TemplateType.server_file_heavy:
             return ServerFileHeavyOpsGenerator(
                 test_run_id=test_run_id, load_profile=load_profile_name,
+                normal_files=BaselineOrchestrator._NORMAL_FILE_IDS,
+                confidential_files=BaselineOrchestrator._CONFIDENTIAL_FILE_IDS,
             )
         elif template == TemplateType.db_load:
             return DbLoadOpsGenerator(
                 test_run_id=test_run_id, load_profile=load_profile_name,
             )
         else:
+            # server_normal and any unknown template
             return ServerNormalOpsGenerator(test_run_id, load_profile_name)
 
     def _deploy_calibration_csv(
