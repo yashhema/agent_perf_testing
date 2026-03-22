@@ -4,14 +4,14 @@
 #   cp orchestrator_default.yaml orchestrator.yaml
 
 calibration:
-  observation_duration_sec: 30
-  # Use last 20 of ~30 samples (skip first 10s settling time).
-  observation_reading_count: 20
+  observation_duration_sec: 180
+  observation_reading_count: 120
   calibration_stability_ratio: 0.5
   calibration_confirmation_count: 2
   max_calibration_iterations: 50
-  max_thread_count: 30
+  max_thread_count: 50
   first_observation_settle_sec: 300  # 5-min JVM settle before first calibration reading
+  bracket_settle_sec: 30  # settle time for every bracket observation (post-revert warmup)
   # Stability check pass criteria:
   #   min_in_range_pct: minimum % of samples that must fall within target CPU range
   #   max_below_pct: maximum % of samples allowed below the target minimum
