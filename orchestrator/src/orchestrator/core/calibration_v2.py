@@ -42,55 +42,25 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StabilityThresholds:
-    """Per-profile stability pass criteria for 1s sampling."""
-    min_pct_in_range: float
-    max_pct_below: float
-    max_pct_above: float
-    max_p95: float
+    """Stability pass criteria derived from target range.
 
-
-# Thresholds keyed by target range midpoint brackets
-def _get_thresholds(target_min: float, target_max: float) -> StabilityThresholds:
-    """Get stability thresholds based on target CPU range.
-
-    Wider/higher ranges get more lenient thresholds because:
-    - Higher CPU = more variance from GC, scheduling
-    - 1s sampling at high load is inherently noisier
+    Simple percentile-based:
+      p25 >= target_min - 2%   (bottom quartile not too cold)
+      p75 <= target_max        (top quartile within range)
+      p90 <= target_max + 15%  (90th percentile tolerates spikes)
     """
-    mid = (target_min + target_max) / 2
+    min_p25: float   # p25 must be >= this
+    max_p75: float   # p75 must be <= this
+    max_p90: float   # p90 must be <= this
 
-    if mid <= 30:
-        # Low profile (e.g., 20-40%)
-        return StabilityThresholds(
-            min_pct_in_range=75.0,
-            max_pct_below=15.0,
-            max_pct_above=20.0,
-            max_p95=target_max + 5,
-        )
-    elif mid <= 50:
-        # Medium profile (e.g., 40-60%)
-        return StabilityThresholds(
-            min_pct_in_range=70.0,
-            max_pct_below=15.0,
-            max_pct_above=25.0,
-            max_p95=target_max + 5,
-        )
-    elif mid <= 70:
-        # High profile (e.g., 60-80%)
-        return StabilityThresholds(
-            min_pct_in_range=65.0,
-            max_pct_below=10.0,
-            max_pct_above=30.0,
-            max_p95=target_max + 5,
-        )
-    else:
-        # Stress (>80%) — very lenient
-        return StabilityThresholds(
-            min_pct_in_range=50.0,
-            max_pct_below=5.0,
-            max_pct_above=50.0,
-            max_p95=100.0,
-        )
+
+def _get_thresholds(target_min: float, target_max: float) -> StabilityThresholds:
+    """Derive stability thresholds from target CPU range."""
+    return StabilityThresholds(
+        min_p25=target_min - 2.0,
+        max_p75=target_max,
+        max_p90=target_max + 15.0,
+    )
 
 
 def _compute_stats(cpu_values: List[float]) -> Dict:
@@ -147,11 +117,10 @@ class DistributionCalibrationEngine(CalibrationEngine):
 
         logger.info(
             "[CAL-V2] %s | LP=%s | target=%.0f-%.0f%% (mid=%.0f%%) | "
-            "thresholds: p_in>=%.0f%% p_low<=%.0f%% p_high<=%.0f%% p95<=%.0f%%",
+            "thresholds: p25>=%.0f%% p75<=%.0f%% p90<=%.0f%%",
             ctx.server.hostname, ctx.load_profile.name,
             target_min, target_max, target_mid,
-            thresholds.min_pct_in_range, thresholds.max_pct_below,
-            thresholds.max_pct_above, thresholds.max_p95,
+            thresholds.min_p25, thresholds.max_p75, thresholds.max_p90,
         )
 
         self._verify_emulator_health(ctx)
@@ -383,10 +352,11 @@ class DistributionCalibrationEngine(CalibrationEngine):
             900,
         )
         confirmation_count = self._config.calibration_confirmation_count
-        max_attempts = 5
+        max_attempts = 8
         target_mid = (target_min + target_max) / 2
         thread_count = candidate
-        bimodal_retries = 0
+        # Max step = min(3, 15% of T)
+        max_step = lambda t: max(1, min(3, int(t * 0.15)))
 
         cal_record.phase = "stability_check"
         cal_record.stability_checks_total = confirmation_count
@@ -414,6 +384,7 @@ class DistributionCalibrationEngine(CalibrationEngine):
                     check_num, confirmation_count, thread_count, stability_duration,
                 )
 
+                # Run stability check (parent method collects stats + logs distribution)
                 stable, pct_in_range, avg_cpu, pct_below = self._run_stability_check(
                     ctx, thread_count, ramp_up_sec, stability_duration,
                     target_min, target_max,
@@ -421,31 +392,83 @@ class DistributionCalibrationEngine(CalibrationEngine):
                 self._cleanup_iteration(ctx, iteration=check_num,
                                         phase=f"stability_attempt{attempt+1}")
 
-                pct_above = 100.0 - pct_in_range - pct_below
+                # Get recent stats to compute percentiles ourselves
+                try:
+                    raw_stats = ctx.emulator_client.get_recent_stats(
+                        count=min(stability_duration, 1000)
+                    )
+                    raw_samples = raw_stats.get("samples", [])
+                    cpu_values = [s.get("cpu_percent", 0) for s in raw_samples]
+                except Exception:
+                    cpu_values = []
 
-                # Get p95 from the stability check — rerun the stats
-                # (the parent _run_stability_check already logged them)
+                if not cpu_values:
+                    logger.warning("[CAL-V2] %s | No CPU samples for percentile check", ctx.server.hostname)
+                    all_passed = False
+                    break
+
+                stats = _compute_stats(cpu_values)
+                n = len(cpu_values)
+                sorted_v = sorted(cpu_values)
+                p25 = sorted_v[int(n * 0.25)]
+                p75 = sorted_v[int(n * 0.75)]
+                p90 = sorted_v[int(n * 0.90)]
+
                 cal_record.stability_pct_in_range = pct_in_range
                 cal_record.last_observed_cpu = avg_cpu
                 cal_record.updated_at = datetime.utcnow()
 
-                # Distribution-aware pass criteria
+                # Save raw samples to JSON file
+                if ctx.results_dir:
+                    import json, os
+                    samples_dir = os.path.join(
+                        ctx.results_dir, str(ctx.test_run_id),
+                        f"server_{ctx.server.id}", "calibration_samples",
+                    )
+                    os.makedirs(samples_dir, exist_ok=True)
+                    samples_file = os.path.join(
+                        samples_dir,
+                        f"stability_attempt{attempt+1}_check{check_num}_T{thread_count}.json"
+                    )
+                    with open(samples_file, "w") as f:
+                        json.dump({
+                            "thread_count": thread_count,
+                            "attempt": attempt + 1,
+                            "check": check_num,
+                            "target_min": target_min,
+                            "target_max": target_max,
+                            "sample_count": n,
+                            "avg": stats["avg"],
+                            "p25": p25, "p50": stats["p50"],
+                            "p75": p75, "p90": p90, "p95": stats["p95"],
+                            "min": stats["min"], "max": stats["max"],
+                            "stddev": stats["stddev"],
+                            "cv": stats["cv"],
+                            "burstiness": stats["burstiness"],
+                            "cpu_values": cpu_values,
+                        }, f, indent=2)
+                    logger.info("[CAL-V2] Saved %d samples to %s", n, samples_file)
+
+                # Simple percentile-based pass criteria
                 dist_pass = (
-                    pct_in_range >= thresholds.min_pct_in_range
-                    and pct_below <= thresholds.max_pct_below
-                    and pct_above <= thresholds.max_pct_above
+                    p25 >= thresholds.min_p25
+                    and p75 <= thresholds.max_p75
+                    and p90 <= thresholds.max_p90
+                )
+
+                logger.info(
+                    "[CAL-V2] %s | T=%d | p25=%.1f%% p75=%.1f%% p90=%.1f%% | "
+                    "thresholds: p25>=%.0f p75<=%.0f p90<=%.0f | %s",
+                    ctx.server.hostname, thread_count,
+                    p25, p75, p90,
+                    thresholds.min_p25, thresholds.max_p75, thresholds.max_p90,
+                    "PASS" if dist_pass else "FAIL",
                 )
 
                 if dist_pass:
-                    logger.info(
-                        "[CAL-V2] %s | STABILITY PASS | check %d/%d | T=%d | "
-                        "avg=%.1f%% in_range=%.1f%% below=%.1f%% above=%.1f%%",
-                        ctx.server.hostname, check_num, confirmation_count,
-                        thread_count, avg_cpu, pct_in_range, pct_below, pct_above,
-                    )
                     cal_record.message = (
                         f"Stability {check_num}/{confirmation_count} PASSED: "
-                        f"in_range={pct_in_range:.1f}%, avg={avg_cpu:.1f}%"
+                        f"p25={p25:.1f}% p75={p75:.1f}% p90={p90:.1f}% avg={avg_cpu:.1f}%"
                     )
                     session.commit()
                     continue
@@ -453,53 +476,37 @@ class DistributionCalibrationEngine(CalibrationEngine):
                 # --- FAILED ---
                 all_passed = False
 
-                # Bimodal detection: both below AND above are significant
-                if pct_below > 10.0 and pct_above > 20.0 and bimodal_retries < 2:
-                    bimodal_retries += 1
-                    logger.warning(
-                        "[CAL-V2] %s | BIMODAL detected | T=%d | below=%.1f%% above=%.1f%% | "
-                        "rerunning with same T (retry %d/2)",
-                        ctx.server.hostname, thread_count, pct_below, pct_above,
-                        bimodal_retries,
-                    )
-                    cal_record.message = (
-                        f"Bimodal distribution detected — rerunning T={thread_count} "
-                        f"(below={pct_below:.1f}%, above={pct_above:.1f}%)"
-                    )
-                    session.commit()
-                    break  # Retry same thread count
+                # Determine direction and capped step
+                step = max_step(thread_count)
 
-                # Directional adjustment by ratio
-                if pct_below > pct_above:
-                    # Too cold — scale up
-                    ratio = target_mid / avg_cpu if avg_cpu > 0 else 2.0
-                    new_tc = max(thread_count + 1, int(thread_count * ratio))
-                    new_tc = min(new_tc, self._config.max_thread_count)
-                    direction = "UP"
-                else:
-                    # Too hot — scale down
+                if p75 > thresholds.max_p75:
+                    # Too hot — decrease threads
                     if thread_count == 1:
                         raise CalibrationError(
                             f"Cannot calibrate {ctx.server.hostname}: "
-                            f"1 thread gives {avg_cpu:.1f}% CPU, "
-                            f"target is {target_min:.0f}-{target_max:.0f}%"
+                            f"1 thread gives p75={p75:.1f}%, "
+                            f"target max is {target_max:.0f}%"
                         )
-                    ratio = target_mid / avg_cpu if avg_cpu > 0 else 0.5
-                    new_tc = min(thread_count - 1, int(thread_count * ratio))
-                    new_tc = max(1, new_tc)
+                    new_tc = max(1, thread_count - step)
                     direction = "DOWN"
+                elif p25 < thresholds.min_p25:
+                    # Too cold — increase threads
+                    new_tc = min(self._config.max_thread_count, thread_count + step)
+                    direction = "UP"
+                else:
+                    # p25 and p75 OK but p90 too high — slight decrease
+                    new_tc = max(1, thread_count - 1)
+                    direction = "DOWN (p90 high)"
 
                 logger.warning(
-                    "[CAL-V2] %s | STABILITY FAIL | T=%d | avg=%.1f%% | "
-                    "in_range=%.1f%% below=%.1f%% above=%.1f%% | "
-                    "%s to %d (ratio=%.2f)",
-                    ctx.server.hostname, thread_count, avg_cpu,
-                    pct_in_range, pct_below, pct_above,
-                    direction, new_tc, ratio,
+                    "[CAL-V2] %s | STABILITY FAIL | T=%d → %d (%s, step=%d) | "
+                    "p25=%.1f p75=%.1f p90=%.1f avg=%.1f%%",
+                    ctx.server.hostname, thread_count, new_tc, direction, step,
+                    p25, p75, p90, avg_cpu,
                 )
                 cal_record.message = (
-                    f"Stability FAILED: in_range={pct_in_range:.1f}%, "
-                    f"avg={avg_cpu:.1f}%. Adjusting {direction} to {new_tc} threads."
+                    f"Stability FAILED: p25={p25:.1f}% p75={p75:.1f}% p90={p90:.1f}%. "
+                    f"{direction} from {thread_count} to {new_tc} (step={step})"
                 )
                 session.commit()
 
