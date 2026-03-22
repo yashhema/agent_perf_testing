@@ -304,7 +304,7 @@ function renderHeader() {
     actions += `<button class="btn btn-sm btn-info me-1" onclick="runSanityCheck()" id="btn-sanity"><i class="bi bi-shield-check me-1"></i>Sanity Check</button>`;
     actions += `<button class="btn btn-sm btn-success me-1" onclick="doAction('start')"><i class="bi bi-play-fill"></i></button>`;
   }
-  if (_run.state === 'failed') {
+  if (_run.state === 'failed' || _run.state === 'cancelled') {
     actions += `<button class="btn btn-sm btn-info me-1" onclick="runSanityCheck()" id="btn-sanity"><i class="bi bi-shield-check me-1"></i>Sanity Check</button>`;
     actions += `<button class="btn btn-sm btn-warning me-1" onclick="doAction('retry')"><i class="bi bi-arrow-repeat me-1"></i>Retry</button>`;
   }
