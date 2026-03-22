@@ -254,6 +254,31 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
         t.state = BaselineTargetState.pending
         t.error_message = None
 
+    # Reset calibration records for current LP and all subsequent LPs
+    # (they will be recalibrated from scratch)
+    if resume_state in (BaselineTestState.deploying_calibration, BaselineTestState.calibrating):
+        from orchestrator.models.orm import BaselineTestRunLoadProfileORM
+        # Get ordered LP ids for this test run
+        lp_links = session.query(BaselineTestRunLoadProfileORM).filter(
+            BaselineTestRunLoadProfileORM.baseline_test_run_id == test_run.id,
+        ).all()
+        lp_ids = [lp.load_profile_id for lp in lp_links]
+
+        # Find current LP index — reset this and all after it
+        current_lp_id = test_run.current_load_profile_id
+        if current_lp_id in lp_ids:
+            current_idx = lp_ids.index(current_lp_id)
+            lp_ids_to_reset = lp_ids[current_idx:]
+        else:
+            lp_ids_to_reset = lp_ids  # reset all if can't find current
+
+        stale_cals = session.query(CalibrationResultORM).filter(
+            CalibrationResultORM.baseline_test_run_id == test_run.id,
+            CalibrationResultORM.load_profile_id.in_(lp_ids_to_reset),
+        ).all()
+        for cal in stale_cals:
+            session.delete(cal)
+
     # Set test to resume state (LP + cycle preserved)
     test_run.state = resume_state
     test_run.error_message = None
