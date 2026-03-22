@@ -33,7 +33,6 @@ from orchestrator.core import baseline_state_machine as sm
 from orchestrator.core.baseline_execution import ExecutionResult, wait_for_ssh
 from orchestrator.core.baseline_validation import BaselinePreFlightValidator
 from orchestrator.core.calibration import CalibrationContext, CalibrationEngine
-from orchestrator.core.calibration_v2 import DistributionCalibrationEngine
 from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.hypervisor import create_hypervisor_provider
 from orchestrator.infra.jmeter_controller import JMeterController
@@ -1324,6 +1323,7 @@ class BaselineOrchestrator:
 
             thread_session = SessionLocal()
             if cal_config.method == "v2":
+                from orchestrator.core.calibration_v2 import DistributionCalibrationEngine
                 calibration_engine = DistributionCalibrationEngine(cal_config)
             else:
                 calibration_engine = CalibrationEngine(cal_config)
