@@ -215,10 +215,10 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
     test_run = session.get(BaselineTestRunORM, run_id)
     if not test_run:
         raise HTTPException(status_code=404, detail="Baseline test run not found")
-    if test_run.state != BaselineTestState.failed:
+    if test_run.state not in (BaselineTestState.failed, BaselineTestState.cancelled):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot retry: current state is '{test_run.state.value}' (must be 'failed')",
+            detail=f"Cannot retry: current state is '{test_run.state.value}' (must be 'failed' or 'cancelled')",
         )
 
     from orchestrator.core.baseline_state_machine import RETRY_RESUME_STATE
@@ -226,10 +226,8 @@ def retry_baseline_test_run(run_id: int, session: Session = Depends(get_session)
 
     # Determine resume state from failed_at_state
     if not test_run.failed_at_state:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot retry: failed_at_state not recorded (test may have failed before state machine redesign)",
-        )
+        # No failed_at_state recorded — restart from beginning
+        test_run.failed_at_state = BaselineTestState.deploying_loadgen.value
 
     try:
         failed_at = BaselineTestState(test_run.failed_at_state)
@@ -394,6 +392,8 @@ def cancel_baseline_test_run(run_id: int, session: Session = Depends(get_session
         )
 
     from orchestrator.core import baseline_state_machine as sm
+    # Record current state so retry knows where to resume
+    test_run.failed_at_state = test_run.state.value
     sm.transition(session, test_run, BaselineTestState.cancelled)
     return {"message": f"Baseline test run {run_id} cancelled"}
 
