@@ -88,6 +88,7 @@ ORCHESTRATOR_FILES = {
     "orchestrator/src/orchestrator/core/baseline_orchestrator.py": "orchestrator/src/orchestrator/core/baseline_orchestrator.py",
     "orchestrator/src/orchestrator/core/baseline_execution.py": "orchestrator/src/orchestrator/core/baseline_execution.py",
     "orchestrator/src/orchestrator/core/calibration.py": "orchestrator/src/orchestrator/core/calibration.py",
+    "orchestrator/src/orchestrator/core/calibration_v2.py": "orchestrator/src/orchestrator/core/calibration_v2.py",
     # API
     "orchestrator/src/orchestrator/api/baseline_test_runs.py": "orchestrator/src/orchestrator/api/baseline_test_runs.py",
     "orchestrator/src/orchestrator/api/admin.py": "orchestrator/src/orchestrator/api/admin.py",

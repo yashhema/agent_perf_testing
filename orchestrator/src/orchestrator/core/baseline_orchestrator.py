@@ -33,6 +33,7 @@ from orchestrator.core import baseline_state_machine as sm
 from orchestrator.core.baseline_execution import ExecutionResult, wait_for_ssh
 from orchestrator.core.baseline_validation import BaselinePreFlightValidator
 from orchestrator.core.calibration import CalibrationContext, CalibrationEngine
+from orchestrator.core.calibration_v2 import DistributionCalibrationEngine
 from orchestrator.infra.emulator_client import EmulatorClient
 from orchestrator.infra.hypervisor import create_hypervisor_provider
 from orchestrator.infra.jmeter_controller import JMeterController
@@ -1322,7 +1323,10 @@ class BaselineOrchestrator:
              lp_id, lp_name, lp_cpu_min, lp_cpu_max, lp_ramp, lp_duration) = target_info
 
             thread_session = SessionLocal()
-            calibration_engine = CalibrationEngine(cal_config)
+            if cal_config.method == "v2":
+                calibration_engine = DistributionCalibrationEngine(cal_config)
+            else:
+                calibration_engine = CalibrationEngine(cal_config)
             try:
                 target_cred = self._credentials.get_server_credential(server_id, server_os_family)
                 loadgen_cred = self._credentials.get_server_credential(loadgen_id, loadgen_os_family)

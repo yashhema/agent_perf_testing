@@ -530,33 +530,44 @@ class CalibrationEngine:
                 cal_record.updated_at = datetime.utcnow()
 
                 if not stable:
-                    # Decide direction: if too many below min, need MORE threads;
-                    # if too many above max (or low in-range%), need FEWER threads.
-                    if thread_count == 1 and pct_below > 10.0:
-                        # At minimum threads and CPU is too low — try incrementing
-                        new_tc = thread_count + 1
+                    # Decide direction and step size based on WHERE samples fall
+                    target_mid = (target_min + target_max) / 2
+                    pct_above = 100.0 - pct_in_range - pct_below
+
+                    if pct_below > pct_above:
+                        # Too COLD — need more threads
+                        # Scale up proportionally: if avg=15% and target_mid=30%, ratio=2.0
+                        ratio = target_mid / avg_cpu if avg_cpu > 0 else 2.0
+                        new_tc = max(thread_count + 1, int(thread_count * ratio))
+                        new_tc = min(new_tc, self._config.max_thread_count)
                         direction = "Incrementing"
-                    elif thread_count == 1 and pct_below <= 10.0:
-                        # At minimum threads and CPU is STILL too high — cannot go lower
-                        logger.error(
-                            "[CALIBRATION] %s | FAILED | thread_count=1 still gives avg_cpu=%.1f%% "
-                            "(target=%.0f-%.0f%%) — workload too heavy for this VM. "
-                            "Consider adding think time to JMX or reducing operation intensity.",
-                            ctx.server.hostname, avg_cpu, target_min, target_max,
-                        )
-                        cal_record.message = (
-                            f"FAILED: Even 1 thread gives {avg_cpu:.1f}% CPU "
-                            f"(target {target_min:.0f}-{target_max:.0f}%). "
-                            f"Workload too heavy — add think time or reduce intensity."
-                        )
-                        session.commit()
-                        raise CalibrationError(
-                            f"Cannot calibrate {ctx.server.hostname}: "
-                            f"1 thread gives {avg_cpu:.1f}% CPU, target is {target_min:.0f}-{target_max:.0f}%"
-                        )
+                        if new_tc <= thread_count:
+                            new_tc = thread_count + 1
                     else:
-                        new_tc = max(1, thread_count - 1)
+                        # Too HOT — need fewer threads
+                        if thread_count == 1:
+                            # Cannot go lower
+                            logger.error(
+                                "[CALIBRATION] %s | FAILED | thread_count=1 still gives avg_cpu=%.1f%% "
+                                "(target=%.0f-%.0f%%) — workload too heavy for this VM.",
+                                ctx.server.hostname, avg_cpu, target_min, target_max,
+                            )
+                            cal_record.message = (
+                                f"FAILED: Even 1 thread gives {avg_cpu:.1f}% CPU "
+                                f"(target {target_min:.0f}-{target_max:.0f}%)."
+                            )
+                            session.commit()
+                            raise CalibrationError(
+                                f"Cannot calibrate {ctx.server.hostname}: "
+                                f"1 thread gives {avg_cpu:.1f}% CPU, target is {target_min:.0f}-{target_max:.0f}%"
+                            )
+                        # Scale down proportionally: if avg=52% and target_mid=30%, ratio=0.577
+                        ratio = target_mid / avg_cpu if avg_cpu > 0 else 0.5
+                        new_tc = min(thread_count - 1, int(thread_count * ratio))
+                        new_tc = max(1, new_tc)
                         direction = "Decrementing"
+                        if new_tc >= thread_count:
+                            new_tc = thread_count - 1
 
                     cal_record.message = (
                         f"Stability check {check_num}/{confirmation_count} FAILED: "
@@ -690,9 +701,18 @@ class CalibrationEngine:
             avg_cpu = sum(cpu_values) / len(cpu_values)
             min_cpu = min(cpu_values)
             max_cpu = max(cpu_values)
+            # Statistical measures
+            import math
+            n = len(cpu_values)
+            sorted_cpu = sorted(cpu_values)
+            p50 = sorted_cpu[n // 2]
+            stddev = math.sqrt(sum((v - avg_cpu) ** 2 for v in cpu_values) / n) if n > 1 else 0
+            cv = stddev / avg_cpu if avg_cpu > 0 else 0  # coefficient of variation
+            burstiness = (stddev - avg_cpu) / (stddev + avg_cpu) if (stddev + avg_cpu) > 0 else 0
             logger.info(
-                "Observation: %d samples, CPU avg=%.1f%% min=%.1f%% max=%.1f%% spread=%.1f%%",
-                len(cpu_values), avg_cpu, min_cpu, max_cpu, max_cpu - min_cpu,
+                "Observation: %d samples, CPU avg=%.1f%% p50=%.1f%% min=%.1f%% max=%.1f%% "
+                "stddev=%.1f CV=%.2f burstiness=%.2f",
+                n, avg_cpu, p50, min_cpu, max_cpu, stddev, cv, burstiness,
             )
             # Log all CPU values for post-hoc analysis
             logger.info(
@@ -818,10 +838,15 @@ class CalibrationEngine:
                 pct_below_min, below_min,
                 pct_above_max, above_max, avg_cpu,
             )
+            import math
+            stddev = math.sqrt(sum((v - avg_cpu) ** 2 for v in cpu_values) / total) if total > 1 else 0
+            cv = stddev / avg_cpu if avg_cpu > 0 else 0
+            burstiness = (stddev - avg_cpu) / (stddev + avg_cpu) if (stddev + avg_cpu) > 0 else 0
             logger.info(
                 "Stability CPU distribution: min=%.1f%% p5=%.1f%% p50=%.1f%% "
-                "p95=%.1f%% max=%.1f%% (target %.0f-%.0f%%)",
-                sorted_cpu[0], p5, p50, p95, sorted_cpu[-1], target_min, target_max,
+                "p95=%.1f%% max=%.1f%% stddev=%.1f CV=%.2f burstiness=%.2f (target %.0f-%.0f%%)",
+                sorted_cpu[0], p5, p50, p95, sorted_cpu[-1], stddev, cv, burstiness,
+                target_min, target_max,
             )
             if below_values:
                 logger.info(

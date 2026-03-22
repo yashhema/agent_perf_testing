@@ -21,6 +21,7 @@ class CalibrationConfig:
     stability_min_in_range_pct: float = 55.0
     stability_max_below_pct: float = 25.0
     first_observation_settle_sec: int = 300  # extra settle time for first observation (JVM warmup)
+    method: str = "v1"  # "v1" = binary search (original), "v2" = distribution-aware (bracketed bisect)
 
 
 @dataclass
