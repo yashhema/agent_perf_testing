@@ -58,7 +58,7 @@
       </elementProp>
       <elementProp name="TOUCH_MB" elementType="Argument">
         <stringProp name="Argument.name">TOUCH_MB</stringProp>
-        <stringProp name="Argument.value">${__P(touch_mb,1.0)}</stringProp>
+        <stringProp name="Argument.value">${__P(touch_mb,0.2)}</stringProp>
         <stringProp name="Argument.metadata">=</stringProp>
       </elementProp>
     </collectionProp>
@@ -108,9 +108,9 @@
   </ThreadGroup>
   <hashTree>
 
-    <!-- Think time between requests (500ms) -->
+    <!-- Think time between requests -->
     <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think Time" enabled="true">
-      <stringProp name="ConstantTimer.delay">500</stringProp>
+      <stringProp name="ConstantTimer.delay">${__P(think_ms,500)}</stringProp>
     </ConstantTimer>
     <hashTree/>
 
@@ -119,7 +119,7 @@
       <stringProp name="delimiter">,</stringProp>
       <stringProp name="fileEncoding">UTF-8</stringProp>
       <stringProp name="filename">${OPS_SEQUENCE}</stringProp>
-      <boolProp name="ignoreFirstLine">false</boolProp>
+      <boolProp name="ignoreFirstLine">true</boolProp>
       <boolProp name="quotedData">false</boolProp>
       <boolProp name="recycle">true</boolProp>
       <stringProp name="shareMode">shareMode.all</stringProp>

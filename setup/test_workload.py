@@ -90,7 +90,7 @@ def read_cpu_stats(base_url, count=10):
         return []
 
 
-def fire_load(base_url, cpu_ms, intensity, threads, duration_sec, think_ms=500):
+def fire_load(base_url, cpu_ms, intensity, threads, duration_sec, think_ms=500, touch_mb=0.2):
     """Fire concurrent /work requests for duration_sec. Returns (req_count, error_count)."""
     stop_flag = [False]
     req_count = [0]
@@ -102,7 +102,7 @@ def fire_load(base_url, cpu_ms, intensity, threads, duration_sec, think_ms=500):
                 http_post(f"{base_url}/api/v1/operations/work", {
                     "cpu_ms": cpu_ms,
                     "intensity": intensity,
-                    "touch_mb": 1.0,
+                    "touch_mb": touch_mb,
                     "touch_pattern": "random",
                 }, timeout=10)
                 req_count[0] += 1
@@ -202,7 +202,7 @@ def test_work_direct(base_url):
 # ======================================================================
 # TEST 2: Concurrent load — measure CPU% from emulator stats
 # ======================================================================
-def test_concurrent(base_url, cpu_ms, intensity, threads=16, duration_sec=20):
+def test_concurrent(base_url, cpu_ms, intensity, threads=16, duration_sec=20, touch_mb=0.2):
     print("\n" + "=" * 60)
     print(f"  TEST 2: Concurrent load ({threads} threads, cpu_ms={cpu_ms}, {duration_sec}s)")
     print("=" * 60)
@@ -212,7 +212,7 @@ def test_concurrent(base_url, cpu_ms, intensity, threads=16, duration_sec=20):
         return None
 
     info(f"Firing {threads} concurrent workers for {duration_sec}s (500ms think time)...")
-    req_count, err_count = fire_load(base_url, cpu_ms, intensity, threads, duration_sec)
+    req_count, err_count = fire_load(base_url, cpu_ms, intensity, threads, duration_sec, touch_mb=touch_mb)
 
     info(f"Completed: {req_count} requests, {err_count} errors")
     info(f"Throughput: {req_count / duration_sec:.1f} req/sec")
@@ -239,7 +239,7 @@ def test_concurrent(base_url, cpu_ms, intensity, threads=16, duration_sec=20):
 # ======================================================================
 # TEST 3: Scaling curve — CPU% at different thread counts
 # ======================================================================
-def test_scaling(base_url, cpu_ms, intensity):
+def test_scaling(base_url, cpu_ms, intensity, touch_mb=0.2):
     print("\n" + "=" * 60)
     print(f"  TEST 3: Thread scaling curve (cpu_ms={cpu_ms}, intensity={intensity})")
     print("=" * 60)
@@ -257,7 +257,7 @@ def test_scaling(base_url, cpu_ms, intensity):
         # Short warmup
         time.sleep(2)
 
-        req_count, _ = fire_load(base_url, cpu_ms, intensity, tc, test_dur)
+        req_count, _ = fire_load(base_url, cpu_ms, intensity, tc, test_dur, touch_mb=touch_mb)
 
         time.sleep(2)
         cpu_values = read_cpu_stats(base_url, count=10)
@@ -328,6 +328,7 @@ def main():
     parser.add_argument("--port", type=int, default=8080, help="Emulator port")
     parser.add_argument("--cpu-ms", type=int, default=200, help="cpu_ms for load tests")
     parser.add_argument("--intensity", type=float, default=0.8, help="CPU burn intensity")
+    parser.add_argument("--touch-mb", type=float, default=0.2, help="Memory touch size in MB per request")
     parser.add_argument("--target-min", type=float, default=20, help="Target CPU min %%")
     parser.add_argument("--target-max", type=float, default=40, help="Target CPU max %%")
     parser.add_argument("--skip-scaling", action="store_true", help="Skip scaling test")
@@ -338,7 +339,7 @@ def main():
     print("=" * 60)
     print(f"  WORKLOAD TEST")
     print(f"  Target: {base_url}")
-    print(f"  cpu_ms={args.cpu_ms}  intensity={args.intensity}")
+    print(f"  cpu_ms={args.cpu_ms}  intensity={args.intensity}  touch_mb={args.touch_mb}")
     print(f"  Target CPU range: {args.target_min}-{args.target_max}%")
     print("=" * 60)
 
@@ -349,10 +350,10 @@ def main():
     if work_results is None:
         sys.exit(1)
 
-    avg_cpu = test_concurrent(base_url, args.cpu_ms, args.intensity)
+    avg_cpu = test_concurrent(base_url, args.cpu_ms, args.intensity, touch_mb=args.touch_mb)
 
     if not args.skip_scaling:
-        scaling = test_scaling(base_url, args.cpu_ms, args.intensity)
+        scaling = test_scaling(base_url, args.cpu_ms, args.intensity, touch_mb=args.touch_mb)
         recommend(scaling, args.target_min, args.target_max, args.cpu_ms)
     else:
         info("Scaling test skipped (--skip-scaling)")

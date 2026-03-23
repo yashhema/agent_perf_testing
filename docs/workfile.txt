@@ -612,3 +612,25 @@ All changes to src/ code are documented here with date, file, and summary.
   - Added db-assets generator files to sync list:
     generator/__init__.py, generators/__init__.py, generators/ops_sequence_generator.py
 
+2026-03-23  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - Removed _build_work_extra_properties() which hardcoded cpu_ms=10 (should be 200)
+  - Removed extra_props assignment in _do_calibration() and _do_testing()
+  - JMX defaults now apply: cpu_ms=200, intensity=0.8, touch_mb=0.2
+  - Root cause: calibration was generating ~2% CPU at T=1 instead of ~36%
+    because each /work request only burned 10ms CPU instead of 200ms
+  - Serialized calibration per loadgen: targets sharing a loadgen are calibrated
+    one at a time (different loadgens still parallel). Fixes JMeter interference
+    when two targets share a loadgen (start/stop overlap, corrupted readings).
+
+2026-03-23  orchestrator/artifacts/jmx/server-steady.jmx
+  - Changed touch_mb default from 1.0 to 0.2 — reduces per-request CPU cost so
+    calibration has a wider range (1 thread was already 36% with touch_mb=1.0)
+  - Made think_ms a JMeter property: ${__P(think_ms,500)} — configurable via
+    -Jthink_ms=N for reaching higher CPU levels with fewer threads
+  - Fixed ignoreFirstLine: false -> true — CSV header was being read as data,
+    causing 1 misrouted request per CSV cycle
+
+2026-03-23  setup/test_workload.py
+  - Added --touch-mb flag (default 0.2) for testing with different memory touch sizes
+  - Wired touch_mb through fire_load(), test_concurrent(), test_scaling()
+

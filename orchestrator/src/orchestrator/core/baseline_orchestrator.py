@@ -1366,7 +1366,6 @@ class BaselineOrchestrator:
                     extra_props = None
                     if needs_pool:
                         BaselineOrchestrator._setup_pool(em_client, scenario_template)
-                        extra_props = BaselineOrchestrator._build_work_extra_properties()
 
                     run_dir = f"/data/jmeter/runs/baseline_{test_run_id}/lg_{loadgen_id}/target_{server_id}"
 
@@ -1430,21 +1429,42 @@ class BaselineOrchestrator:
             for target_orm, server, loadgen, test_snapshot, _ in targets
         }
 
-        # Run calibration in parallel — strict barrier
-        errors = []
-        with ThreadPoolExecutor(max_workers=len(cal_tasks)) as pool:
-            futures = {pool.submit(_calibrate_one_target, t): t for t in cal_tasks}
-            for future in as_completed(futures):
-                hostname, err = future.result()
+        # Group targets by loadgen — serialize within each group to avoid
+        # JMeter interference on shared loadgens (start/stop overlap).
+        # Different loadgens still run in parallel.
+        from collections import defaultdict
+        loadgen_groups = defaultdict(list)
+        for task in cal_tasks:
+            loadgen_ip = task[6]  # loadgen_ip is at index 6
+            loadgen_groups[loadgen_ip].append(task)
+
+        def _run_loadgen_group(group_tasks):
+            """Calibrate targets sharing a loadgen one at a time."""
+            group_results = []
+            for task in group_tasks:
+                hostname, err = _calibrate_one_target(task)
+                group_results.append((hostname, err))
                 if err:
-                    errors.append(f"[{hostname}] {err}")
-                    t_orm = hostname_to_target.get(hostname)
-                    if t_orm:
-                        session.expire(t_orm)
-                        self._set_target_state(
-                            session, t_orm, BaselineTargetState.failed,
-                            error_message=f"[LP={current_lp.name}] {err}",
-                        )
+                    break  # Strict barrier: stop group on first failure
+            return group_results
+
+        errors = []
+        with ThreadPoolExecutor(max_workers=len(loadgen_groups)) as pool:
+            futures = {
+                pool.submit(_run_loadgen_group, tasks): lg_ip
+                for lg_ip, tasks in loadgen_groups.items()
+            }
+            for future in as_completed(futures):
+                for hostname, err in future.result():
+                    if err:
+                        errors.append(f"[{hostname}] {err}")
+                        t_orm = hostname_to_target.get(hostname)
+                        if t_orm:
+                            session.expire(t_orm)
+                            self._set_target_state(
+                                session, t_orm, BaselineTargetState.failed,
+                                error_message=f"[LP={current_lp.name}] {err}",
+                            )
 
         # Strict barrier: any failure -> test fails
         if errors:
@@ -1901,7 +1921,6 @@ class BaselineOrchestrator:
             extra_props = None
             if needs_pool:
                 self._setup_pool(em_client, scenario.template_type)
-                extra_props = self._build_work_extra_properties()
 
             loadgen_cred = self._credentials.get_server_credential(loadgen.id, loadgen.os_family.value)
             loadgen_exec = create_executor(
@@ -2409,14 +2428,6 @@ class BaselineOrchestrator:
                     logger.debug("Pool cleanup for %s skipped: %s", server.hostname, e)
         except Exception as e:
             logger.debug("Pool cleanup skipped (context unavailable): %s", e)
-
-    @staticmethod
-    def _build_work_extra_properties() -> Dict:
-        return {
-            "cpu_ms": "10",
-            "intensity": "0.8",
-            "touch_mb": "1.0",
-        }
 
     # ------------------------------------------------------------------
     # Execution result persistence (cycle-keyed manifests)
