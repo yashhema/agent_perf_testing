@@ -219,9 +219,20 @@ class DistributionCalibrationEngine(CalibrationEngine):
             self._cleanup_iteration(ctx, iteration=iteration, phase="bracket")
 
             if avg_cpu is None:
-                logger.warning("[CAL-V2] %s | BRACKET | T=%d observation failed, retrying",
-                               ctx.server.hostname, T)
+                # Cap consecutive failures to avoid infinite loop
+                if not hasattr(self, '_consec_failures'):
+                    self._consec_failures = 0
+                self._consec_failures += 1
+                if self._consec_failures >= 3:
+                    raise RuntimeError(
+                        f"Calibration aborted: {self._consec_failures} consecutive observation "
+                        f"failures at T={T} on {ctx.server.hostname}"
+                    )
+                logger.warning("[CAL-V2] %s | BRACKET | T=%d observation failed (%d/3), retrying",
+                               ctx.server.hostname, T, self._consec_failures)
                 continue
+            else:
+                self._consec_failures = 0  # reset on success
 
             observations.append((T, avg_cpu))
             cal_record.last_observed_cpu = round(avg_cpu, 1)
