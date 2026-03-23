@@ -999,6 +999,10 @@ def main():
                         print(f"  [3] Installing prerequisites...")
                         install_prerequisites(executor, loadgen.os_family.value)
 
+                        # Setup data disk
+                        print(f"  [3b] Setting up data disk...")
+                        setup_data_disk(executor, loadgen.os_family.value, args.sudo_user)
+
                         # Cleanup
                         print(f"  [4] Cleaning...")
                         is_clean = cleanup_loadgen(executor, loadgen.hostname)
