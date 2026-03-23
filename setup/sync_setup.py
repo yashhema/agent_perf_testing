@@ -49,6 +49,7 @@ SETUP_FILES = {
     "setup/test_workload.py": "setup/test_workload.py",
     "setup/test_calibration_live.py": "setup/test_calibration_live.py",
     "setup/setup_jmeter.py": "setup/setup_jmeter.py",
+    "setup/validate_calibration.py": "setup/validate_calibration.py",
     "setup/open_firewall.py": "setup/open_firewall.py",
     "setup/requirements.txt": "setup/requirements.txt",
     "setup/build_artifacts.sh": "setup/build_artifacts.sh",
