@@ -101,8 +101,14 @@ class DistributionCalibrationEngine(CalibrationEngine):
         session: Session,
         test_run: Union[TestRunORM, BaselineTestRunORM],
         ctx: CalibrationContext,
+        start_from_threads: int = 0,
     ) -> int:
         """Run distribution-aware calibration.
+
+        Args:
+            start_from_threads: hint from a previous profile's calibration.
+                If > 0, bracket skips thread counts below this value
+                (they're known to be too cold for this profile's target range).
 
         Returns: calibrated thread_count
         Raises CalibrationError if stable calibration cannot be achieved.
@@ -117,10 +123,12 @@ class DistributionCalibrationEngine(CalibrationEngine):
 
         logger.info(
             "[CAL-V2] %s | LP=%s | target=%.0f-%.0f%% (mid=%.0f%%) | "
-            "thresholds: p25>=%.0f%% p75<=%.0f%% p90<=%.0f%%",
+            "thresholds: p25>=%.0f%% p75<=%.0f%% p90<=%.0f%%"
+            "%s",
             ctx.server.hostname, ctx.load_profile.name,
             target_min, target_max, target_mid,
             thresholds.min_p25, thresholds.max_p75, thresholds.max_p90,
+            f" | hint: start_from={start_from_threads}" if start_from_threads > 0 else "",
         )
 
         self._verify_emulator_health(ctx)
@@ -131,7 +139,8 @@ class DistributionCalibrationEngine(CalibrationEngine):
         try:
             # === Phase A: Bracket fast ===
             lower, upper = self._phase_a_bracket(
-                session, ctx, cal_record, ramp_up_sec, target_min, target_max, max_threads
+                session, ctx, cal_record, ramp_up_sec, target_min, target_max, max_threads,
+                start_from_threads=start_from_threads,
             )
 
             # === Phase B: Bisect ===
@@ -178,6 +187,7 @@ class DistributionCalibrationEngine(CalibrationEngine):
     def _phase_a_bracket(
         self, session, ctx, cal_record, ramp_up_sec,
         target_min, target_max, max_threads,
+        start_from_threads: int = 0,
     ) -> Tuple[int, int]:
         """Find lower and upper bounds by doubling thread count.
 
@@ -185,13 +195,25 @@ class DistributionCalibrationEngine(CalibrationEngine):
         - lower_bound: highest T where avg_cpu < target_min (too cold)
         - upper_bound: lowest T where avg_cpu > target_max (too hot)
         If a T lands in range, returns (T, T) — already found.
+
+        If start_from_threads > 0, skips thread counts below that value
+        (known too-cold from a previous profile's calibration).
         """
         target_mid = (target_min + target_max) / 2
         lower = 0   # thread count that was too cold (0 = not found)
         upper = 0   # thread count that was too hot (0 = not found)
         observations = []  # (threads, avg_cpu)
 
-        T = 1
+        # Use hint from previous profile if available
+        if start_from_threads > 0:
+            lower = start_from_threads  # known to be below our target_min
+            T = min(start_from_threads * 2, max_threads)
+            logger.info(
+                "[CAL-V2] %s | BRACKET | using hint: lower=%d, starting probe at T=%d",
+                ctx.server.hostname, lower, T,
+            )
+        else:
+            T = 1
         iteration = 0
         first_settle = self._config.first_observation_settle_sec
         bracket_settle = self._config.bracket_settle_sec

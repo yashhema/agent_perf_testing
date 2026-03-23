@@ -1386,8 +1386,29 @@ class BaselineOrchestrator:
                         extra_properties=extra_props,
                     )
 
+                    # Look up previous profile's calibration for this server
+                    # to use as starting hint (skip redundant bracket probes)
+                    prev_threads = 0
+                    prev_cals = thread_session.query(CalibrationResultORM).filter(
+                        CalibrationResultORM.baseline_test_run_id == test_run_id,
+                        CalibrationResultORM.server_id == server_id,
+                        CalibrationResultORM.status == "completed",
+                        CalibrationResultORM.load_profile_id != lp_id,
+                    ).order_by(CalibrationResultORM.thread_count.desc()).all()
+                    # Pick the highest completed thread count that's below our target
+                    for pc in prev_cals:
+                        if pc.thread_count and pc.thread_count > 0:
+                            prev_threads = pc.thread_count
+                            logger.info(
+                                "Using previous calibration hint: server=%s, "
+                                "prev_profile=%s, prev_threads=%d",
+                                server_hostname, pc.load_profile_id, prev_threads,
+                            )
+                            break
+
                     thread_count = calibration_engine.calibrate(
                         thread_session, test_run_orm, ctx,
+                        start_from_threads=prev_threads,
                     )
                     logger.info(
                         "Calibrated: server=%s, profile='%s', thread_count=%d",

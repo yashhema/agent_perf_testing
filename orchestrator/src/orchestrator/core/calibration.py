@@ -70,8 +70,12 @@ class CalibrationEngine:
         session: Session,
         test_run: Union[TestRunORM, BaselineTestRunORM],
         ctx: CalibrationContext,
+        start_from_threads: int = 0,
     ) -> int:
         """Run calibration for a single server x load_profile.
+
+        Args:
+            start_from_threads: hint from previous profile (used by v2 engine).
 
         Returns: calibrated thread_count
         Raises CalibrationError if stable calibration cannot be achieved.
