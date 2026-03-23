@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Live calibration test — runs JMeter with the real CSV+JMX and shows CPU in real time.
+"""Live calibration test -- runs JMeter with the real CSV+JMX and shows CPU in real time.
 
 Generates a calibration CSV, starts JMeter, polls emulator stats every 5s,
-and prints exactly what's happening. No orchestrator, no DB, no SSH — just
-JMeter → emulator on the same machine or across the network.
+and prints exactly what's happening. All output is printed AND saved to a log file.
+Also fetches emulator-side request logs to see what the emulator actually received.
 
 Prerequisites:
   - JMeter installed (default: /data/jmeter/bin/jmeter)
@@ -11,20 +11,16 @@ Prerequisites:
   - Pool allocated on emulator (script does this automatically)
 
 Usage:
-    # Local: JMeter and emulator on same machine
-    python test_calibration_live.py --target-ip localhost --threads 4 --duration 60
+    # Single thread count test
+    python test_calibration_live.py --target-ip 10.200.157.107 --threads 4 --duration 60
 
-    # Remote emulator, local JMeter
-    python test_calibration_live.py --target-ip 10.200.157.107 --threads 8
+    # Scaling test: thread counts 1,2,4,8,16,24,32,50
+    python test_calibration_live.py --target-ip 10.200.157.107 --scaling
 
-    # Custom JMeter path
-    python test_calibration_live.py --target-ip localhost --jmeter-bin /opt/jmeter/bin/jmeter
+    # Custom params
+    python test_calibration_live.py --target-ip localhost --threads 8 --cpu-ms 200 --think-ms 100
 
-    # Scaling test: run multiple thread counts back-to-back
-    python test_calibration_live.py --target-ip localhost --scaling
-
-    # Test with different think time
-    python test_calibration_live.py --target-ip localhost --threads 4 --think-ms 100
+Output saved to: calibration_live_<timestamp>.log
 """
 
 import argparse
@@ -32,13 +28,13 @@ import csv
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
 import urllib.error
+from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -47,6 +43,32 @@ JMX_SOURCE = os.path.join(REPO_ROOT, "orchestrator", "artifacts", "jmx", "server
 
 if DB_ASSETS not in sys.path:
     sys.path.insert(0, DB_ASSETS)
+
+
+# ---------------------------------------------------------------------------
+# Logging -- print to console AND write to file
+# ---------------------------------------------------------------------------
+
+_log_file = None
+
+def log(msg=""):
+    print(msg)
+    if _log_file:
+        _log_file.write(msg + "\n")
+        _log_file.flush()
+
+
+def init_log(log_path):
+    global _log_file
+    _log_file = open(log_path, "w", encoding="utf-8")
+    log(f"Log file: {log_path}")
+
+
+def close_log():
+    global _log_file
+    if _log_file:
+        _log_file.close()
+        _log_file = None
 
 
 # ---------------------------------------------------------------------------
@@ -74,10 +96,10 @@ def http_get(url, timeout=10):
 def check_health(base_url):
     try:
         resp = http_get(f"{base_url}/api/v1/health")
-        print(f"  [OK] Emulator healthy: {resp.get('status')}, uptime={resp.get('uptime_sec', '?')}s")
+        log(f"  [OK] Emulator healthy: {resp.get('status')}, uptime={resp.get('uptime_sec', '?')}s")
         return True
     except Exception as e:
-        print(f"  [FAIL] Emulator not reachable: {e}")
+        log(f"  [FAIL] Emulator not reachable at {base_url}: {e}")
         return False
 
 
@@ -86,12 +108,12 @@ def allocate_pool(base_url, heap_pct=0.5):
         resp = http_post(f"{base_url}/api/v1/config/pool", {"heap_percent": heap_pct})
         if resp.get("allocated"):
             size_mb = resp.get("size_bytes", 0) / 1024 / 1024
-            print(f"  [OK] Pool allocated: {size_mb:.0f} MB ({heap_pct*100:.0f}% of heap)")
+            log(f"  [OK] Pool allocated: {size_mb:.0f} MB ({heap_pct*100:.0f}% of heap)")
         else:
-            print(f"  [OK] Pool already allocated")
+            log(f"  [OK] Pool already allocated")
         return True
     except Exception as e:
-        print(f"  [FAIL] Pool allocation failed: {e}")
+        log(f"  [FAIL] Pool allocation failed: {e}")
         return False
 
 
@@ -106,7 +128,7 @@ def start_stats(base_url, tag, threads):
         })
         return resp.get("test_id", tag)
     except Exception as e:
-        print(f"  [FAIL] Start stats failed: {e}")
+        log(f"  [FAIL] Start stats failed: {e}")
         return None
 
 
@@ -118,12 +140,47 @@ def stop_stats(base_url, test_id):
 
 
 def read_stats(base_url, count=10):
+    """Read recent CPU/MEM samples from emulator."""
     try:
         stats = http_get(f"{base_url}/api/v1/stats/recent?count={count}")
         samples = stats.get("samples", [])
-        return [s.get("cpu_percent", 0) for s in samples]
+        return samples  # return full samples, not just CPU
     except Exception:
         return []
+
+
+def get_emulator_request_log(base_url, count=20):
+    """Get the emulator's recent request log -- shows what endpoints were hit."""
+    # Try multiple possible endpoints
+    for endpoint in [
+        f"{base_url}/api/v1/stats/requests",
+        f"{base_url}/api/v1/operations/stats",
+        f"{base_url}/api/v1/stats/operations",
+    ]:
+        try:
+            resp = http_get(endpoint)
+            return resp
+        except Exception:
+            continue
+    return None
+
+
+def get_emulator_config(base_url):
+    """Get current emulator config."""
+    try:
+        resp = http_get(f"{base_url}/api/v1/config")
+        return resp
+    except Exception:
+        return None
+
+
+def check_emulator_test_status(base_url):
+    """Check if emulator has an active test running."""
+    try:
+        resp = http_get(f"{base_url}/api/v1/tests/current")
+        return resp
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +202,14 @@ def generate_calibration_csv(output_path, count=500000):
     dist = Counter(row['op_type'] for row in ops[:1000])
     total = sum(dist.values())
     dist_str = ", ".join(f"{op}={c*100//total}%" for op, c in dist.most_common())
-    print(f"  [OK] Generated {count} rows → {output_path}")
-    print(f"       Op mix (first 1000): {dist_str}")
+    log(f"  [OK] Generated {count} rows -> {output_path}")
+    log(f"       Op mix (first 1000): {dist_str}")
+
+    # Show first 5 data rows
+    log(f"       First 5 rows:")
+    for row in ops[:5]:
+        log(f"         {row['seq_id']:>5}  op={row['op_type']}")
+
     return output_path
 
 
@@ -159,9 +222,9 @@ def start_jmeter(jmeter_bin, jmx_path, csv_path, jtl_path, log_path,
                  cpu_ms, intensity, touch_mb, think_ms):
     cmd = [
         jmeter_bin, "-n",
-        f"-t", jmx_path,
-        f"-l", jtl_path,
-        f"-j", log_path,
+        "-t", jmx_path,
+        "-l", jtl_path,
+        "-j", log_path,
         f"-Jthreads={threads}",
         f"-Jrampup={ramp_sec}",
         f"-Jduration={duration_sec}",
@@ -172,9 +235,9 @@ def start_jmeter(jmeter_bin, jmx_path, csv_path, jtl_path, log_path,
         f"-Jintensity={intensity}",
         f"-Jtouch_mb={touch_mb}",
         f"-Jthink_ms={think_ms}",
-        f"-Jloopcount=-1",
+        "-Jloopcount=-1",
     ]
-    print(f"  [CMD] {' '.join(cmd)}")
+    log(f"  [CMD] {' '.join(cmd)}")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return proc
 
@@ -193,7 +256,7 @@ def check_jmeter_alive(proc):
 
 
 # ---------------------------------------------------------------------------
-# Single run: start JMeter, monitor CPU, stop
+# Single run: start JMeter, monitor CPU, stop, analyze everything
 # ---------------------------------------------------------------------------
 
 def run_single_test(args, threads, work_dir, duration_sec=None):
@@ -204,165 +267,303 @@ def run_single_test(args, threads, work_dir, duration_sec=None):
     jmx_path = os.path.join(work_dir, "test.jmx")
     csv_path = os.path.join(work_dir, "calibration_ops.csv")
     jtl_path = os.path.join(work_dir, f"test_T{threads}.jtl")
-    log_path = os.path.join(work_dir, f"test_T{threads}.log")
+    jmeter_log_path = os.path.join(work_dir, f"test_T{threads}.log")
 
     ramp_sec = min(30, duration_sec // 3)
-    observe_after = ramp_sec + 10  # start reading stats after ramp + 10s settle
+    observe_after = ramp_sec + 10
 
-    print(f"\n{'='*70}")
-    print(f"  JMETER LIVE TEST: threads={threads}, duration={duration_sec}s")
-    print(f"  Target: {base_url}")
-    print(f"  cpu_ms={args.cpu_ms}, intensity={args.intensity}, "
-          f"touch_mb={args.touch_mb}, think_ms={args.think_ms}")
-    print(f"{'='*70}")
+    log(f"\n{'='*70}")
+    log(f"  JMETER LIVE TEST: threads={threads}, duration={duration_sec}s")
+    log(f"  Target: {base_url}")
+    log(f"  cpu_ms={args.cpu_ms}, intensity={args.intensity}, "
+        f"touch_mb={args.touch_mb}, think_ms={args.think_ms}")
+    log(f"  JMX: {jmx_path}")
+    log(f"  CSV: {csv_path}")
+    log(f"  JTL: {jtl_path}")
+    log(f"{'='*70}")
+
+    # Check emulator state BEFORE starting
+    log(f"\n  --- Pre-test emulator state ---")
+    emu_config = get_emulator_config(base_url)
+    if emu_config:
+        log(f"  Emulator config: {json.dumps(emu_config, indent=2)[:500]}")
+
+    test_status = check_emulator_test_status(base_url)
+    if test_status:
+        log(f"  Active test: {json.dumps(test_status)[:200]}")
+
+    # Read baseline CPU before JMeter starts
+    baseline_samples = read_stats(base_url, count=5)
+    if baseline_samples:
+        baseline_cpu = [s.get("cpu_percent", 0) for s in baseline_samples]
+        log(f"  Baseline CPU (before JMeter): {[round(v, 1) for v in baseline_cpu]}")
+    else:
+        log(f"  Baseline CPU: no samples available")
 
     # Start emulator stats
     test_id = start_stats(base_url, f"live_T{threads}", threads)
     if not test_id:
         return None
+    log(f"  Stats collection started (test_id={test_id})")
 
     # Start JMeter
     proc = start_jmeter(
-        args.jmeter_bin, jmx_path, csv_path, jtl_path, log_path,
+        args.jmeter_bin, jmx_path, csv_path, jtl_path, jmeter_log_path,
         threads, ramp_sec, duration_sec, args.target_ip, args.port,
         args.cpu_ms, args.intensity, args.touch_mb, args.think_ms,
     )
 
     time.sleep(3)
     if not check_jmeter_alive(proc):
-        print(f"  [FAIL] JMeter died within 3 seconds!")
+        log(f"  [FAIL] JMeter died within 3 seconds!")
         stdout, stderr = proc.communicate()
+        if stdout:
+            log(f"  stdout: {stdout.decode()[:500]}")
         if stderr:
-            print(f"  stderr: {stderr.decode()[:500]}")
+            log(f"  stderr: {stderr.decode()[:500]}")
         stop_stats(base_url, test_id)
         return None
 
-    print(f"  [OK] JMeter started (PID {proc.pid})")
-    print(f"  [INFO] Waiting {observe_after}s for ramp+settle...")
-    print()
+    log(f"  [OK] JMeter started (PID {proc.pid})")
+    log(f"  Ramp={ramp_sec}s, observe_after={observe_after}s, total={duration_sec}s")
+    log()
 
-    # Monitor CPU every 5 seconds
+    # Monitor loop
     all_cpu = []
+    all_mem = []
     elapsed = 0
     poll_interval = 5
     header_printed = False
+    request_count_at_start = None
 
     try:
         while elapsed < duration_sec:
             time.sleep(poll_interval)
             elapsed += poll_interval
 
-            if not check_jmeter_alive(proc):
-                print(f"\n  [FAIL] JMeter died at {elapsed}s!")
+            jmeter_alive = check_jmeter_alive(proc)
+            if not jmeter_alive:
+                log(f"\n  [FAIL] JMeter died at {elapsed}s!")
+                stdout, stderr = proc.communicate()
+                if stderr:
+                    log(f"  stderr: {stderr.decode()[:300]}")
                 break
 
-            cpu_vals = read_stats(base_url, count=poll_interval)
-            if cpu_vals:
-                avg = sum(cpu_vals) / len(cpu_vals)
+            samples = read_stats(base_url, count=poll_interval)
+            if samples:
+                cpu_vals = [s.get("cpu_percent", 0) for s in samples]
+                mem_vals = [s.get("mem_percent", 0) for s in samples]
+                avg_cpu = sum(cpu_vals) / len(cpu_vals)
+                avg_mem = sum(mem_vals) / len(mem_vals) if mem_vals else 0
                 phase = "ramp" if elapsed < ramp_sec else "settle" if elapsed < observe_after else "observe"
 
                 if not header_printed:
-                    print(f"  {'time':>6}  {'phase':>8}  {'cpu_avg':>8}  {'samples':>8}  {'jmeter':>8}  values")
-                    print(f"  {'─'*6}  {'─'*8}  {'─'*8}  {'─'*8}  {'─'*8}  {'─'*30}")
+                    log(f"  {'time':>6}  {'phase':>8}  {'cpu%':>7}  {'mem%':>7}  {'samples':>7}  {'jmeter':>7}  cpu_values")
+                    log(f"  {'---':>6}  {'---':>8}  {'---':>7}  {'---':>7}  {'---':>7}  {'---':>7}  {'---':>30}")
                     header_printed = True
 
-                jmeter_status = "alive" if check_jmeter_alive(proc) else "DEAD"
+                jm_str = "alive" if jmeter_alive else "DEAD"
                 vals_str = ", ".join(f"{v:.1f}" for v in cpu_vals[-5:])
-                print(f"  {elapsed:>5}s  {phase:>8}  {avg:>7.1f}%  {len(cpu_vals):>8}  {jmeter_status:>8}  [{vals_str}]")
+                log(f"  {elapsed:>5}s  {phase:>8}  {avg_cpu:>6.1f}%  {avg_mem:>6.1f}%  {len(cpu_vals):>7}  {jm_str:>7}  [{vals_str}]")
 
                 if phase == "observe":
                     all_cpu.extend(cpu_vals)
-    except KeyboardInterrupt:
-        print("\n  [INFO] Interrupted by user")
+                    all_mem.extend(mem_vals)
+            else:
+                log(f"  {elapsed:>5}s  {'---':>8}  {'---':>7}  {'---':>7}  {'0':>7}  {'?':>7}  [no samples!]")
 
-    # Stop
+    except KeyboardInterrupt:
+        log("\n  [INFO] Interrupted by user")
+
+    # Stop JMeter
+    log(f"\n  Stopping JMeter...")
     stop_jmeter(proc)
-    time.sleep(1)
+    time.sleep(2)
+
+    # Read final stats before stopping collection
+    final_samples = read_stats(base_url, count=5)
+    if final_samples:
+        final_cpu = [s.get("cpu_percent", 0) for s in final_samples]
+        log(f"  Post-stop CPU: {[round(v, 1) for v in final_cpu]}")
+
     stop_stats(base_url, test_id)
 
-    # JTL analysis
+    # --- Emulator request log ---
+    log(f"\n  --- Emulator request analysis ---")
+    req_log = get_emulator_request_log(base_url)
+    if req_log:
+        log(f"  Emulator request stats: {json.dumps(req_log, indent=2)[:1000]}")
+    else:
+        log(f"  No emulator request log endpoint available")
+
+    # --- JTL analysis ---
+    log(f"\n  --- JTL analysis ---")
     if os.path.exists(jtl_path):
         with open(jtl_path) as f:
-            jtl_lines = sum(1 for _ in f) - 1  # minus header
-        print(f"\n  JTL: {jtl_lines} requests recorded")
+            jtl_lines = sum(1 for _ in f) - 1
+        log(f"  Total requests: {jtl_lines}")
 
-        # Count by label (op type)
-        with open(jtl_path) as f:
-            reader = csv.DictReader(f)
-            from collections import Counter
-            labels = Counter()
-            errors = 0
-            for row in reader:
-                labels[row.get('label', '?')] += 1
-                if row.get('success', 'true') == 'false':
-                    errors += 1
-            print(f"  Errors: {errors}/{sum(labels.values())}")
-            print(f"  Request distribution:")
+        if jtl_lines > 0:
+            with open(jtl_path) as f:
+                reader = csv.DictReader(f)
+                from collections import Counter
+                labels = Counter()
+                success_count = 0
+                error_count = 0
+                response_codes = Counter()
+                elapsed_times = []
+                first_ts = None
+                last_ts = None
+
+                for row in reader:
+                    labels[row.get('label', '?')] += 1
+                    if row.get('success', 'true').lower() == 'true':
+                        success_count += 1
+                    else:
+                        error_count += 1
+                    response_codes[row.get('responseCode', '?')] += 1
+                    try:
+                        elapsed_times.append(int(row.get('elapsed', 0)))
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        ts = int(row.get('timeStamp', 0))
+                        if first_ts is None:
+                            first_ts = ts
+                        last_ts = ts
+                    except (ValueError, TypeError):
+                        pass
+
+            total = sum(labels.values())
+            log(f"  Success: {success_count}, Errors: {error_count}")
+
+            if first_ts and last_ts and last_ts > first_ts:
+                actual_duration = (last_ts - first_ts) / 1000
+                throughput = total / actual_duration if actual_duration > 0 else 0
+                log(f"  Actual duration: {actual_duration:.1f}s, Throughput: {throughput:.1f} req/s")
+
+            log(f"  Response codes: {dict(response_codes.most_common())}")
+
+            if elapsed_times:
+                elapsed_times.sort()
+                avg_rt = sum(elapsed_times) / len(elapsed_times)
+                p50_rt = elapsed_times[len(elapsed_times) // 2]
+                p95_rt = elapsed_times[int(len(elapsed_times) * 0.95)]
+                log(f"  Response times: avg={avg_rt:.0f}ms p50={p50_rt}ms p95={p95_rt}ms "
+                    f"min={elapsed_times[0]}ms max={elapsed_times[-1]}ms")
+
+            log(f"\n  Request distribution:")
             for label, count in labels.most_common():
-                print(f"    {label:20s}  {count:>6}  ({count*100//max(1,sum(labels.values()))}%)")
+                pct = count * 100 // max(1, total)
+                avg_rt_label = ""
+                log(f"    {label:20s}  {count:>6}  ({pct}%)")
 
-    # Check JMeter log for errors
-    if os.path.exists(log_path):
-        with open(log_path) as f:
-            log_content = f.read()
-        error_lines = [l for l in log_content.splitlines()
-                       if 'ERROR' in l or 'FATAL' in l or 'Exception' in l]
+            # Show first 5 error rows if any
+            if error_count > 0:
+                log(f"\n  First 5 errors:")
+                with open(jtl_path) as f:
+                    reader = csv.DictReader(f)
+                    shown = 0
+                    for row in reader:
+                        if row.get('success', 'true').lower() != 'true' and shown < 5:
+                            log(f"    label={row.get('label')} code={row.get('responseCode')} "
+                                f"msg={row.get('responseMessage', '')[:80]}")
+                            shown += 1
+    else:
+        log(f"  [WARN] No JTL file found at {jtl_path}")
+
+    # --- JMeter log analysis ---
+    log(f"\n  --- JMeter log analysis ---")
+    if os.path.exists(jmeter_log_path):
+        with open(jmeter_log_path) as f:
+            log_lines = f.readlines()
+
+        total_lines = len(log_lines)
+        error_lines = [l.strip() for l in log_lines
+                       if 'ERROR' in l or 'FATAL' in l]
+        warn_lines = [l.strip() for l in log_lines
+                      if 'WARN' in l]
+
+        log(f"  Log lines: {total_lines}, Errors: {len(error_lines)}, Warnings: {len(warn_lines)}")
+
         if error_lines:
-            print(f"\n  [WARN] JMeter log errors ({len(error_lines)}):")
-            for line in error_lines[:5]:
-                print(f"    {line[:120]}")
+            log(f"  ERROR lines:")
+            for line in error_lines[:10]:
+                log(f"    {line[:150]}")
 
-    # Summary
+        if warn_lines:
+            log(f"  WARN lines (first 5):")
+            for line in warn_lines[:5]:
+                log(f"    {line[:150]}")
+
+        # Show last 10 lines of JMeter log
+        log(f"\n  Last 10 lines of JMeter log:")
+        for line in log_lines[-10:]:
+            log(f"    {line.rstrip()}")
+    else:
+        log(f"  [WARN] No JMeter log found at {jmeter_log_path}")
+
+    # --- CPU Summary ---
     if all_cpu:
         avg_cpu = sum(all_cpu) / len(all_cpu)
         min_cpu = min(all_cpu)
         max_cpu = max(all_cpu)
-        print(f"\n  {'─'*50}")
-        print(f"  RESULT: threads={threads} → avg CPU={avg_cpu:.1f}% "
-              f"(min={min_cpu:.1f}%, max={max_cpu:.1f}%, samples={len(all_cpu)})")
-        print(f"  {'─'*50}")
+        avg_mem = sum(all_mem) / len(all_mem) if all_mem else 0
+
+        log(f"\n  {'='*50}")
+        log(f"  RESULT: threads={threads}")
+        log(f"    CPU:  avg={avg_cpu:.1f}%  min={min_cpu:.1f}%  max={max_cpu:.1f}%  samples={len(all_cpu)}")
+        log(f"    MEM:  avg={avg_mem:.1f}%")
+        log(f"  {'='*50}")
         return avg_cpu
     else:
-        print(f"\n  [FAIL] No CPU samples collected")
+        log(f"\n  [FAIL] No CPU samples collected during observe phase")
         return None
 
 
 # ---------------------------------------------------------------------------
-# Scaling test: multiple thread counts
+# Scaling test
 # ---------------------------------------------------------------------------
 
 def run_scaling_test(args, work_dir):
     thread_counts = [1, 2, 4, 8, 16, 24, 32, 50]
     results = []
-    dur = 45  # shorter per step for scaling
+    dur = 45
 
-    print(f"\n{'='*70}")
-    print(f"  SCALING TEST (cpu_ms={args.cpu_ms}, touch_mb={args.touch_mb}, think_ms={args.think_ms})")
-    print(f"{'='*70}")
+    log(f"\n{'='*70}")
+    log(f"  SCALING TEST")
+    log(f"  cpu_ms={args.cpu_ms}, touch_mb={args.touch_mb}, think_ms={args.think_ms}")
+    log(f"  Thread counts: {thread_counts}")
+    log(f"  Duration per step: {dur}s")
+    log(f"{'='*70}")
 
     for tc in thread_counts:
         avg_cpu = run_single_test(args, tc, work_dir, duration_sec=dur)
         if avg_cpu is not None:
             results.append((tc, avg_cpu))
-        time.sleep(5)  # cooldown
+        time.sleep(5)
 
     if results:
-        print(f"\n{'='*70}")
-        print(f"  SCALING SUMMARY")
-        print(f"{'='*70}")
-        print(f"\n  {'threads':>8}  {'cpu_avg':>8}  {'profile':>20}")
-        print(f"  {'─'*8}  {'─'*8}  {'─'*20}")
+        log(f"\n{'='*70}")
+        log(f"  SCALING SUMMARY")
+        log(f"{'='*70}")
+        log(f"\n  {'threads':>8}  {'cpu_avg':>8}  {'profile':>20}")
+        log(f"  {'--------':>8}  {'--------':>8}  {'--------------------':>20}")
         for tc, cpu in results:
             profile = ""
             if 20 <= cpu <= 40:
-                profile = "← LOW (20-40%)"
+                profile = "<-- LOW (20-40%)"
             elif 40 < cpu <= 60:
-                profile = "← MEDIUM (40-60%)"
+                profile = "<-- MEDIUM (40-60%)"
             elif 60 < cpu <= 80:
-                profile = "← HIGH (60-80%)"
+                profile = "<-- HIGH (60-80%)"
             elif cpu > 80:
-                profile = "← TOO HOT"
-            print(f"  {tc:>8}  {cpu:>7.1f}%  {profile}")
+                profile = "<-- TOO HOT"
+            elif cpu < 20:
+                profile = "<-- TOO COLD"
+            log(f"  {tc:>8}  {cpu:>7.1f}%  {profile}")
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +572,7 @@ def run_scaling_test(args, work_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Live calibration test — runs real JMeter+CSV and shows CPU in real time")
+        description="Live calibration test -- runs real JMeter+CSV, shows CPU live, saves everything to log")
     parser.add_argument("--target-ip", default="localhost", help="Emulator target IP")
     parser.add_argument("--port", type=int, default=8080, help="Emulator port")
     parser.add_argument("--threads", type=int, default=4, help="JMeter thread count")
@@ -379,55 +580,92 @@ def main():
     parser.add_argument("--cpu-ms", type=int, default=200, help="CPU burn ms per /work request")
     parser.add_argument("--intensity", type=float, default=0.8, help="CPU burn intensity")
     parser.add_argument("--touch-mb", type=float, default=1.0, help="Memory touch MB per request")
-    parser.add_argument("--think-ms", type=int, default=500, help="Think time between requests")
+    parser.add_argument("--think-ms", type=int, default=500, help="Think time between requests (ms)")
     parser.add_argument("--jmeter-bin", default="/data/jmeter/bin/jmeter", help="JMeter binary path")
     parser.add_argument("--scaling", action="store_true", help="Run scaling test (1,2,4,8,16,24,32,50 threads)")
+    parser.add_argument("--log-dir", default=".", help="Directory for log file output")
     args = parser.parse_args()
 
     base_url = f"http://{args.target_ip}:{args.port}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = os.path.join(args.log_dir, f"calibration_live_{timestamp}.log")
 
-    # Preflight
-    print(f"\n{'='*70}")
-    print(f"  PREFLIGHT CHECKS")
-    print(f"{'='*70}")
+    # Init logging
+    init_log(log_path)
+
+    log(f"{'='*70}")
+    log(f"  CALIBRATION LIVE TEST")
+    log(f"  Started: {datetime.now().isoformat()}")
+    log(f"  Target: {base_url}")
+    log(f"  Params: cpu_ms={args.cpu_ms} intensity={args.intensity} "
+        f"touch_mb={args.touch_mb} think_ms={args.think_ms}")
+    log(f"  Mode: {'scaling' if args.scaling else f'single (threads={args.threads})'}")
+    log(f"  Log: {log_path}")
+    log(f"{'='*70}")
+
+    # --- Preflight ---
+    log(f"\n  --- Preflight ---")
 
     # Check JMeter
     if not os.path.exists(args.jmeter_bin):
-        # Try common locations
         for alt in ["/data/jmeter/bin/jmeter", "/opt/jmeter/bin/jmeter",
                     shutil.which("jmeter") or ""]:
             if alt and os.path.exists(alt):
                 args.jmeter_bin = alt
                 break
         else:
-            print(f"  [FAIL] JMeter not found at {args.jmeter_bin}")
-            print(f"  Install JMeter or use --jmeter-bin /path/to/jmeter")
+            log(f"  [FAIL] JMeter not found at {args.jmeter_bin}")
+            close_log()
             sys.exit(1)
-    print(f"  [OK] JMeter: {args.jmeter_bin}")
+    log(f"  [OK] JMeter: {args.jmeter_bin}")
 
     # Check JMX
     if not os.path.exists(JMX_SOURCE):
-        print(f"  [FAIL] JMX not found: {JMX_SOURCE}")
+        log(f"  [FAIL] JMX not found: {JMX_SOURCE}")
+        close_log()
         sys.exit(1)
-    print(f"  [OK] JMX: {JMX_SOURCE}")
+    log(f"  [OK] JMX: {JMX_SOURCE}")
 
     # Check emulator
     if not check_health(base_url):
+        close_log()
         sys.exit(1)
 
     # Allocate pool
     if not allocate_pool(base_url):
+        close_log()
         sys.exit(1)
 
-    # Setup work directory
+    # Show emulator config
+    emu_config = get_emulator_config(base_url)
+    if emu_config:
+        log(f"  Emulator config: {json.dumps(emu_config, indent=2)[:800]}")
+
+    # Setup work dir
     work_dir = tempfile.mkdtemp(prefix="cal_live_")
-    print(f"  [OK] Work dir: {work_dir}")
+    log(f"  [OK] Work dir: {work_dir}")
 
     try:
         # Copy JMX
         jmx_dest = os.path.join(work_dir, "test.jmx")
         shutil.copy2(JMX_SOURCE, jmx_dest)
-        print(f"  [OK] Copied JMX → {jmx_dest}")
+        log(f"  [OK] Copied JMX -> {jmx_dest}")
+
+        # Verify JMX content
+        with open(jmx_dest) as f:
+            jmx_content = f.read()
+        if "SwitchController" in jmx_content:
+            log(f"  [OK] JMX has SwitchController")
+        else:
+            log(f"  [WARN] JMX missing SwitchController!")
+        if "think_ms" in jmx_content:
+            log(f"  [OK] JMX has think_ms property")
+        else:
+            log(f"  [WARN] JMX missing think_ms property (using hardcoded 500ms)")
+        if "ignoreFirstLine\">true" in jmx_content:
+            log(f"  [OK] JMX ignoreFirstLine=true")
+        elif "ignoreFirstLine\">false" in jmx_content:
+            log(f"  [WARN] JMX ignoreFirstLine=false -- header row will be read as data!")
 
         # Generate CSV
         csv_dest = os.path.join(work_dir, "calibration_ops.csv")
@@ -435,18 +673,24 @@ def main():
 
         # Run test
         if args.scaling:
-            run_scaling_test(args, work_dir)
+            results = run_scaling_test(args, work_dir)
         else:
             run_single_test(args, args.threads, work_dir)
 
+    except Exception as e:
+        log(f"\n  [ERROR] Unhandled exception: {e}")
+        import traceback
+        log(traceback.format_exc())
     finally:
-        # Cleanup
-        print(f"\n  Cleaning up {work_dir}")
+        log(f"\n  Cleaning up {work_dir}")
         shutil.rmtree(work_dir, ignore_errors=True)
 
-    print(f"\n{'='*70}")
-    print(f"  DONE")
-    print(f"{'='*70}")
+    log(f"\n{'='*70}")
+    log(f"  DONE at {datetime.now().isoformat()}")
+    log(f"  Full log saved to: {log_path}")
+    log(f"{'='*70}")
+
+    close_log()
 
 
 if __name__ == "__main__":
