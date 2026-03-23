@@ -274,118 +274,203 @@ def check_jmeter_alive(proc):
 # Single run: start JMeter, monitor CPU, stop, analyze everything
 # ---------------------------------------------------------------------------
 
-def run_single_test(args, threads, work_dir, duration_sec=None):
-    if duration_sec is None:
-        duration_sec = args.duration
+def run_single_test(args, threads, work_dir, quick=False):
+    """Run a single JMeter test matching real calibration timings.
 
+    Phases (matching calibration.py _run_observation + _run_stability_check):
+      1. RAMP:      30s  — JMeter threads ramp up
+      2. SETTLE:    30s  — JVM warmup, let CPU stabilize
+      3. OBSERVE:  180s  — collect 120 samples (same as observation_reading_count)
+      4. STABILITY: 900s — collect 900 samples (same as stability check)
+
+    If quick=True (used in scaling mode): skip stability, shorter observe.
+    """
     base_url = f"http://{args.target_ip}:{args.port}"
     jmx_path = os.path.join(work_dir, "test.jmx")
     csv_path = os.path.join(work_dir, "calibration_ops.csv")
     jtl_path = os.path.join(work_dir, f"test_T{threads}.jtl")
     jmeter_log_path = os.path.join(work_dir, f"test_T{threads}.log")
 
-    ramp_sec = min(30, duration_sec // 3)
-    observe_after = ramp_sec + 10
+    # Match real calibration timings
+    ramp_sec = 30
+    settle_sec = 30                             # bracket_settle_sec
+    observe_sec = 60 if quick else 180          # observation_duration_sec
+    observe_count = 40 if quick else 120        # observation_reading_count
+    stability_sec = 0 if quick else 900         # stability duration
+    stability_count = 0 if quick else 900       # stability samples
+    total_sec = ramp_sec + settle_sec + observe_sec + stability_sec + 15  # +buffer
 
     log(f"\n{'='*70}")
-    log(f"  JMETER LIVE TEST: threads={threads}, duration={duration_sec}s")
+    log(f"  JMETER LIVE TEST: threads={threads}")
     log(f"  Target: {base_url}")
-    log(f"  cpu_ms={args.cpu_ms}, intensity={args.intensity}, "
-        f"touch_mb={args.touch_mb}, think_ms={args.think_ms}")
-    log(f"  JMX: {jmx_path}")
-    log(f"  CSV: {csv_path}")
-    log(f"  JTL: {jtl_path}")
+    log(f"  Params: cpu_ms={args.cpu_ms} intensity={args.intensity} "
+        f"touch_mb={args.touch_mb} think_ms={args.think_ms}")
+    log(f"  Phases: ramp={ramp_sec}s settle={settle_sec}s observe={observe_sec}s "
+        f"stability={stability_sec}s total={total_sec}s")
     log(f"{'='*70}")
 
-    # Check emulator state BEFORE starting
-    log(f"\n  --- Pre-test emulator state ---")
+    # Pre-test state
+    log(f"\n  --- Pre-test ---")
     emu_config = get_emulator_config(base_url)
     if emu_config:
-        log(f"  Emulator config: {json.dumps(emu_config, indent=2)[:500]}")
+        configured = emu_config.get("is_configured", False)
+        folders = emu_config.get("output_folders", [])
+        partner = emu_config.get("partner", {}).get("fqdn")
+        log(f"  Emulator: configured={configured}, folders={len(folders)}, partner={partner}")
 
-    test_status = check_emulator_test_status(base_url)
-    if test_status:
-        log(f"  Active test: {json.dumps(test_status)[:200]}")
+    baseline = read_stats(base_url, count=5)
+    if baseline:
+        cpu_bl = [s.get("cpu_percent", 0) for s in baseline]
+        log(f"  Baseline CPU: {[round(v,1) for v in cpu_bl]}")
 
-    # Read baseline CPU before JMeter starts
-    baseline_samples = read_stats(base_url, count=5)
-    if baseline_samples:
-        baseline_cpu = [s.get("cpu_percent", 0) for s in baseline_samples]
-        log(f"  Baseline CPU (before JMeter): {[round(v, 1) for v in baseline_cpu]}")
-    else:
-        log(f"  Baseline CPU: no samples available")
-
-    # Start emulator stats
+    # Start stats collection
     test_id = start_stats(base_url, f"live_T{threads}", threads)
     if not test_id:
         return None
-    log(f"  Stats collection started (test_id={test_id})")
 
     # Start JMeter
     proc = start_jmeter(
         args.jmeter_bin, jmx_path, csv_path, jtl_path, jmeter_log_path,
-        threads, ramp_sec, duration_sec, args.target_ip, args.port,
+        threads, ramp_sec, total_sec, args.target_ip, args.port,
         args.cpu_ms, args.intensity, args.touch_mb, args.think_ms,
     )
-
     time.sleep(3)
     if not check_jmeter_alive(proc):
-        log(f"  [FAIL] JMeter died within 3 seconds!")
-        stdout, stderr = proc.communicate()
-        if stdout:
-            log(f"  stdout: {stdout.decode()[:500]}")
+        log(f"  [FAIL] JMeter died within 3s!")
+        _, stderr = proc.communicate()
         if stderr:
             log(f"  stderr: {stderr.decode()[:500]}")
         stop_stats(base_url, test_id)
         return None
+    log(f"  [OK] JMeter PID {proc.pid}")
 
-    log(f"  [OK] JMeter started (PID {proc.pid})")
-    log(f"  Ramp={ramp_sec}s, observe_after={observe_after}s, total={duration_sec}s")
-    log()
+    # === PHASE 1: RAMP + SETTLE (monitor every 10s) ===
+    log(f"\n  --- Phase 1: Ramp ({ramp_sec}s) + Settle ({settle_sec}s) ---")
+    log(f"  {'time':>6}  {'phase':>8}  {'cpu%':>7}  {'mem%':>7}  {'n':>4}  cpu_values")
+    log(f"  {'---':>6}  {'---':>8}  {'---':>7}  {'---':>7}  {'--':>4}  ---")
 
-    # Monitor loop
-    all_cpu = []
-    all_mem = []
     elapsed = 0
-    poll_interval = 5
-    header_printed = False
-    request_count_at_start = None
-
+    poll = 10
     try:
-        while elapsed < duration_sec:
-            time.sleep(poll_interval)
-            elapsed += poll_interval
-
-            jmeter_alive = check_jmeter_alive(proc)
-            if not jmeter_alive:
-                log(f"\n  [FAIL] JMeter died at {elapsed}s!")
-                stdout, stderr = proc.communicate()
-                if stderr:
-                    log(f"  stderr: {stderr.decode()[:300]}")
+        while elapsed < ramp_sec + settle_sec:
+            time.sleep(poll)
+            elapsed += poll
+            if not check_jmeter_alive(proc):
+                log(f"  [FAIL] JMeter died at {elapsed}s!")
                 break
-
-            samples = read_stats(base_url, count=poll_interval)
+            samples = read_stats(base_url, count=poll)
             if samples:
-                cpu_vals = [s.get("cpu_percent", 0) for s in samples]
-                mem_vals = [s.get("mem_percent", 0) for s in samples]
-                avg_cpu = sum(cpu_vals) / len(cpu_vals)
-                avg_mem = sum(mem_vals) / len(mem_vals) if mem_vals else 0
-                phase = "ramp" if elapsed < ramp_sec else "settle" if elapsed < observe_after else "observe"
+                cpus = [s.get("cpu_percent", 0) for s in samples]
+                mems = [s.get("mem_percent", 0) for s in samples]
+                phase = "ramp" if elapsed <= ramp_sec else "settle"
+                vals = ", ".join(f"{v:.1f}" for v in cpus[-5:])
+                log(f"  {elapsed:>5}s  {phase:>8}  {sum(cpus)/len(cpus):>6.1f}%  "
+                    f"{sum(mems)/len(mems):>6.1f}%  {len(cpus):>4}  [{vals}]")
 
-                if not header_printed:
-                    log(f"  {'time':>6}  {'phase':>8}  {'cpu%':>7}  {'mem%':>7}  {'samples':>7}  {'jmeter':>7}  cpu_values")
-                    log(f"  {'---':>6}  {'---':>8}  {'---':>7}  {'---':>7}  {'---':>7}  {'---':>7}  {'---':>30}")
-                    header_printed = True
+        # === PHASE 2: OBSERVE (180s, read 120 samples at end) ===
+        log(f"\n  --- Phase 2: Observe ({observe_sec}s, reading last {observe_count} samples) ---")
+        log(f"  {'time':>6}  {'cpu%':>7}  {'n':>4}  cpu_values")
+        log(f"  {'---':>6}  {'---':>7}  {'--':>4}  ---")
 
-                jm_str = "alive" if jmeter_alive else "DEAD"
-                vals_str = ", ".join(f"{v:.1f}" for v in cpu_vals[-5:])
-                log(f"  {elapsed:>5}s  {phase:>8}  {avg_cpu:>6.1f}%  {avg_mem:>6.1f}%  {len(cpu_vals):>7}  {jm_str:>7}  [{vals_str}]")
+        obs_elapsed = 0
+        while obs_elapsed < observe_sec:
+            time.sleep(poll)
+            obs_elapsed += poll
+            elapsed += poll
+            if not check_jmeter_alive(proc):
+                log(f"  [FAIL] JMeter died at {elapsed}s!")
+                break
+            samples = read_stats(base_url, count=poll)
+            if samples:
+                cpus = [s.get("cpu_percent", 0) for s in samples]
+                vals = ", ".join(f"{v:.1f}" for v in cpus[-5:])
+                log(f"  {elapsed:>5}s  {sum(cpus)/len(cpus):>6.1f}%  {len(cpus):>4}  [{vals}]")
 
-                if phase == "observe":
-                    all_cpu.extend(cpu_vals)
-                    all_mem.extend(mem_vals)
-            else:
-                log(f"  {elapsed:>5}s  {'---':>8}  {'---':>7}  {'---':>7}  {'0':>7}  {'?':>7}  [no samples!]")
+        # Bulk read — exactly like calibration does
+        log(f"\n  --- Observation bulk read ({observe_count} samples) ---")
+        obs_samples = read_stats(base_url, count=observe_count)
+        obs_cpu = [s.get("cpu_percent", 0) for s in obs_samples] if obs_samples else []
+        obs_mem = [s.get("mem_percent", 0) for s in obs_samples] if obs_samples else []
+
+        if obs_cpu:
+            import math
+            n = len(obs_cpu)
+            avg = sum(obs_cpu) / n
+            sorted_cpu = sorted(obs_cpu)
+            p25 = sorted_cpu[n * 25 // 100]
+            p50 = sorted_cpu[n // 2]
+            p75 = sorted_cpu[n * 75 // 100]
+            p90 = sorted_cpu[n * 90 // 100]
+            p95 = sorted_cpu[n * 95 // 100]
+            stddev = math.sqrt(sum((v - avg) ** 2 for v in obs_cpu) / n) if n > 1 else 0
+            cv = stddev / avg if avg > 0 else 0
+
+            in_range = sum(1 for v in obs_cpu if args.target_min <= v <= args.target_max)
+            below = sum(1 for v in obs_cpu if v < args.target_min)
+            above = sum(1 for v in obs_cpu if v > args.target_max)
+
+            log(f"  Samples: {n}")
+            log(f"  CPU: avg={avg:.1f}% p25={p25:.1f}% p50={p50:.1f}% p75={p75:.1f}% "
+                f"p90={p90:.1f}% p95={p95:.1f}%")
+            log(f"  min={min(obs_cpu):.1f}% max={max(obs_cpu):.1f}% stddev={stddev:.1f} CV={cv:.2f}")
+            log(f"  MEM: avg={sum(obs_mem)/len(obs_mem):.1f}%")
+            log(f"  In range ({args.target_min}-{args.target_max}%): "
+                f"{in_range}/{n} ({in_range*100//n}%)  below={below}  above={above}")
+        else:
+            log(f"  [FAIL] No observation samples!")
+            avg = None
+
+        # === PHASE 3: STABILITY (900s, read 900 samples at end) ===
+        stab_cpu = []
+        if stability_sec > 0 and check_jmeter_alive(proc):
+            log(f"\n  --- Phase 3: Stability ({stability_sec}s, reading {stability_count} samples) ---")
+            log(f"  {'time':>6}  {'cpu%':>7}  {'n':>4}  cpu_values")
+            log(f"  {'---':>6}  {'---':>7}  {'--':>4}  ---")
+
+            stab_elapsed = 0
+            stab_poll = 30  # less frequent for stability
+            while stab_elapsed < stability_sec:
+                time.sleep(stab_poll)
+                stab_elapsed += stab_poll
+                elapsed += stab_poll
+                if not check_jmeter_alive(proc):
+                    log(f"  [FAIL] JMeter died at {elapsed}s!")
+                    break
+                samples = read_stats(base_url, count=stab_poll)
+                if samples:
+                    cpus = [s.get("cpu_percent", 0) for s in samples]
+                    vals = ", ".join(f"{v:.1f}" for v in cpus[-5:])
+                    log(f"  {elapsed:>5}s  {sum(cpus)/len(cpus):>6.1f}%  {len(cpus):>4}  [{vals}]")
+
+            # Stability bulk read
+            log(f"\n  --- Stability bulk read ({stability_count} samples) ---")
+            stab_samples = read_stats(base_url, count=stability_count)
+            stab_cpu = [s.get("cpu_percent", 0) for s in stab_samples] if stab_samples else []
+
+            if stab_cpu:
+                n = len(stab_cpu)
+                avg_s = sum(stab_cpu) / n
+                sorted_s = sorted(stab_cpu)
+                p25_s = sorted_s[n * 25 // 100]
+                p50_s = sorted_s[n // 2]
+                p75_s = sorted_s[n * 75 // 100]
+                p90_s = sorted_s[n * 90 // 100]
+                stddev_s = math.sqrt(sum((v - avg_s) ** 2 for v in stab_cpu) / n) if n > 1 else 0
+
+                in_range_s = sum(1 for v in stab_cpu if args.target_min <= v <= args.target_max)
+                below_s = sum(1 for v in stab_cpu if v < args.target_min)
+                above_s = sum(1 for v in stab_cpu if v > args.target_max)
+
+                log(f"  Samples: {n}")
+                log(f"  CPU: avg={avg_s:.1f}% p25={p25_s:.1f}% p50={p50_s:.1f}% p75={p75_s:.1f}% p90={p90_s:.1f}%")
+                log(f"  min={min(stab_cpu):.1f}% max={max(stab_cpu):.1f}% stddev={stddev_s:.1f}")
+                log(f"  In range ({args.target_min}-{args.target_max}%): "
+                    f"{in_range_s}/{n} ({in_range_s*100//n}%)  below={below_s}  above={above_s}")
+
+                # Stability pass/fail (same criteria as calibration)
+                pct_in_range = in_range_s * 100 / n
+                passed = pct_in_range >= 55  # calibration_stability_ratio = 0.5 but v2 uses 55%
+                log(f"  Stability: {'PASS' if passed else 'FAIL'} ({pct_in_range:.1f}% in range, need 55%)")
 
     except KeyboardInterrupt:
         log("\n  [INFO] Interrupted by user")
@@ -395,21 +480,10 @@ def run_single_test(args, threads, work_dir, duration_sec=None):
     stop_jmeter(proc)
     time.sleep(2)
 
-    # Read final stats before stopping collection
-    final_samples = read_stats(base_url, count=5)
-    if final_samples:
-        final_cpu = [s.get("cpu_percent", 0) for s in final_samples]
-        log(f"  Post-stop CPU: {[round(v, 1) for v in final_cpu]}")
-
+    post = read_stats(base_url, count=5)
+    if post:
+        log(f"  Post-stop CPU: {[round(s.get('cpu_percent',0), 1) for s in post]}")
     stop_stats(base_url, test_id)
-
-    # --- Emulator request log ---
-    log(f"\n  --- Emulator request analysis ---")
-    req_log = get_emulator_request_log(base_url)
-    if req_log:
-        log(f"  Emulator request stats: {json.dumps(req_log, indent=2)[:1000]}")
-    else:
-        log(f"  No emulator request log endpoint available")
 
     # --- JTL analysis ---
     log(f"\n  --- JTL analysis ---")
@@ -419,16 +493,15 @@ def run_single_test(args, threads, work_dir, duration_sec=None):
         log(f"  Total requests: {jtl_lines}")
 
         if jtl_lines > 0:
+            from collections import Counter
             with open(jtl_path) as f:
                 reader = csv.DictReader(f)
-                from collections import Counter
                 labels = Counter()
                 success_count = 0
                 error_count = 0
                 response_codes = Counter()
                 elapsed_times = []
-                first_ts = None
-                last_ts = None
+                first_ts = last_ts = None
 
                 for row in reader:
                     labels[row.get('label', '?')] += 1
@@ -450,90 +523,96 @@ def run_single_test(args, threads, work_dir, duration_sec=None):
                         pass
 
             total = sum(labels.values())
-            log(f"  Success: {success_count}, Errors: {error_count}")
+            log(f"  Success: {success_count}, Errors: {error_count} ({error_count*100//max(1,total)}%)")
 
             if first_ts and last_ts and last_ts > first_ts:
-                actual_duration = (last_ts - first_ts) / 1000
-                throughput = total / actual_duration if actual_duration > 0 else 0
-                log(f"  Actual duration: {actual_duration:.1f}s, Throughput: {throughput:.1f} req/s")
+                dur = (last_ts - first_ts) / 1000
+                log(f"  Duration: {dur:.1f}s, Throughput: {total/dur:.1f} req/s")
 
             log(f"  Response codes: {dict(response_codes.most_common())}")
 
             if elapsed_times:
                 elapsed_times.sort()
-                avg_rt = sum(elapsed_times) / len(elapsed_times)
-                p50_rt = elapsed_times[len(elapsed_times) // 2]
-                p95_rt = elapsed_times[int(len(elapsed_times) * 0.95)]
-                log(f"  Response times: avg={avg_rt:.0f}ms p50={p50_rt}ms p95={p95_rt}ms "
+                n = len(elapsed_times)
+                log(f"  Response times: avg={sum(elapsed_times)/n:.0f}ms "
+                    f"p50={elapsed_times[n//2]}ms p95={elapsed_times[int(n*0.95)]}ms "
                     f"min={elapsed_times[0]}ms max={elapsed_times[-1]}ms")
 
-            log(f"\n  Request distribution:")
+            log(f"  Request distribution:")
             for label, count in labels.most_common():
-                pct = count * 100 // max(1, total)
-                avg_rt_label = ""
-                log(f"    {label:20s}  {count:>6}  ({pct}%)")
+                log(f"    {label:20s}  {count:>6}  ({count*100//max(1,total)}%)")
 
-            # Show first 5 error rows if any
             if error_count > 0:
-                log(f"\n  First 5 errors:")
+                log(f"  First 5 errors:")
                 with open(jtl_path) as f:
                     reader = csv.DictReader(f)
                     shown = 0
                     for row in reader:
                         if row.get('success', 'true').lower() != 'true' and shown < 5:
-                            log(f"    label={row.get('label')} code={row.get('responseCode')} "
+                            log(f"    {row.get('label')} code={row.get('responseCode')} "
                                 f"msg={row.get('responseMessage', '')[:80]}")
                             shown += 1
     else:
-        log(f"  [WARN] No JTL file found at {jtl_path}")
+        log(f"  [WARN] No JTL file")
 
-    # --- JMeter log analysis ---
-    log(f"\n  --- JMeter log analysis ---")
+    # --- JMeter log ---
+    log(f"\n  --- JMeter log ---")
     if os.path.exists(jmeter_log_path):
         with open(jmeter_log_path) as f:
-            log_lines = f.readlines()
+            lines = f.readlines()
+        errors = [l.strip() for l in lines if 'ERROR' in l or 'FATAL' in l]
+        warns = [l.strip() for l in lines if 'WARN' in l]
+        log(f"  Lines: {len(lines)}, Errors: {len(errors)}, Warnings: {len(warns)}")
+        for l in errors[:5]:
+            log(f"    ERR: {l[:150]}")
+        for l in warns[:3]:
+            log(f"    WARN: {l[:150]}")
+        log(f"  Last 5 lines:")
+        for l in lines[-5:]:
+            log(f"    {l.rstrip()}")
 
-        total_lines = len(log_lines)
-        error_lines = [l.strip() for l in log_lines
-                       if 'ERROR' in l or 'FATAL' in l]
-        warn_lines = [l.strip() for l in log_lines
-                      if 'WARN' in l]
+    # === FINAL ANALYSIS ===
+    log(f"\n{'='*70}")
+    log(f"  ANALYSIS: threads={threads}")
+    log(f"{'='*70}")
 
-        log(f"  Log lines: {total_lines}, Errors: {len(error_lines)}, Warnings: {len(warn_lines)}")
+    if obs_cpu:
+        log(f"\n  Observation ({len(obs_cpu)} samples):")
+        log(f"    avg={sum(obs_cpu)/len(obs_cpu):.1f}%  p50={sorted(obs_cpu)[len(obs_cpu)//2]:.1f}%")
+        log(f"    range: {min(obs_cpu):.1f}% - {max(obs_cpu):.1f}%")
 
-        if error_lines:
-            log(f"  ERROR lines:")
-            for line in error_lines[:10]:
-                log(f"    {line[:150]}")
+        # What calibration would decide
+        obs_avg = sum(obs_cpu) / len(obs_cpu)
+        if obs_avg < args.target_min:
+            log(f"    Calibration verdict: TOO COLD ({obs_avg:.1f}% < {args.target_min}%) -> need more threads")
+        elif obs_avg > args.target_max:
+            log(f"    Calibration verdict: TOO HOT ({obs_avg:.1f}% > {args.target_max}%) -> need fewer threads")
+        else:
+            log(f"    Calibration verdict: IN RANGE ({args.target_min}% <= {obs_avg:.1f}% <= {args.target_max}%)")
 
-        if warn_lines:
-            log(f"  WARN lines (first 5):")
-            for line in warn_lines[:5]:
-                log(f"    {line[:150]}")
+    if stab_cpu:
+        stab_avg = sum(stab_cpu) / len(stab_cpu)
+        in_r = sum(1 for v in stab_cpu if args.target_min <= v <= args.target_max)
+        pct = in_r * 100 / len(stab_cpu)
+        log(f"\n  Stability ({len(stab_cpu)} samples):")
+        log(f"    avg={stab_avg:.1f}%  in-range={pct:.1f}%  {'PASS' if pct >= 55 else 'FAIL'}")
 
-        # Show last 10 lines of JMeter log
-        log(f"\n  Last 10 lines of JMeter log:")
-        for line in log_lines[-10:]:
-            log(f"    {line.rstrip()}")
-    else:
-        log(f"  [WARN] No JMeter log found at {jmeter_log_path}")
+    if jtl_lines > 0:
+        err_pct = error_count * 100 // max(1, total)
+        if err_pct > 5:
+            log(f"\n  [WARN] High error rate: {err_pct}% — check emulator config (output_folders, partner)")
 
-    # --- CPU Summary ---
-    if all_cpu:
-        avg_cpu = sum(all_cpu) / len(all_cpu)
-        min_cpu = min(all_cpu)
-        max_cpu = max(all_cpu)
-        avg_mem = sum(all_mem) / len(all_mem) if all_mem else 0
+    log(f"\n  For calibration profiles:")
+    if obs_cpu:
+        obs_avg = sum(obs_cpu) / len(obs_cpu)
+        log(f"    T={threads} -> {obs_avg:.1f}% CPU")
+        if obs_avg > 0:
+            for name, lo, hi in [("low", 20, 40), ("medium", 40, 60), ("high", 60, 80)]:
+                mid = (lo + hi) / 2
+                est_threads = int(threads * mid / obs_avg)
+                log(f"    {name:>8} ({lo}-{hi}%): estimated ~{est_threads} threads")
 
-        log(f"\n  {'='*50}")
-        log(f"  RESULT: threads={threads}")
-        log(f"    CPU:  avg={avg_cpu:.1f}%  min={min_cpu:.1f}%  max={max_cpu:.1f}%  samples={len(all_cpu)}")
-        log(f"    MEM:  avg={avg_mem:.1f}%")
-        log(f"  {'='*50}")
-        return avg_cpu
-    else:
-        log(f"\n  [FAIL] No CPU samples collected during observe phase")
-        return None
+    return sum(obs_cpu) / len(obs_cpu) if obs_cpu else None
 
 
 # ---------------------------------------------------------------------------
@@ -543,17 +622,15 @@ def run_single_test(args, threads, work_dir, duration_sec=None):
 def run_scaling_test(args, work_dir):
     thread_counts = [1, 2, 4, 8, 16, 24, 32, 50]
     results = []
-    dur = 45
 
     log(f"\n{'='*70}")
-    log(f"  SCALING TEST")
+    log(f"  SCALING TEST (quick mode: 60s observe per thread count)")
     log(f"  cpu_ms={args.cpu_ms}, touch_mb={args.touch_mb}, think_ms={args.think_ms}")
     log(f"  Thread counts: {thread_counts}")
-    log(f"  Duration per step: {dur}s")
     log(f"{'='*70}")
 
     for tc in thread_counts:
-        avg_cpu = run_single_test(args, tc, work_dir, duration_sec=dur)
+        avg_cpu = run_single_test(args, tc, work_dir, quick=True)
         if avg_cpu is not None:
             results.append((tc, avg_cpu))
         time.sleep(5)
@@ -566,7 +643,11 @@ def run_scaling_test(args, work_dir):
         log(f"  {'--------':>8}  {'--------':>8}  {'--------------------':>20}")
         for tc, cpu in results:
             profile = ""
-            if 20 <= cpu <= 40:
+            if args.target_min <= cpu <= args.target_max:
+                profile = f"<-- IN RANGE ({args.target_min}-{args.target_max}%)"
+            elif cpu < 20:
+                profile = "<-- TOO COLD"
+            elif 20 <= cpu <= 40:
                 profile = "<-- LOW (20-40%)"
             elif 40 < cpu <= 60:
                 profile = "<-- MEDIUM (40-60%)"
@@ -574,8 +655,6 @@ def run_scaling_test(args, work_dir):
                 profile = "<-- HIGH (60-80%)"
             elif cpu > 80:
                 profile = "<-- TOO HOT"
-            elif cpu < 20:
-                profile = "<-- TOO COLD"
             log(f"  {tc:>8}  {cpu:>7.1f}%  {profile}")
 
     return results
@@ -591,11 +670,12 @@ def main():
     parser.add_argument("--target-ip", default="localhost", help="Emulator target IP")
     parser.add_argument("--port", type=int, default=8080, help="Emulator port")
     parser.add_argument("--threads", type=int, default=4, help="JMeter thread count")
-    parser.add_argument("--duration", type=int, default=90, help="Test duration in seconds")
     parser.add_argument("--cpu-ms", type=int, default=200, help="CPU burn ms per /work request")
     parser.add_argument("--intensity", type=float, default=0.8, help="CPU burn intensity")
     parser.add_argument("--touch-mb", type=float, default=1.0, help="Memory touch MB per request")
     parser.add_argument("--think-ms", type=int, default=500, help="Think time between requests (ms)")
+    parser.add_argument("--target-min", type=float, default=20, help="Target CPU min %% (for analysis)")
+    parser.add_argument("--target-max", type=float, default=40, help="Target CPU max %% (for analysis)")
     parser.add_argument("--jmeter-bin", default="/data/jmeter/bin/jmeter", help="JMeter binary path")
     parser.add_argument("--scaling", action="store_true", help="Run scaling test (1,2,4,8,16,24,32,50 threads)")
     parser.add_argument("--log-dir", default=".", help="Directory for log file output")
