@@ -69,26 +69,26 @@ def find_test_run(session, test_name=None, test_id=None):
 def load_context(session, test_run):
     """Load lab, scenario, targets, loadgens for a test run."""
     from orchestrator.models.orm import (
-        LabORM, ScenarioORM, BaselineTestTargetORM, ServerORM,
-        SnapshotORM, LoadProfileORM, BaselineTestLoadProfileORM,
+        LabORM, ScenarioORM, BaselineTestRunTargetORM, ServerORM,
+        SnapshotORM, LoadProfileORM, BaselineTestRunLoadProfileORM,
     )
 
     lab = session.get(LabORM, test_run.lab_id)
     scenario = session.get(ScenarioORM, test_run.scenario_id)
 
-    target_rows = session.query(BaselineTestTargetORM).filter(
-        BaselineTestTargetORM.test_run_id == test_run.id
+    target_rows = session.query(BaselineTestRunTargetORM).filter(
+        BaselineTestRunTargetORM.baseline_test_run_id == test_run.id
     ).all()
 
     targets = []
     for t in target_rows:
-        server = session.get(ServerORM, t.target_server_id)
-        loadgen = session.get(ServerORM, t.loadgen_server_id)
+        server = session.get(ServerORM, t.target_id)
+        loadgen = session.get(ServerORM, t.loadgenerator_id)
         test_snap = session.get(SnapshotORM, t.test_snapshot_id) if t.test_snapshot_id else None
         targets.append((t, server, loadgen, test_snap))
 
-    lp_rows = session.query(BaselineTestLoadProfileORM).filter(
-        BaselineTestLoadProfileORM.test_run_id == test_run.id
+    lp_rows = session.query(BaselineTestRunLoadProfileORM).filter(
+        BaselineTestRunLoadProfileORM.baseline_test_run_id == test_run.id
     ).all()
     load_profiles = []
     for lp_link in lp_rows:
