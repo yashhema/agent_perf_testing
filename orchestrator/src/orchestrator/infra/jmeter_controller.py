@@ -12,7 +12,7 @@ from orchestrator.infra.remote_executor import RemoteExecutor
 logger = logging.getLogger(__name__)
 
 # Location where jmeter_kill.py is deployed on the loadgen
-_KILL_SCRIPT_REMOTE = "/opt/jmeter/bin/jmeter_kill.py"
+_KILL_SCRIPT_REMOTE = "/data/jmeter/bin/jmeter_kill.py"
 
 
 class JMeterController:

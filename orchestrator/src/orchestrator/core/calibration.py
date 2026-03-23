@@ -645,6 +645,9 @@ class CalibrationEngine:
         test_id = None
         pid = None
         try:
+            # Kill any leftover JMeter for this target before starting new one
+            ctx.jmeter_controller.kill_for_target(ctx.server.ip_address)
+
             # Start emulator stats collection
             test_resp = ctx.emulator_client.start_test(
                 test_run_id="calibration",
@@ -769,6 +772,9 @@ class CalibrationEngine:
         Returns (passed: bool, pct_in_range: float, avg_cpu: float).
         """
         try:
+            # Kill any leftover JMeter for this target before starting new one
+            ctx.jmeter_controller.kill_for_target(ctx.server.ip_address)
+
             test_resp = ctx.emulator_client.start_test(
                 test_run_id="calibration-stability",
                 scenario_id="calibration",
