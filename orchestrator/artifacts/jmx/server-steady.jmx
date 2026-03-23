@@ -110,7 +110,7 @@
 
     <!-- Think time between requests -->
     <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think Time" enabled="true">
-      <stringProp name="ConstantTimer.delay">${__P(think_ms,500)}</stringProp>
+      <stringProp name="ConstantTimer.delay">${__P(think_ms,100)}</stringProp>
     </ConstantTimer>
     <hashTree/>
 
