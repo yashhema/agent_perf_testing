@@ -368,7 +368,7 @@ def run_single_test(args, threads, work_dir, quick=False):
                 cpus = [s.get("cpu_percent", 0) for s in samples]
                 mems = [s.get("mem_percent", 0) for s in samples]
                 phase = "ramp" if elapsed <= ramp_sec else "settle"
-                vals = ", ".join(f"{v:.1f}" for v in cpus[-5:])
+                vals = ", ".join(f"{v:.1f}" for v in cpus)
                 log(f"  {elapsed:>5}s  {phase:>8}  {sum(cpus)/len(cpus):>6.1f}%  "
                     f"{sum(mems)/len(mems):>6.1f}%  {len(cpus):>4}  [{vals}]")
 
@@ -388,7 +388,7 @@ def run_single_test(args, threads, work_dir, quick=False):
             samples = read_stats(base_url, count=poll)
             if samples:
                 cpus = [s.get("cpu_percent", 0) for s in samples]
-                vals = ", ".join(f"{v:.1f}" for v in cpus[-5:])
+                vals = ", ".join(f"{v:.1f}" for v in cpus)
                 log(f"  {elapsed:>5}s  {sum(cpus)/len(cpus):>6.1f}%  {len(cpus):>4}  [{vals}]")
 
         # Bulk read — exactly like calibration does
@@ -444,7 +444,7 @@ def run_single_test(args, threads, work_dir, quick=False):
                 samples = read_stats(base_url, count=stab_poll)
                 if samples:
                     cpus = [s.get("cpu_percent", 0) for s in samples]
-                    vals = ", ".join(f"{v:.1f}" for v in cpus[-5:])
+                    vals = ", ".join(f"{v:.1f}" for v in cpus)
                     log(f"  {elapsed:>5}s  {sum(cpus)/len(cpus):>6.1f}%  {len(cpus):>4}  [{vals}]")
 
             # Stability bulk read
