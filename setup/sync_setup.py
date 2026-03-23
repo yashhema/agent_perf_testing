@@ -46,6 +46,7 @@ SETUP_FILES = {
     "setup/retake_snapshots.py": "setup/retake_snapshots.py",
     "setup/test_deployment.py": "setup/test_deployment.py",
     "setup/test_jmx.py": "setup/test_jmx.py",
+    "setup/test_workload.py": "setup/test_workload.py",
     "setup/open_firewall.py": "setup/open_firewall.py",
     "setup/requirements.txt": "setup/requirements.txt",
     "setup/build_artifacts.sh": "setup/build_artifacts.sh",
