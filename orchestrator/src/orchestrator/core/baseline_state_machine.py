@@ -99,11 +99,11 @@ RETRY_RESUME_STATE = {
 
     # Deploy states -> resume at themselves
     BaselineTestState.deploying_loadgen:      BaselineTestState.deploying_loadgen,
-    BaselineTestState.deploying_calibration:  BaselineTestState.deploying_calibration,
+    BaselineTestState.deploying_calibration:  BaselineTestState.deploying_loadgen,
     BaselineTestState.deploying_testing:      BaselineTestState.deploying_testing,
 
-    # Work states -> resume at deploy state (machine is dirty)
-    BaselineTestState.calibrating:            BaselineTestState.deploying_calibration,
+    # Calibration failure -> restart from loadgen deploy (JMeter may be missing)
+    BaselineTestState.calibrating:            BaselineTestState.deploying_loadgen,
     BaselineTestState.executing:              BaselineTestState.deploying_testing,
 
     # Non-machine states -> resume at themselves
