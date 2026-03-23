@@ -103,6 +103,21 @@ def check_health(base_url):
         return False
 
 
+def configure_emulator(base_url, target_ip):
+    """Configure emulator: output_folders, partner, stats. Must be called before JMeter."""
+    try:
+        resp = http_post(f"{base_url}/api/v1/config", {
+            "output_folders": ["/data/emulator/output"],
+            "partner": {"fqdn": target_ip, "port": 8080},
+            "stats": {"default_interval_sec": 1.0},
+        })
+        log(f"  [OK] Emulator configured: output_folders=[/data/emulator/output], partner={target_ip}")
+        return True
+    except Exception as e:
+        log(f"  [FAIL] Emulator config failed: {e}")
+        return False
+
+
 def allocate_pool(base_url, heap_pct=0.5):
     try:
         resp = http_post(f"{base_url}/api/v1/config/pool", {"heap_percent": heap_pct})
@@ -623,6 +638,11 @@ def main():
 
     # Check emulator
     if not check_health(base_url):
+        close_log()
+        sys.exit(1)
+
+    # Configure emulator (output_folders, partner — needed for file and networkclient ops)
+    if not configure_emulator(base_url, args.target_ip):
         close_log()
         sys.exit(1)
 
