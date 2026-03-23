@@ -95,7 +95,7 @@ def http_get(url, timeout=10):
 
 def check_health(base_url):
     try:
-        resp = http_get(f"{base_url}/api/v1/health")
+        resp = http_get(f"{base_url}/health")
         log(f"  [OK] Emulator healthy: {resp.get('status')}, uptime={resp.get('uptime_sec', '?')}s")
         return True
     except Exception as e:
