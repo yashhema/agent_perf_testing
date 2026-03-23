@@ -154,13 +154,18 @@ def stop_stats(base_url, test_id):
         pass
 
 
-def read_stats(base_url, count=10):
+def read_stats(base_url, count=10, verbose=False):
     """Read recent CPU/MEM samples from emulator."""
     try:
         stats = http_get(f"{base_url}/api/v1/stats/recent?count={count}")
         samples = stats.get("samples", [])
-        return samples  # return full samples, not just CPU
-    except Exception:
+        if verbose:
+            log(f"    stats: requested={count} returned={stats.get('returned_samples')} "
+                f"total_in_buffer={stats.get('total_samples')} collecting={stats.get('is_collecting')}")
+        return samples
+    except Exception as e:
+        if verbose:
+            log(f"    stats read failed: {e}")
         return []
 
 
@@ -388,7 +393,7 @@ def run_single_test(args, threads, work_dir, quick=False):
 
         # Bulk read — exactly like calibration does
         log(f"\n  --- Observation bulk read ({observe_count} samples) ---")
-        obs_samples = read_stats(base_url, count=observe_count)
+        obs_samples = read_stats(base_url, count=observe_count, verbose=True)
         obs_cpu = [s.get("cpu_percent", 0) for s in obs_samples] if obs_samples else []
         obs_mem = [s.get("mem_percent", 0) for s in obs_samples] if obs_samples else []
 
@@ -444,7 +449,7 @@ def run_single_test(args, threads, work_dir, quick=False):
 
             # Stability bulk read
             log(f"\n  --- Stability bulk read ({stability_count} samples) ---")
-            stab_samples = read_stats(base_url, count=stability_count)
+            stab_samples = read_stats(base_url, count=stability_count, verbose=True)
             stab_cpu = [s.get("cpu_percent", 0) for s in stab_samples] if stab_samples else []
 
             if stab_cpu:
