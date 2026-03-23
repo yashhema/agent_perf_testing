@@ -607,58 +607,67 @@ def main():
     # --- Preflight ---
     log(f"\n  --- Preflight ---")
 
-    # Check JMeter — try known paths, then auto-extract from artifact
-    jmeter_found = False
-    if os.path.exists(args.jmeter_bin):
-        jmeter_found = True
-    else:
-        for alt in ["/data/jmeter/bin/jmeter", "/opt/jmeter/bin/jmeter",
-                    shutil.which("jmeter") or ""]:
-            if alt and os.path.exists(alt):
-                args.jmeter_bin = alt
-                jmeter_found = True
-                break
+    # Check JMeter — use existing install or extract from artifact to /data/jmeter
+    jmeter_bin = args.jmeter_bin
+    jmeter_found = os.path.exists(jmeter_bin)
 
     if not jmeter_found:
-        # Auto-extract from artifact tar.gz
-        if os.path.exists(JMETER_ARTIFACT):
-            import tarfile
-            jmeter_install_dir = os.path.join(REPO_ROOT, "orchestrator", "artifacts", "jmeter_local")
-            if not os.path.exists(jmeter_install_dir):
-                log(f"  [INFO] JMeter not installed, extracting from {JMETER_ARTIFACT}...")
-                os.makedirs(jmeter_install_dir, exist_ok=True)
-                with tarfile.open(JMETER_ARTIFACT, "r:gz") as tar:
-                    tar.extractall(jmeter_install_dir)
-                log(f"  [OK] Extracted to {jmeter_install_dir}")
-
-            # Find jmeter binary inside extracted dir
-            for root, dirs, files in os.walk(jmeter_install_dir):
-                if "jmeter" in files:
-                    candidate = os.path.join(root, "jmeter")
-                    os.chmod(candidate, 0o755)
-                    args.jmeter_bin = candidate
-                    jmeter_found = True
-                    break
-                # Also check for jmeter.sh or jmeter.bat
-                for f in files:
-                    if f in ("jmeter.sh", "jmeter"):
-                        candidate = os.path.join(root, f)
-                        os.chmod(candidate, 0o755)
-                        args.jmeter_bin = candidate
-                        jmeter_found = True
-                        break
-                if jmeter_found:
-                    break
-
-    if not jmeter_found:
-        log(f"  [FAIL] JMeter not found at {args.jmeter_bin}")
-        log(f"         Not found in /data/jmeter or /opt/jmeter")
-        if os.path.exists(JMETER_ARTIFACT):
-            log(f"         Artifact exists but could not find jmeter binary after extraction")
-        else:
+        # Not at default/user path — try to install from artifact
+        if not os.path.exists(JMETER_ARTIFACT):
+            log(f"  [FAIL] JMeter not found at {jmeter_bin}")
             log(f"         Artifact not found: {JMETER_ARTIFACT}")
-        close_log()
-        sys.exit(1)
+            close_log()
+            sys.exit(1)
+
+        import tarfile
+        import getpass
+        install_dir = "/data/jmeter"
+        log(f"  [INFO] JMeter not found at {jmeter_bin}")
+        log(f"  [INFO] Installing from {JMETER_ARTIFACT} to {install_dir}...")
+
+        # Create /data if it doesn't exist
+        if not os.path.exists("/data"):
+            log(f"  [INFO] Creating /data ...")
+            os.system("sudo mkdir -p /data")
+            user = getpass.getuser()
+            os.system(f"sudo chown {user}:{user} /data")
+            log(f"  [OK] Created /data, owned by {user}")
+
+        # Extract: tar.gz has apache-jmeter-5.6.3/ at the top level
+        os.makedirs(install_dir, exist_ok=True)
+        with tarfile.open(JMETER_ARTIFACT, "r:gz") as tar:
+            tar.extractall(install_dir)
+        log(f"  [OK] Extracted to {install_dir}")
+
+        # The tar extracts to apache-jmeter-X.Y.Z/ — flatten it
+        subdirs = [d for d in os.listdir(install_dir)
+                   if os.path.isdir(os.path.join(install_dir, d)) and d.startswith("apache-jmeter")]
+        if subdirs:
+            extracted = os.path.join(install_dir, subdirs[0])
+            # Move contents up: /data/jmeter/apache-jmeter-5.6.3/* -> /data/jmeter/*
+            for item in os.listdir(extracted):
+                src = os.path.join(extracted, item)
+                dst = os.path.join(install_dir, item)
+                if not os.path.exists(dst):
+                    shutil.move(src, dst)
+            shutil.rmtree(extracted, ignore_errors=True)
+            log(f"  [OK] Flattened {subdirs[0]} -> {install_dir}")
+
+        # Make binary executable
+        jmeter_bin = os.path.join(install_dir, "bin", "jmeter")
+        if os.path.exists(jmeter_bin):
+            os.chmod(jmeter_bin, 0o755)
+            args.jmeter_bin = jmeter_bin
+            jmeter_found = True
+        else:
+            # List what's actually there
+            log(f"  [FAIL] Expected {jmeter_bin} but not found")
+            log(f"  Contents of {install_dir}:")
+            for item in os.listdir(install_dir):
+                log(f"    {item}")
+            close_log()
+            sys.exit(1)
+
     log(f"  [OK] JMeter: {args.jmeter_bin}")
 
     # Check JMX
