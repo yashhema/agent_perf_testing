@@ -330,6 +330,7 @@ def get_calibration_progress(run_id: int, session: Session = Depends(get_session
             "id": r.id,
             "server_id": r.server_id,
             "server_hostname": server.hostname if server else "unknown",
+            "load_profile_id": r.load_profile_id,
             "load_profile": lp.name if lp else "unknown",
             "status": r.status,
             "phase": r.phase,
