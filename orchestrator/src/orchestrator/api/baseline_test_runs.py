@@ -599,14 +599,15 @@ def delete_baseline_test_run(
     run_id: int,
     session: Session = Depends(get_session),
 ):
-    """Delete a baseline test run (state=created only). Cascades to targets + load profiles."""
+    """Delete a baseline test run. Allowed for created, failed, and cancelled states."""
     test_run = session.get(BaselineTestRunORM, run_id)
     if not test_run:
         raise HTTPException(status_code=404, detail="Baseline test run not found")
-    if test_run.state != BaselineTestState.created:
+    deletable = {BaselineTestState.created, BaselineTestState.failed, BaselineTestState.cancelled}
+    if test_run.state not in deletable:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot delete: current state is '{test_run.state.value}' (must be 'created')",
+            detail=f"Cannot delete: current state is '{test_run.state.value}' (must be created, failed, or cancelled)",
         )
 
     session.delete(test_run)

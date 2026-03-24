@@ -70,13 +70,13 @@
 <!-- Recent test runs -->
 <div class="card shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h6 class="mb-0">Recent Test Runs</h6>
-    <a href="/test-runs/create" class="btn btn-sm btn-primary"><i class="bi bi-plus me-1"></i>New Test Run</a>
+    <h6 class="mb-0">Recent Baseline Tests</h6>
+    <a href="/baseline-tests/create" class="btn btn-sm btn-primary"><i class="bi bi-plus me-1"></i>New Test</a>
   </div>
   <div class="card-body p-0">
     <table class="table table-hover mb-0">
       <thead><tr>
-        <th>ID</th><th>Scenario</th><th>State</th><th>Mode</th><th>Created</th><th></th>
+        <th>ID</th><th>Name</th><th>Type</th><th>State</th><th>Verdict</th><th>Created</th><th></th>
       </tr></thead>
       <tbody id="recent-runs-body">
         <tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr>
@@ -114,20 +114,30 @@
     document.getElementById('stat-baseline-active').textContent = bActive.length;
     document.getElementById('stat-baseline-completed').textContent = bCompleted.length;
 
-    // Render recent runs (last 10)
-    const recent = runs.slice(0, 10);
+    // Render recent baseline tests (last 10)
+    const recent = baselineRuns.slice(0, 10);
     const tbody = document.getElementById('recent-runs-body');
     if (recent.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No test runs yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No baseline tests yet</td></tr>';
     } else {
-      tbody.innerHTML = recent.map(r => `<tr>
-        <td>${r.id}</td>
-        <td>Scenario #${r.scenario_id}</td>
-        <td>${stateBadge(r.state)}</td>
-        <td>${r.run_mode}</td>
-        <td>${fmtDate(r.created_at)}</td>
-        <td><a href="/test-runs/${r.id}/dashboard" class="btn btn-sm btn-outline-primary">View</a></td>
-      </tr>`).join('');
+      const typeBadge = t => {
+        const cls = t === 'new_baseline' ? 'primary' : t === 'compare' ? 'info' : 'warning text-dark';
+        return `<span class="badge bg-${cls}">${t.replace(/_/g, ' ')}</span>`;
+      };
+      tbody.innerHTML = recent.map(r => {
+        const verdict = r.verdict
+          ? `<span class="badge bg-${r.verdict === 'passed' ? 'success' : r.verdict === 'failed' ? 'danger' : 'warning'}">${r.verdict}</span>`
+          : '-';
+        return `<tr>
+          <td>${r.id}</td>
+          <td>${r.name || '<span class="text-muted">Untitled</span>'}</td>
+          <td>${typeBadge(r.test_type)}</td>
+          <td>${stateBadge(r.state)}</td>
+          <td>${verdict}</td>
+          <td>${fmtDate(r.created_at)}</td>
+          <td><a href="/baseline-tests/${r.id}/dashboard" class="btn btn-sm btn-outline-primary">View</a></td>
+        </tr>`;
+      }).join('');
     }
   } catch (e) {
     showToast('Failed to load dashboard: ' + e.message, 'danger');

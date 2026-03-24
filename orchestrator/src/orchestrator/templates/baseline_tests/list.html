@@ -167,7 +167,7 @@ function buildActions(r) {
     html += `<a href="/baseline-tests/create?edit=${r.id}" class="btn btn-sm btn-outline-secondary me-1" title="Edit"><i class="bi bi-pencil"></i></a>`;
   }
   html += `<a href="/baseline-tests/${r.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="Dashboard"><i class="bi bi-speedometer2"></i></a>`;
-  if (r.state === 'created') {
+  if (['created', 'failed', 'cancelled'].includes(r.state)) {
     html += `<button class="btn btn-sm btn-outline-danger me-1" onclick="confirmDelete(${r.id})" title="Delete"><i class="bi bi-trash"></i></button>`;
   }
   if (r.state === 'created') {
