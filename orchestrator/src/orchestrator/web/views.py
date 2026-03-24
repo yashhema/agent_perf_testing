@@ -369,6 +369,14 @@ async def baseline_test_edit(request: Request, run_id: int):
     })
 
 
+@router.get("/baseline-tests/{run_id}/view", response_class=HTMLResponse)
+async def baseline_test_view(request: Request, run_id: int):
+    """Renders the create page in read-only view mode."""
+    return templates.TemplateResponse("baseline_tests/create.html", {
+        "request": request, "view_run_id": run_id,
+    })
+
+
 @router.get("/baseline-tests/{run_id}/dashboard", response_class=HTMLResponse)
 async def baseline_test_dashboard(request: Request, run_id: int):
     return templates.TemplateResponse("baseline_tests/dashboard.html", {

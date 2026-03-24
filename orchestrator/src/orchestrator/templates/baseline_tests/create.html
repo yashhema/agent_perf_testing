@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit' if request.query_params.get('edit') else 'Create' }} Baseline Test - Orchestrator{% endblock %}
+{% block title %}{{ 'View' if view_run_id is defined and view_run_id else ('Edit' if request.query_params.get('edit') else 'Create') }} Baseline Test - Orchestrator{% endblock %}
 {% block page_header %}<strong id="page-title">Create Baseline Test</strong>{% endblock %}
 
 {% block content %}
@@ -171,6 +171,7 @@ let _labs = [], _servers = [], _allServers = [], _loadProfiles = [], _parentRuns
 let _selectedLab = null, _parentRun = null;
 let _targets = [], _nextIdx = 0;
 let _editMode = false, _editRunId = null, _editRun = null;
+let _viewMode = false;
 
 function getTestType() {
   return document.querySelector('input[name="test-type"]:checked')?.value || 'new_baseline';
@@ -181,12 +182,14 @@ function isCompareMode() { const tt = getTestType(); return tt === 'compare' || 
 // Navigation
 // =========================================================================
 function goStep(n) {
-  // Validation gates
-  if (n >= 2 && !validateStep1()) return;
-  if (n >= 3 && isCompareMode() && !_parentRun && !_editMode) {
-    showToast('Select a parent run for compare mode', 'warning'); return;
+  // Skip validation gates in view mode — allow free navigation
+  if (!_viewMode) {
+    if (n >= 2 && !validateStep1()) return;
+    if (n >= 3 && isCompareMode() && !_parentRun && !_editMode) {
+      showToast('Select a parent run for compare mode', 'warning'); return;
+    }
+    if (n >= 4 && !validateStep3()) return;
   }
-  if (n >= 4 && !validateStep3()) return;
 
   // Load data on entering certain steps
   if (n === 2) loadParentRuns();
@@ -223,9 +226,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     renderLoadProfiles();
 
-    // Check edit mode
+    // Check view or edit mode
     const params = new URLSearchParams(window.location.search);
-    if (params.has('edit')) {
+    const viewRunId = {% if view_run_id is defined and view_run_id %}{{ view_run_id }}{% else %}(params.has('view') ? parseInt(params.get('view')) : null){% endif %};
+    if (viewRunId) {
+      await loadViewMode(viewRunId);
+    } else if (params.has('edit')) {
       _editRunId = parseInt(params.get('edit'));
       await loadEditMode(_editRunId);
     }
@@ -302,6 +308,93 @@ async function loadEditMode(runId) {
     validateStep1();
   } catch (e) {
     showToast('Failed to load run for edit: ' + e.message, 'danger');
+  }
+}
+
+// =========================================================================
+// View Mode (read-only)
+// =========================================================================
+async function loadViewMode(runId) {
+  try {
+    const run = await API.get('/api/baseline-tests/' + runId);
+    _editRun = run;
+    _editMode = true;   // reuse edit logic for pre-fill + locked targets
+    _viewMode = true;
+    _editRunId = runId;
+
+    document.getElementById('page-title').innerHTML = '<strong>View Baseline Test #' + runId + '</strong>';
+
+    // Pre-fill basics
+    document.getElementById('inp-name').value = run.name || '';
+    document.getElementById('inp-desc').value = run.description || '';
+    document.getElementById('sel-lab').value = run.lab_id;
+    document.getElementById('sel-lab').dispatchEvent(new Event('change'));
+
+    // Set test type
+    const ttRadio = document.querySelector(`input[name="test-type"][value="${run.test_type}"]`);
+    if (ttRadio) { ttRadio.checked = true; onTestTypeChange(); }
+
+    // Set cycle count
+    document.getElementById('inp-cycle-count').value = run.cycle_count || 1;
+
+    // Load parent run if set
+    if (run.parent_run_id) {
+      try {
+        _parentRun = await API.get('/api/baseline-tests/' + run.parent_run_id);
+      } catch {}
+    }
+
+    // Reconstruct targets from run data
+    _servers = _allServers.filter(s => s.lab_id === run.lab_id);
+    _targets = run.targets.map(t => ({
+      idx: _nextIdx++,
+      server_id: t.target_id,
+      loadgen_id: t.loadgenerator_id,
+      test_snapshot_id: t.test_snapshot_id,
+      compare_snapshot_id: t.compare_snapshot_id,
+      patterns: t.service_monitor_patterns ? JSON.stringify(t.service_monitor_patterns) : '',
+      groups: [], subgroups: [], snapshots: [], snapshotTree: [],
+      group_id: null, subgroup_id: null,
+    }));
+
+    // Pre-check load profiles
+    run.load_profiles.forEach(lp => {
+      const cb = document.getElementById('lp-' + lp.load_profile_id);
+      if (cb) cb.checked = true;
+      const durInp = document.getElementById('lp-dur-' + lp.load_profile_id);
+      const rampInp = document.getElementById('lp-ramp-' + lp.load_profile_id);
+      if (durInp && lp.duration_sec) durInp.value = lp.duration_sec;
+      if (rampInp && lp.ramp_up_sec != null) rampInp.value = lp.ramp_up_sec;
+    });
+    updateProfileSelection();
+
+    // Disable ALL inputs, selects, textareas, buttons inside wizard steps
+    document.querySelectorAll('.wizard-step input, .wizard-step select, .wizard-step textarea').forEach(el => {
+      el.disabled = true;
+    });
+
+    // Hide submit button, show a "Back to List" link instead
+    document.getElementById('btn-submit').style.display = 'none';
+    document.getElementById('btn-submit').insertAdjacentHTML('afterend',
+      `<a href="/baseline-tests" class="btn btn-secondary"><i class="bi bi-arrow-left me-1"></i>Back to List</a>`);
+
+    // Enable all wizard nav links so user can click through steps freely
+    document.querySelectorAll('.wizard-nav .nav-link').forEach(link => {
+      link.style.pointerEvents = 'auto';
+      link.style.opacity = '1';
+    });
+
+    // Enable Next/Back buttons for navigation (but not data-changing)
+    document.querySelectorAll('[id^="btn-next-"]').forEach(b => b.disabled = false);
+    document.querySelectorAll('.card-footer .btn-secondary').forEach(b => b.disabled = false);
+
+    // Add state badge next to title
+    document.getElementById('page-title').insertAdjacentHTML('beforeend',
+      ` <span class="badge bg-${run.state === 'completed' ? 'success' : run.state === 'failed' ? 'danger' : 'secondary'}">${run.state}</span>`);
+
+    validateStep1();
+  } catch (e) {
+    showToast('Failed to load test for viewing: ' + e.message, 'danger');
   }
 }
 
@@ -614,7 +707,7 @@ function renderSnapSelectors(t, compare, locked) {
 async function loadTargetSnapData(t) {
   if (!t.server_id) return;
   try {
-    await API.post(`/api/servers/${t.server_id}/snapshots/sync`);
+    if (!_viewMode) await API.post(`/api/servers/${t.server_id}/snapshots/sync`);
     [t.snapshots, t.snapshotTree, t.groups] = await Promise.all([
       API.get(`/api/servers/${t.server_id}/snapshots`),
       API.get(`/api/servers/${t.server_id}/snapshots/tree`),
@@ -835,11 +928,12 @@ function updateProfileSelection() {
     if (ov) ov.classList.remove('d-none');
   });
 
-  // In compare mode with parent, lock checkboxes
-  if (compare) {
+  // In compare mode with parent or view mode, lock checkboxes
+  if (compare || _viewMode) {
     document.querySelectorAll('input[id^="lp-"]').forEach(cb => {
       if (cb.type === 'checkbox') cb.disabled = true;
     });
+    document.querySelectorAll('[id^="lp-dur-"], [id^="lp-ramp-"]').forEach(el => el.disabled = true);
   }
 
   document.getElementById('btn-next-4').disabled = checked.length === 0;
@@ -905,6 +999,7 @@ function buildReview() {
 // Submit
 // =========================================================================
 async function submitTest() {
+  if (_viewMode) return;
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
   try {

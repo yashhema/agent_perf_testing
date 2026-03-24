@@ -165,6 +165,8 @@ function buildActions(r) {
   let html = '';
   if (r.state === 'created') {
     html += `<a href="/baseline-tests/create?edit=${r.id}" class="btn btn-sm btn-outline-secondary me-1" title="Edit"><i class="bi bi-pencil"></i></a>`;
+  } else {
+    html += `<a href="/baseline-tests/${r.id}/view" class="btn btn-sm btn-outline-secondary me-1" title="View Config"><i class="bi bi-eye"></i></a>`;
   }
   html += `<a href="/baseline-tests/${r.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="Dashboard"><i class="bi bi-speedometer2"></i></a>`;
   if (['created', 'failed', 'cancelled'].includes(r.state)) {
