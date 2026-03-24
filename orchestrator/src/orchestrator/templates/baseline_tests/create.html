@@ -541,6 +541,13 @@ function renderTargets() {
       </div>
     </div>`;
   }).join('');
+
+  // After DOM is set: populate subgroups for targets with group already set (from parent)
+  _targets.forEach(t => {
+    if (t.group_id && t.subgroups && t.subgroups.length > 0) {
+      populateSubgroups(t);
+    }
+  });
 }
 
 function renderSnapSelectors(t, compare, locked) {
@@ -636,13 +643,8 @@ async function loadTargetSnapData(t) {
     }
   }
 
-  // Re-render this target card
+  // Re-render and populate subgroups for targets with group already set
   renderTargets();
-
-  // After render: populate subgroups if group is already set (e.g. from parent)
-  if (t.group_id) {
-    populateSubgroups(t);
-  }
 }
 
 function renderTreeHtml(nodes, depth) {
