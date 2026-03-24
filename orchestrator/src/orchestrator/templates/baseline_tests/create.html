@@ -575,7 +575,7 @@ function renderSnapSelectors(t, compare, locked) {
   const compareReadonly = compare && !!_parentRun && !_editMode;
   return `
     <div class="col-md-3">
-      <label class="form-label">Group</label>
+      <label class="form-label">Group <small class="text-muted">(from baseline)</small></label>
       <select class="form-select form-select-sm" id="grp-${t.idx}" ${locked ? 'disabled' : ''} onchange="onGroupChange(${t.idx})">
         <option value="">-- Select --</option>
         ${t.groups.map(g => `<option value="${g.id}" ${g.id === t.group_id ? 'selected' : ''}>${escHtml(g.name)}</option>`).join('')}
@@ -583,7 +583,7 @@ function renderSnapSelectors(t, compare, locked) {
     </div>
     <div class="col-md-3">
       <label class="form-label">Subgroup</label>
-      <select class="form-select form-select-sm" id="sg-${t.idx}" ${locked ? 'disabled' : ''} onchange="onSubgroupChange(${t.idx})">
+      <select class="form-select form-select-sm" id="sg-${t.idx}" onchange="onSubgroupChange(${t.idx})">
         <option value="">-- Select Group first --</option>
       </select>
     </div>
@@ -617,8 +617,32 @@ async function loadTargetSnapData(t) {
   } catch (e) {
     showToast(`Error loading snapshots for server ${t.server_id}: ${e.message}`, 'danger');
   }
+
+  // For compare mode: derive group_id from parent's compare_snapshot_id
+  // (which was the parent's test_snapshot). Find which group that snapshot belongs to.
+  if (t._fromParent && t.compare_snapshot_id && !t.group_id) {
+    const compareSnap = t.snapshots.find(s => s.id === t.compare_snapshot_id);
+    if (compareSnap && compareSnap.group_id) {
+      // Find the baseline (group) that owns the subgroup
+      const subgroup = t.subgroups.find(sg => sg.id === compareSnap.group_id);
+      if (subgroup) {
+        t.group_id = subgroup.baseline_id;
+      }
+    }
+    // Fallback: if snapshot has no group_id, check if it's directly a baseline snapshot
+    if (!t.group_id) {
+      const baseline = t.groups.find(g => g.snapshot_id === t.compare_snapshot_id);
+      if (baseline) t.group_id = baseline.id;
+    }
+  }
+
   // Re-render this target card
   renderTargets();
+
+  // After render: populate subgroups if group is already set (e.g. from parent)
+  if (t.group_id) {
+    populateSubgroups(t);
+  }
 }
 
 function renderTreeHtml(nodes, depth) {
