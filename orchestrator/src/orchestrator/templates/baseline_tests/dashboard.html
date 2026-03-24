@@ -459,7 +459,10 @@ async function renderLPProgress() {
     const isCurrentLp = _run.current_load_profile_id === lpId;
 
     let status, threads;
-    if (cal && cal.status === 'completed') {
+    if (_run.test_type === 'compare') {
+      status = '<span class="badge bg-secondary">N/A</span>';
+      threads = '<small class="text-muted">from parent</small>';
+    } else if (cal && cal.status === 'completed') {
       status = '<span class="badge bg-success">calibrated</span>';
       threads = cal.thread_count || cal.current_thread_count || '-';
     } else if (cal && cal.status === 'failed') {
