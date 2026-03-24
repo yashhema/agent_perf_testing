@@ -687,7 +687,8 @@ function onGroupChange(idx) {
   if (!t) return;
   const sel = document.getElementById(`grp-${idx}`);
   t.group_id = sel.value ? parseInt(sel.value) : null;
-  t.subgroup_id = null; t.test_snapshot_id = null; t.compare_snapshot_id = null;
+  t.subgroup_id = null; t.test_snapshot_id = null;
+  if (!t._fromParent) t.compare_snapshot_id = null;
 
   const tt = getTestType();
   const group = t.groups.find(g => g.id === t.group_id);
@@ -724,7 +725,9 @@ async function onSubgroupChange(idx) {
   if (!t) return;
   const sel = document.getElementById(`sg-${idx}`);
   t.subgroup_id = sel.value ? parseInt(sel.value) : null;
-  t.test_snapshot_id = null; t.compare_snapshot_id = null;
+  t.test_snapshot_id = null;
+  // Preserve compare_snapshot_id if inherited from parent run
+  if (!t._fromParent) t.compare_snapshot_id = null;
 
   if (!t.subgroup_id) {
     const tsnapSel = document.getElementById(`tsnap-sel-${idx}`);
