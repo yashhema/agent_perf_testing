@@ -21,6 +21,15 @@
   </div>
 </div>
 
+<!-- Root Snapshot status bar (shown when server selected) -->
+<div class="card shadow-sm mb-4" id="root-snapshot-bar" style="display:none">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col" id="root-snapshot-info"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Placeholder when no server selected -->
 <div id="no-server-msg" class="text-center text-muted py-5">
   <i class="bi bi-hdd-rack" style="font-size:3rem"></i>
@@ -123,146 +132,65 @@
   </div>
 </div>
 
-<!-- Create Group modal -->
-<div class="modal fade" id="group-modal" tabindex="-1">
+<!-- Root Snapshot modal — set or change the root/original OS snapshot for a target server -->
+<div class="modal fade" id="root-snap-modal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Create Group</h5>
+        <h5 class="modal-title">Set Root Snapshot for: <span id="root-snap-modal-server"></span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="alert alert-info py-2" style="font-size:.85rem">
           <i class="bi bi-info-circle me-1"></i>
-          A group captures a clean OS state for server <strong id="grp-modal-server-name"></strong>. A default subgroup will be auto-created.
+          The root snapshot represents the original OS state. All groups will originate from it.
         </div>
         <div class="mb-3">
-          <label class="form-label">Group Name</label>
-          <input type="text" class="form-control" id="grp-name" placeholder="e.g. Clean OS Rocky" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Description</label>
-          <textarea class="form-control" id="grp-desc" rows="2"></textarea>
-        </div>
-        <hr>
-        <div class="mb-3">
-          <label class="form-label fw-bold">Snapshot Source</label>
+          <label class="form-label fw-bold">Source</label>
           <div class="form-check">
-            <input class="form-check-input" type="radio" name="grp-snap-source" id="grp-snap-existing" value="existing" checked onchange="toggleGrpSnapSource()">
-            <label class="form-check-label" for="grp-snap-existing">Pick existing snapshot from hypervisor</label>
+            <input class="form-check-input" type="radio" name="root-snap-source" id="root-snap-existing" value="existing" checked onchange="toggleRootSnapSource()">
+            <label class="form-check-label" for="root-snap-existing">Pick existing snapshot from hypervisor</label>
           </div>
           <div class="form-check">
-            <input class="form-check-input" type="radio" name="grp-snap-source" id="grp-snap-new" value="new" onchange="toggleGrpSnapSource()">
-            <label class="form-check-label" for="grp-snap-new">Take new snapshot (current VM state)</label>
+            <input class="form-check-input" type="radio" name="root-snap-source" id="root-snap-new" value="new" onchange="toggleRootSnapSource()">
+            <label class="form-check-label" for="root-snap-new">Take new snapshot (current VM state)</label>
           </div>
         </div>
-        <!-- Existing snapshot picker (shown by default) -->
-        <div id="grp-existing-fields">
-          <div id="grp-hv-list" style="max-height:250px; overflow-y:auto; border:1px solid #dee2e6; border-radius:.375rem">
+        <!-- Existing snapshot picker -->
+        <div id="root-snap-existing-fields">
+          <div id="root-snap-hv-list" style="max-height:300px; overflow-y:auto; border:1px solid #dee2e6; border-radius:.375rem">
             <div class="text-muted p-3">Loading...</div>
           </div>
-          <input type="hidden" id="grp-existing-snap-id">
+          <input type="hidden" id="root-snap-existing-id">
         </div>
-        <!-- New snapshot fields (hidden by default) -->
-        <div id="grp-new-fields" style="display:none">
+        <!-- Take new -->
+        <div id="root-snap-new-fields" style="display:none">
           <div class="mb-3">
-            <label class="form-label">Snapshot Name (on hypervisor)</label>
-            <input type="text" class="form-control" id="grp-snap-name" placeholder="e.g. clean-os-rocky">
+            <label class="form-label">Snapshot Name</label>
+            <input type="text" class="form-control" id="root-snap-name" placeholder="e.g. original-os">
           </div>
         </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-warning" onclick="doCreateGroup()" id="btn-grp-confirm">
-          <i class="bi bi-flag me-1"></i>Create Group
+        <button type="button" class="btn btn-primary" onclick="doSetRootSnapshot()" id="btn-root-snap-confirm">
+          <i class="bi bi-check-lg me-1"></i>Set Root Snapshot
         </button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Create Subgroup modal -->
-<div class="modal fade" id="subgroup-modal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Create Subgroup under: <span id="sg-modal-parent-name"></span></h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="alert alert-info py-2" style="font-size:.85rem">
-          <i class="bi bi-info-circle me-1"></i>
-          Install the agent on the VM first, then create a subgroup to capture the state.
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Subgroup Name</label>
-          <input type="text" class="form-control" id="sg-name" placeholder="e.g. CrowdStrike, SentinelOne" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Description</label>
-          <textarea class="form-control" id="sg-desc" rows="2"></textarea>
-        </div>
-        <hr>
-        <div class="mb-3">
-          <label class="form-label fw-bold">Snapshot Source</label>
-          <div class="form-check">
-            <input class="form-check-input" type="radio" name="sg-snap-source" id="sg-snap-existing" value="existing" checked onchange="toggleSgSnapSource()">
-            <label class="form-check-label" for="sg-snap-existing">Pick existing snapshot (children of group only)</label>
-          </div>
-          <div class="form-check">
-            <input class="form-check-input" type="radio" name="sg-snap-source" id="sg-snap-new" value="new" onchange="toggleSgSnapSource()">
-            <label class="form-check-label" for="sg-snap-new">Take new snapshot (current VM state)</label>
-          </div>
-        </div>
-        <!-- Existing snapshot picker (shown by default) -->
-        <div id="sg-existing-fields">
-          <div id="sg-hv-list" style="max-height:250px; overflow-y:auto; border:1px solid #dee2e6; border-radius:.375rem">
-            <div class="text-muted p-3">Loading...</div>
-          </div>
-          <input type="hidden" id="sg-existing-snap-id">
-        </div>
-        <!-- New snapshot fields (hidden by default) -->
-        <div id="sg-new-fields" style="display:none">
-          <div class="mb-3">
-            <label class="form-label">Snapshot Name (optional — auto-generated if blank)</label>
-            <input type="text" class="form-control" id="sg-snap-name" placeholder="e.g. crowdstrike-installed">
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-info" onclick="doCreateSubgroup()" id="btn-sg-confirm">
-          <i class="bi bi-folder-plus me-1"></i>Create Subgroup
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Take snapshot modal -->
-<div class="modal fade" id="take-modal" tabindex="-1">
+<!-- Two-step modal — revert first, then save snapshot (used for Create Group, Create Subgroup, Take Snapshot) -->
+<div class="modal fade" id="twostep-modal" tabindex="-1" data-bs-backdrop="static">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Take Snapshot in: <span id="take-modal-parent-name"></span></h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <h5 class="modal-title" id="twostep-title"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="resetTwoStep()"></button>
       </div>
-      <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label">Snapshot Name</label>
-          <input type="text" class="form-control" id="take-snap-name" placeholder="e.g. After Test Run 1" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Description</label>
-          <textarea class="form-control" id="take-snap-desc" rows="2"></textarea>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" onclick="doTakeSnapshot()" id="btn-take-confirm">
-          <i class="bi bi-camera me-1"></i>Take Snapshot
-        </button>
-      </div>
+      <div class="modal-body" id="twostep-body"></div>
+      <div class="modal-footer" id="twostep-footer"></div>
     </div>
   </div>
 </div>
@@ -300,18 +228,23 @@ let _selectedServerId = null;
 let _selectedGroupId = null;     // snapshot_baselines.id
 let _selectedSubgroupId = null;  // snapshot_groups.id
 let _selectedSnapshotId = null;
-let _groupModal, _subgroupModal, _takeModal, _pickModal;
+let _rootSnapModal, _twostepModal, _pickModal;
 let _loadProfiles = [];
 
+// Two-step flow state
+let _twoStepState = 'idle';    // idle | confirm | reverting | waiting | saving
+let _twoStepAction = null;     // 'group' | 'subgroup' | 'snapshot'
+let _twoStepRevertSnapId = null;
+let _twoStepRevertSnapName = '';
+
 document.addEventListener('DOMContentLoaded', async () => {
-  _groupModal = new bootstrap.Modal(document.getElementById('group-modal'));
-  _subgroupModal = new bootstrap.Modal(document.getElementById('subgroup-modal'));
-  _takeModal = new bootstrap.Modal(document.getElementById('take-modal'));
+  _rootSnapModal = new bootstrap.Modal(document.getElementById('root-snap-modal'));
+  _twostepModal = new bootstrap.Modal(document.getElementById('twostep-modal'));
   _pickModal = new bootstrap.Modal(document.getElementById('pick-modal'));
 
   try {
     [_servers, _loadProfiles] = await Promise.all([
-      API.get('/api/admin/servers'),
+      API.get('/api/admin/servers?role=target'),
       API.get('/api/admin/load-profiles'),
     ]);
     const sel = document.getElementById('sel-server');
@@ -340,6 +273,7 @@ document.getElementById('sel-server').addEventListener('change', async (e) => {
   document.getElementById('no-server-msg').style.display = _selectedServerId ? 'none' : '';
   document.getElementById('main-panel').style.display = _selectedServerId ? '' : 'none';
   document.getElementById('toolbar-sync').style.display = _selectedServerId ? '' : 'none';
+  document.getElementById('root-snapshot-bar').style.display = _selectedServerId ? '' : 'none';
   document.getElementById('subgroups-card').style.display = 'none';
   document.getElementById('snapshots-card').style.display = 'none';
   resetDetail();
@@ -348,6 +282,7 @@ document.getElementById('sel-server').addEventListener('change', async (e) => {
     const srv = _servers.find(s => s.id === _selectedServerId);
     document.getElementById('groups-server-label').textContent = srv ? `for ${srv.hostname}` : '';
     await loadAll();
+    renderRootSnapshotInfo();
   } else {
     document.getElementById('groups-server-label').textContent = '';
   }
@@ -505,7 +440,6 @@ async function renderSubgroupSnapshots(sg) {
   const card = document.getElementById('snapshots-card');
   card.style.display = '';
   document.getElementById('snaps-parent-name').textContent = sg.name;
-  document.getElementById('take-modal-parent-name').textContent = sg.name;
 
   try {
     _subgroupSnapshots = await API.get(`/api/servers/${_selectedServerId}/snapshot-groups/${sg.id}/snapshots`);
@@ -644,71 +578,313 @@ async function syncSnapshots() {
   } catch (e) { showToast('Sync failed: ' + e.message, 'danger'); }
 }
 
-// -- Create Group --
+// ===========================================================================
+// Root Snapshot management
+// ===========================================================================
 
-function openGroupModal() {
-  document.getElementById('grp-name').value = '';
-  document.getElementById('grp-snap-name').value = '';
-  document.getElementById('grp-desc').value = '';
-  document.getElementById('grp-snap-existing').checked = true;
-  document.getElementById('grp-existing-snap-id').value = '';
-  // Show server name in modal
+function renderRootSnapshotInfo() {
   const srv = _servers.find(s => s.id === _selectedServerId);
-  document.getElementById('grp-modal-server-name').textContent = srv ? `${srv.hostname} (${srv.ip_address})` : '';
-  toggleGrpSnapSource();
-  _groupModal.show();
+  if (!srv) return;
+  const info = document.getElementById('root-snapshot-info');
+  if (srv.root_snapshot_id) {
+    const rootSnap = _snapshots.find(s => s.id === srv.root_snapshot_id);
+    const snapLabel = rootSnap ? `${escHtml(rootSnap.name)} (${escHtml(rootSnap.provider_snapshot_id)})` : `Snap #${srv.root_snapshot_id}`;
+    info.innerHTML = `
+      <i class="bi bi-shield-check text-success me-1"></i>
+      <strong>Root Snapshot:</strong> ${snapLabel}
+      <button class="btn btn-outline-secondary btn-sm ms-2" onclick="openRootSnapModal()">
+        <i class="bi bi-pencil me-1"></i>Change
+      </button>
+    `;
+  } else {
+    info.innerHTML = `
+      <i class="bi bi-exclamation-triangle text-warning me-1"></i>
+      <strong>No root snapshot set.</strong> Set one before creating groups.
+      <button class="btn btn-warning btn-sm ms-2" onclick="openRootSnapModal()">
+        <i class="bi bi-plus-lg me-1"></i>Set Root Snapshot
+      </button>
+    `;
+  }
 }
 
-function toggleGrpSnapSource() {
-  const isExisting = document.getElementById('grp-snap-existing').checked;
-  document.getElementById('grp-existing-fields').style.display = isExisting ? '' : 'none';
-  document.getElementById('grp-new-fields').style.display = isExisting ? 'none' : '';
-  if (isExisting) loadGrpHvList();
+function openRootSnapModal() {
+  const srv = _servers.find(s => s.id === _selectedServerId);
+  document.getElementById('root-snap-modal-server').textContent = srv ? `${srv.hostname} (${srv.ip_address})` : '';
+  document.getElementById('root-snap-existing').checked = true;
+  document.getElementById('root-snap-existing-id').value = '';
+  document.getElementById('root-snap-name').value = '';
+  toggleRootSnapSource();
+  _rootSnapModal.show();
 }
 
-async function loadGrpHvList() {
-  const container = document.getElementById('grp-hv-list');
+function toggleRootSnapSource() {
+  const isExisting = document.getElementById('root-snap-existing').checked;
+  document.getElementById('root-snap-existing-fields').style.display = isExisting ? '' : 'none';
+  document.getElementById('root-snap-new-fields').style.display = isExisting ? 'none' : '';
+  if (isExisting) loadRootSnapHvList();
+}
+
+async function loadRootSnapHvList() {
+  const container = document.getElementById('root-snap-hv-list');
   container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Loading...</div>';
   try {
     const hvSnaps = await API.get(`/api/servers/${_selectedServerId}/hypervisor-snapshots`);
-    renderHvPicker(container, hvSnaps, 'grp-existing-snap-id');
+    renderHvPicker(container, hvSnaps, 'root-snap-existing-id');
   } catch (e) { container.innerHTML = `<div class="text-danger p-3">${escHtml(e.message)}</div>`; }
 }
 
-async function doCreateGroup() {
-  const name = document.getElementById('grp-name').value.trim();
-  if (!name) { showToast('Name is required', 'warning'); return; }
-
-  const isExisting = document.getElementById('grp-snap-existing').checked;
-  const payload = {
-    name,
-    description: document.getElementById('grp-desc').value.trim() || null,
-  };
-
-  if (isExisting) {
-    const existingId = document.getElementById('grp-existing-snap-id').value;
-    if (!existingId) { showToast('Select a snapshot from the list', 'warning'); return; }
-    payload.existing_snapshot_id = parseInt(existingId);
-  } else {
-    const snapName = document.getElementById('grp-snap-name').value.trim();
-    if (!snapName) { showToast('Snapshot name is required', 'warning'); return; }
-    payload.snapshot_name = snapName;
-  }
-
-  const btn = document.getElementById('btn-grp-confirm');
+async function doSetRootSnapshot() {
+  const btn = document.getElementById('btn-root-snap-confirm');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Setting...';
   try {
-    await API.post(`/api/servers/${_selectedServerId}/snapshot-baselines`, payload);
-    showToast('Group created with default subgroup');
-    _groupModal.hide();
+    const isExisting = document.getElementById('root-snap-existing').checked;
+    let snapId;
+
+    if (isExisting) {
+      snapId = document.getElementById('root-snap-existing-id').value;
+      if (!snapId) { showToast('Select a snapshot from the list', 'warning'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Set Root Snapshot'; return; }
+      snapId = parseInt(snapId);
+    } else {
+      const snapName = document.getElementById('root-snap-name').value.trim();
+      if (!snapName) { showToast('Snapshot name is required', 'warning'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Set Root Snapshot'; return; }
+      // Take a new snapshot first
+      const snap = await API.post(`/api/servers/${_selectedServerId}/snapshots/take`, {
+        name: snapName,
+        description: 'Root/Original OS snapshot',
+      });
+      snapId = snap.id;
+    }
+
+    // Update server's root_snapshot_id
+    await API.put(`/api/admin/servers/${_selectedServerId}`, { root_snapshot_id: snapId });
+    // Update local cache
+    const srv = _servers.find(s => s.id === _selectedServerId);
+    if (srv) srv.root_snapshot_id = snapId;
+
+    showToast('Root snapshot set');
+    _rootSnapModal.hide();
     await loadAll();
+    renderRootSnapshotInfo();
   } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-flag me-1"></i>Create Group';
+  btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Set Root Snapshot';
 }
 
-// -- Revert to Group --
+// ===========================================================================
+// Two-step flow: Revert → User acts on server → Save snapshot
+// ===========================================================================
+
+function resetTwoStep() {
+  _twoStepState = 'idle';
+  _twoStepAction = null;
+  _twoStepRevertSnapId = null;
+  _twoStepRevertSnapName = '';
+}
+
+function updateTwoStepUI() {
+  const title = document.getElementById('twostep-title');
+  const body = document.getElementById('twostep-body');
+  const footer = document.getElementById('twostep-footer');
+
+  const actionLabel = _twoStepAction === 'group' ? 'Create Group'
+    : _twoStepAction === 'subgroup' ? 'Create Subgroup'
+    : 'Take Snapshot';
+  title.textContent = actionLabel;
+
+  if (_twoStepState === 'confirm') {
+    body.innerHTML = `
+      <div class="alert alert-warning py-2" style="font-size:.85rem">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        The server will be <strong>reverted</strong> to snapshot: <code>${escHtml(_twoStepRevertSnapName)}</code>.<br>
+        The VM will restart. After revert, you can log in to the server, make your changes, then come back and save a snapshot.
+      </div>
+      <p>Proceed with revert?</p>
+    `;
+    footer.innerHTML = `
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="resetTwoStep()">Cancel</button>
+      <button type="button" class="btn btn-warning" onclick="doTwoStepRevert()">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Revert Server
+      </button>
+    `;
+  } else if (_twoStepState === 'reverting') {
+    body.innerHTML = `
+      <div class="text-center py-4">
+        <div class="spinner-border text-warning mb-3"></div>
+        <p>Reverting server to <strong>${escHtml(_twoStepRevertSnapName)}</strong>...</p>
+        <p class="text-muted" style="font-size:.85rem">This may take a minute while the VM restarts.</p>
+      </div>
+    `;
+    footer.innerHTML = '';
+  } else if (_twoStepState === 'waiting') {
+    const placeholder = _twoStepAction === 'group' ? 'e.g. Clean OS Rocky'
+      : _twoStepAction === 'subgroup' ? 'e.g. CrowdStrike, SentinelOne'
+      : 'e.g. After config change';
+    body.innerHTML = `
+      <div class="alert alert-success py-2" style="font-size:.85rem">
+        <i class="bi bi-check-circle me-1"></i>
+        Server reverted successfully. Log in to the server and make your changes. When ready, fill in the details below and click <strong>Save Snapshot</strong>.
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Name</label>
+        <input type="text" class="form-control" id="twostep-name" placeholder="${placeholder}" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" id="twostep-desc" rows="2"></textarea>
+      </div>
+    `;
+    footer.innerHTML = `
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="resetTwoStep()">Cancel</button>
+      <button type="button" class="btn btn-success" onclick="doTwoStepSave()" id="btn-twostep-save">
+        <i class="bi bi-camera me-1"></i>Save Snapshot
+      </button>
+    `;
+  } else if (_twoStepState === 'saving') {
+    body.innerHTML = `
+      <div class="text-center py-4">
+        <div class="spinner-border text-success mb-3"></div>
+        <p>Taking snapshot and saving...</p>
+      </div>
+    `;
+    footer.innerHTML = '';
+  }
+}
+
+// -- Open two-step for each action --
+
+function openGroupModal() {
+  const srv = _servers.find(s => s.id === _selectedServerId);
+  if (!srv || !srv.root_snapshot_id) {
+    showToast('Set a root snapshot for this server first', 'warning');
+    return;
+  }
+  const rootSnap = _snapshots.find(s => s.id === srv.root_snapshot_id);
+  _twoStepAction = 'group';
+  _twoStepRevertSnapId = srv.root_snapshot_id;
+  _twoStepRevertSnapName = rootSnap ? rootSnap.name : 'Root Snapshot';
+  _twoStepState = 'confirm';
+  updateTwoStepUI();
+  _twostepModal.show();
+}
+
+function openSubgroupModal() {
+  if (!_selectedGroupId) { showToast('Select a group first', 'warning'); return; }
+  const g = _groups.find(b => b.id === _selectedGroupId);
+  if (!g || !g.snapshot_id) { showToast('Group has no snapshot', 'warning'); return; }
+  const groupSnap = _snapshots.find(s => s.id === g.snapshot_id);
+  _twoStepAction = 'subgroup';
+  _twoStepRevertSnapId = g.snapshot_id;
+  _twoStepRevertSnapName = groupSnap ? groupSnap.name : g.name;
+  _twoStepState = 'confirm';
+  updateTwoStepUI();
+  _twostepModal.show();
+}
+
+function openTakeModal() {
+  if (!_selectedSubgroupId) { showToast('Select a subgroup first', 'warning'); return; }
+  // Find most recent non-archived snapshot in this subgroup
+  const sgSnaps = _subgroupSnapshots
+    .filter(s => !s.is_archived)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  if (sgSnaps.length === 0) {
+    // Fall back to subgroup's own snapshot
+    const sg = _subgroups.find(s => s.id === _selectedSubgroupId);
+    if (!sg || !sg.snapshot_id) {
+      showToast('No snapshots in this subgroup to revert to', 'warning');
+      return;
+    }
+    const sgSnap = _snapshots.find(s => s.id === sg.snapshot_id);
+    _twoStepRevertSnapId = sg.snapshot_id;
+    _twoStepRevertSnapName = sgSnap ? sgSnap.name : 'Subgroup Snapshot';
+  } else {
+    _twoStepRevertSnapId = sgSnaps[0].id;
+    _twoStepRevertSnapName = sgSnaps[0].name;
+  }
+  _twoStepAction = 'snapshot';
+  _twoStepState = 'confirm';
+  updateTwoStepUI();
+  _twostepModal.show();
+}
+
+// -- Two-step: Step 1 — Revert --
+
+async function doTwoStepRevert() {
+  _twoStepState = 'reverting';
+  updateTwoStepUI();
+  try {
+    await API.post(`/api/servers/${_selectedServerId}/snapshots/${_twoStepRevertSnapId}/revert`);
+    _twoStepState = 'waiting';
+    updateTwoStepUI();
+  } catch (e) {
+    showToast('Revert failed: ' + e.message, 'danger');
+    resetTwoStep();
+    _twostepModal.hide();
+  }
+}
+
+// -- Two-step: Step 2 — Save Snapshot --
+
+async function doTwoStepSave() {
+  const name = document.getElementById('twostep-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+  const desc = document.getElementById('twostep-desc').value.trim();
+
+  _twoStepState = 'saving';
+  updateTwoStepUI();
+
+  try {
+    if (_twoStepAction === 'group') {
+      // Take snapshot, then create group with it
+      const snap = await API.post(`/api/servers/${_selectedServerId}/snapshots/take`, { name, description: desc });
+      await API.post(`/api/servers/${_selectedServerId}/snapshot-baselines`, {
+        name,
+        description: desc || null,
+        existing_snapshot_id: snap.id,
+      });
+      showToast('Group created with default subgroup');
+    } else if (_twoStepAction === 'subgroup') {
+      // Take snapshot, then create subgroup with it
+      const snap = await API.post(`/api/servers/${_selectedServerId}/snapshots/take`, { name, description: desc });
+      await API.post(`/api/servers/${_selectedServerId}/snapshot-groups`, {
+        baseline_id: _selectedGroupId,
+        name,
+        description: desc || null,
+        existing_snapshot_id: snap.id,
+      });
+      showToast('Subgroup created');
+    } else if (_twoStepAction === 'snapshot') {
+      await API.post(`/api/servers/${_selectedServerId}/snapshots/take`, {
+        name,
+        description: desc,
+        group_id: _selectedSubgroupId,
+      });
+      showToast('Snapshot created');
+    }
+
+    resetTwoStep();
+    _twostepModal.hide();
+    await loadAll();
+
+    // Re-select context
+    if (_selectedGroupId) {
+      const g = _groups.find(b => b.id === _selectedGroupId);
+      if (g) {
+        selectGroup(g);
+        if (_selectedSubgroupId) {
+          const sg = _subgroups.find(s => s.id === _selectedSubgroupId);
+          if (sg) await selectSubgroup(sg);
+        }
+      }
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'danger');
+    _twoStepState = 'waiting';
+    updateTwoStepUI();
+  }
+}
+
+// -- Revert to Group (standalone, from detail panel) --
 
 async function revertToGroup(groupId) {
   if (!confirm('Revert the VM to this group\'s snapshot? The VM will restart.')) return;
@@ -717,111 +893,6 @@ async function revertToGroup(groupId) {
     await API.post(`/api/servers/${_selectedServerId}/snapshot-baselines/${groupId}/revert`);
     showToast('VM reverted to group snapshot');
   } catch (e) { showToast('Revert failed: ' + e.message, 'danger'); }
-}
-
-// -- Create Subgroup --
-
-function openSubgroupModal() {
-  if (!_selectedGroupId) { showToast('Select a group first', 'warning'); return; }
-  const g = _groups.find(b => b.id === _selectedGroupId);
-  document.getElementById('sg-modal-parent-name').textContent = g ? g.name : '';
-  document.getElementById('sg-name').value = '';
-  document.getElementById('sg-snap-name').value = '';
-  document.getElementById('sg-desc').value = '';
-  document.getElementById('sg-snap-existing').checked = true;
-  document.getElementById('sg-existing-snap-id').value = '';
-  toggleSgSnapSource();
-  _subgroupModal.show();
-}
-
-function toggleSgSnapSource() {
-  const isExisting = document.getElementById('sg-snap-existing').checked;
-  document.getElementById('sg-existing-fields').style.display = isExisting ? '' : 'none';
-  document.getElementById('sg-new-fields').style.display = isExisting ? 'none' : '';
-  if (isExisting) loadSgHvList();
-}
-
-async function loadSgHvList() {
-  const container = document.getElementById('sg-hv-list');
-  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Loading...</div>';
-  try {
-    // Get the group's snapshot provider_snapshot_id to filter children only
-    const g = _groups.find(b => b.id === _selectedGroupId);
-    const groupSnap = g ? _snapshots.find(s => s.id === g.snapshot_id) : null;
-    const parentParam = groupSnap ? `?parent_of=${encodeURIComponent(groupSnap.provider_snapshot_id)}` : '';
-    const hvSnaps = await API.get(`/api/servers/${_selectedServerId}/hypervisor-snapshots${parentParam}`);
-    if (hvSnaps.length === 0) {
-      container.innerHTML = '<div class="text-muted p-3" style="font-size:.85rem">No child snapshots found under this group\'s snapshot. Take a snapshot on the hypervisor first.</div>';
-      return;
-    }
-    renderHvPicker(container, hvSnaps, 'sg-existing-snap-id');
-  } catch (e) { container.innerHTML = `<div class="text-danger p-3">${escHtml(e.message)}</div>`; }
-}
-
-async function doCreateSubgroup() {
-  const name = document.getElementById('sg-name').value.trim();
-  if (!name) { showToast('Name is required', 'warning'); return; }
-
-  const isExisting = document.getElementById('sg-snap-existing').checked;
-  const payload = {
-    baseline_id: _selectedGroupId,
-    name,
-    description: document.getElementById('sg-desc').value.trim() || null,
-  };
-
-  if (isExisting) {
-    const existingId = document.getElementById('sg-existing-snap-id').value;
-    if (!existingId) { showToast('Select a snapshot from the list', 'warning'); return; }
-    payload.existing_snapshot_id = parseInt(existingId);
-  } else {
-    const snapName = document.getElementById('sg-snap-name').value.trim();
-    if (snapName) payload.snapshot_name = snapName;
-  }
-
-  const btn = document.getElementById('btn-sg-confirm');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
-  try {
-    await API.post(`/api/servers/${_selectedServerId}/snapshot-groups`, payload);
-    showToast('Subgroup created');
-    _subgroupModal.hide();
-    await loadAll();
-    const g = _groups.find(b => b.id === _selectedGroupId);
-    if (g) selectGroup(g);
-  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-  btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-folder-plus me-1"></i>Create Subgroup';
-}
-
-// -- Take Snapshot (in subgroup) --
-
-function openTakeModal() {
-  if (!_selectedSubgroupId) { showToast('Select a subgroup first', 'warning'); return; }
-  document.getElementById('take-snap-name').value = '';
-  document.getElementById('take-snap-desc').value = '';
-  _takeModal.show();
-}
-
-async function doTakeSnapshot() {
-  const name = document.getElementById('take-snap-name').value.trim();
-  if (!name) { showToast('Name is required', 'warning'); return; }
-  const btn = document.getElementById('btn-take-confirm');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Taking...';
-  try {
-    await API.post(`/api/servers/${_selectedServerId}/snapshots/take`, {
-      name,
-      description: document.getElementById('take-snap-desc').value.trim(),
-      group_id: _selectedSubgroupId,
-    });
-    showToast('Snapshot created');
-    _takeModal.hide();
-    await loadAll();
-    const sg = _subgroups.find(s => s.id === _selectedSubgroupId);
-    if (sg) await renderSubgroupSnapshots(sg);
-  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-  btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-camera me-1"></i>Take Snapshot';
 }
 
 // -- Pick from Hypervisor --

@@ -39,6 +39,7 @@ from orchestrator.models.enums import (
     RuleSeverity,
     RunMode,
     ServerInfraType,
+    ServerRole,
     TemplateType,
     TestPhaseType,
     TestRunState,
@@ -110,6 +111,7 @@ class ServerORM(Base):
     os_minor_ver = Column(String(20), nullable=True)        # e.g., "04", "3"
     lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False)
     hardware_profile_id = Column(Integer, ForeignKey("hardware_profiles.id"), nullable=False)
+    role = Column(Enum(ServerRole), nullable=False)
     server_infra_type = Column(Enum(ServerInfraType), nullable=False)
     server_infra_ref = Column(JSON, nullable=False)
     baseline_id = Column(Integer, ForeignKey("baselines.id"), nullable=True)
@@ -124,6 +126,8 @@ class ServerORM(Base):
     service_monitor_patterns = Column(JSON, nullable=True)
     # Clean snapshot for reverting to known-good state (loadgens: pre-JMeter/emulator install)
     clean_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
+    # Root/original OS snapshot for target servers (vSphere/Proxmox); groups originate from this
+    root_snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
@@ -133,6 +137,7 @@ class ServerORM(Base):
     default_loadgen = relationship("ServerORM", foreign_keys=[default_loadgen_id], remote_side="ServerORM.id")
     default_partner = relationship("ServerORM", foreign_keys=[default_partner_id], remote_side="ServerORM.id")
     clean_snapshot = relationship("SnapshotORM", foreign_keys=[clean_snapshot_id])
+    root_snapshot = relationship("SnapshotORM", foreign_keys=[root_snapshot_id])
 
 
 # ---------------------------------------------------------------------------

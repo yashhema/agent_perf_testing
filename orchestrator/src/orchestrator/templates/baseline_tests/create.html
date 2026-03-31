@@ -167,7 +167,7 @@
 // =========================================================================
 // State
 // =========================================================================
-let _labs = [], _servers = [], _allServers = [], _loadProfiles = [], _parentRuns = [];
+let _labs = [], _servers = [], _allServers = [], _loadgens = [], _loadProfiles = [], _parentRuns = [];
 let _selectedLab = null, _parentRun = null;
 let _targets = [], _nextIdx = 0;
 let _editMode = false, _editRunId = null, _editRun = null;
@@ -278,7 +278,9 @@ async function loadEditMode(runId) {
     }
 
     // Reconstruct targets from run data
-    _servers = _allServers.filter(s => s.lab_id === _editRun.lab_id);
+    const editLabServers = _allServers.filter(s => s.lab_id === _editRun.lab_id);
+    _servers = editLabServers.filter(s => s.role === 'target');
+    _loadgens = editLabServers.filter(s => s.role === 'loadgen');
     _targets = _editRun.targets.map(t => ({
       idx: _nextIdx++,
       server_id: t.target_id,
@@ -345,7 +347,9 @@ async function loadViewMode(runId) {
     }
 
     // Reconstruct targets from run data
-    _servers = _allServers.filter(s => s.lab_id === run.lab_id);
+    const viewLabServers = _allServers.filter(s => s.lab_id === run.lab_id);
+    _servers = viewLabServers.filter(s => s.role === 'target');
+    _loadgens = viewLabServers.filter(s => s.role === 'loadgen');
     _targets = run.targets.map(t => ({
       idx: _nextIdx++,
       server_id: t.target_id,
@@ -404,7 +408,9 @@ async function loadViewMode(runId) {
 document.getElementById('sel-lab').addEventListener('change', (e) => {
   const labId = parseInt(e.target.value);
   _selectedLab = _labs.find(l => l.id === labId) || null;
-  _servers = labId ? _allServers.filter(s => s.lab_id === labId) : [];
+  const labServers = labId ? _allServers.filter(s => s.lab_id === labId) : [];
+  _servers = labServers.filter(s => s.role === 'target');
+  _loadgens = labServers.filter(s => s.role === 'loadgen');
   if (!_editMode) {
     _targets = [];
     _parentRun = null;
@@ -583,7 +589,10 @@ function renderTargets() {
   container.innerHTML = _targets.map(t => {
     const srv = _servers.find(s => s.id === t.server_id);
     const srvLabel = srv ? `${srv.hostname} (${srv.ip_address})` : '';
-    const lgDefault = srv?.default_loadgen_id ? (_allServers.find(s => s.id === srv.default_loadgen_id)?.hostname || '') : 'none';
+    const lgDefault = srv?.default_loadgen_id ? (_loadgens.find(s => s.id === srv.default_loadgen_id)?.hostname || '') : 'none';
+    // Prevent same loadgen assigned to multiple targets
+    const usedLgIds = _targets.filter(o => o.idx !== t.idx).map(o => o.loadgen_id).filter(Boolean);
+    const availableLgs = _loadgens.filter(s => !usedLgIds.includes(s.id) || s.id === t.loadgen_id);
 
     return `
     <div class="card shadow-sm mb-3" id="target-card-${t.idx}">
@@ -594,7 +603,7 @@ function renderTargets() {
       <div class="card-body">
         <div class="row g-3 mb-3">
           <div class="col-md-4">
-            <label class="form-label">Server</label>
+            <label class="form-label">Target Server</label>
             ${locked
               ? `<input class="form-control form-control-sm" value="${escHtml(srvLabel)}" readonly>`
               : `<select class="form-select form-select-sm" onchange="onTargetServerChange(${t.idx}, this.value)">${serverOptions(t.server_id)}</select>`
@@ -605,7 +614,7 @@ function renderTargets() {
             <label class="form-label">Load Generator <small class="text-muted">(override)</small></label>
             <select class="form-select form-select-sm" ${locked ? 'disabled' : ''} onchange="onTargetField(${t.idx},'loadgen_id',this.value)">
               <option value="">Use server default</option>
-              ${_allServers.map(s => `<option value="${s.id}" ${s.id === t.loadgen_id ? 'selected' : ''}>${escHtml(s.hostname)}</option>`).join('')}
+              ${availableLgs.map(s => `<option value="${s.id}" ${s.id === t.loadgen_id ? 'selected' : ''}>${escHtml(s.hostname)}</option>`).join('')}
             </select>
           </div>
           <div class="col-md-4">
@@ -773,6 +782,8 @@ function onTargetField(idx, field, val) {
   if (!t) return;
   if (field === 'patterns') t.patterns = val;
   else t[field] = val ? parseInt(val) : null;
+  // Re-render all targets when loadgen changes so other dropdowns update availability
+  if (field === 'loadgen_id') renderTargets();
 }
 
 function onGroupChange(idx) {
@@ -952,7 +963,7 @@ function buildReview() {
     const srv = _servers.find(s => s.id === t.server_id);
     const testSnap = t.snapshots.find(s => s.id === t.test_snapshot_id);
     const cmpSnap = t.compare_snapshot_id ? t.snapshots.find(s => s.id === t.compare_snapshot_id) : null;
-    const lgOverride = t.loadgen_id ? (_allServers.find(s => s.id === t.loadgen_id)?.hostname || '#' + t.loadgen_id) : '<em>default</em>';
+    const lgOverride = t.loadgen_id ? (_loadgens.find(s => s.id === t.loadgen_id)?.hostname || '#' + t.loadgen_id) : '<em>default</em>';
     return `<tr>
       <td>${i + 1}</td>
       <td><strong>${escHtml(srv?.hostname || '-')}</strong><br><small class="text-muted">${srv?.ip_address || ''}</small></td>

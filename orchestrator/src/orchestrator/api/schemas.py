@@ -27,6 +27,7 @@ from orchestrator.models.enums import (
     RuleSeverity,
     RunMode,
     ServerInfraType,
+    ServerRole,
     TemplateType,
     TestPhaseType,
     TestRunState,
@@ -118,6 +119,7 @@ class ServerCreate(BaseModel):
     hostname: str = Field(max_length=255)
     ip_address: str = Field(max_length=45)
     os_family: OSFamily
+    role: ServerRole
     os_vendor_family: Optional[str] = Field(default=None, max_length=100)
     os_major_ver: Optional[str] = Field(default=None, max_length=20)
     os_minor_ver: Optional[str] = Field(default=None, max_length=20)
@@ -137,6 +139,7 @@ class ServerUpdate(BaseModel):
     hostname: Optional[str] = Field(default=None, max_length=255)
     ip_address: Optional[str] = Field(default=None, max_length=45)
     os_family: Optional[OSFamily] = None
+    role: Optional[ServerRole] = None
     os_vendor_family: Optional[str] = Field(default=None, max_length=100)
     os_major_ver: Optional[str] = Field(default=None, max_length=20)
     os_minor_ver: Optional[str] = Field(default=None, max_length=20)
@@ -150,6 +153,7 @@ class ServerUpdate(BaseModel):
     db_name: Optional[str] = Field(default=None, max_length=255)
     db_user: Optional[str] = Field(default=None, max_length=255)
     db_password: Optional[str] = Field(default=None, max_length=255)
+    root_snapshot_id: Optional[int] = None
 
 
 class ServerResponse(BaseModel):
@@ -163,6 +167,7 @@ class ServerResponse(BaseModel):
     os_minor_ver: Optional[str] = None
     lab_id: int
     hardware_profile_id: int
+    role: ServerRole
     server_infra_type: ServerInfraType
     server_infra_ref: Dict[str, Any]
     baseline_id: Optional[int]
@@ -174,6 +179,7 @@ class ServerResponse(BaseModel):
     default_loadgen_id: Optional[int] = None
     default_partner_id: Optional[int] = None
     service_monitor_patterns: Optional[List[str]] = None
+    root_snapshot_id: Optional[int] = None
     created_at: datetime
 
 

@@ -8,7 +8,7 @@ All endpoints require admin role. Standard pattern:
   DELETE /api/admin/{entity}/{id}  — delete
 """
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -36,8 +36,9 @@ from orchestrator.models.orm import (
     AgentORM, AnalysisRuleORM,
     BaselineORM, DBSchemaConfigORM, HardwareProfileORM, LabORM,
     LoadProfileORM, PackageGroupMemberORM, PackageGroupORM,
-    ScenarioAgentORM, ScenarioORM, ServerORM, UserORM,
+    ScenarioAgentORM, ScenarioORM, ServerORM, SnapshotORM, UserORM,
 )
+from orchestrator.models.enums import ServerRole
 from orchestrator.services.auth import hash_password, require_admin
 from orchestrator.services.rule_engine import apply_preset
 from orchestrator.services.rule_templates import RULE_PRESETS, RULE_TEMPLATES
@@ -160,10 +161,16 @@ def create_server(data: ServerCreate, session: Session = Depends(get_session)):
 
 
 @router.get("/servers", response_model=List[ServerResponse])
-def list_servers(lab_id: int = None, session: Session = Depends(get_session)):
+def list_servers(
+    lab_id: int = None,
+    role: Optional[ServerRole] = None,
+    session: Session = Depends(get_session),
+):
     q = session.query(ServerORM)
     if lab_id is not None:
         q = q.filter(ServerORM.lab_id == lab_id)
+    if role is not None:
+        q = q.filter(ServerORM.role == role)
     return q.all()
 
 
@@ -180,6 +187,14 @@ def update_server(server_id: int, data: ServerUpdate, session: Session = Depends
     obj = session.get(ServerORM, server_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Server not found")
+    # Validate root_snapshot_id: only for target servers, snapshot must belong to this server
+    if data.root_snapshot_id is not None:
+        effective_role = data.role or obj.role
+        if effective_role != ServerRole.target:
+            raise HTTPException(status_code=400, detail="root_snapshot_id only applies to target servers")
+        snap = session.get(SnapshotORM, data.root_snapshot_id)
+        if not snap or snap.server_id != server_id:
+            raise HTTPException(status_code=400, detail="Snapshot not found for this server")
     _apply_update(obj, data)
     session.commit()
     session.refresh(obj)

@@ -24,6 +24,11 @@ class ServerInfraType(str, Enum):
     vultr_instance = "vultr_instance"
 
 
+class ServerRole(str, Enum):
+    target = "target"
+    loadgen = "loadgen"
+
+
 class BaselineType(str, Enum):
     proxmox = "proxmox"
     vsphere = "vsphere"

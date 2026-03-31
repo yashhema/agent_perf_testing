@@ -634,3 +634,50 @@ All changes to src/ code are documented here with date, file, and summary.
   - Added --touch-mb flag (default 0.2) for testing with different memory touch sizes
   - Wired touch_mb through fire_load(), test_concurrent(), test_scaling()
 
+2026-03-30  Server Role + Root Snapshot + Two-Step Snapshot Flow + Create Test Filtering
+
+  orchestrator/src/orchestrator/models/enums.py
+  - Added ServerRole enum (target, loadgen)
+
+  orchestrator/src/orchestrator/models/orm.py
+  - Added role column (ServerRole, required) to ServerORM
+  - Added root_snapshot_id FK to ServerORM (nullable, for target servers' original OS snapshot)
+  - Added root_snapshot relationship
+
+  orchestrator/src/orchestrator/api/schemas.py
+  - Added role (required) to ServerCreate
+  - Added role (optional) and root_snapshot_id (optional) to ServerUpdate
+  - Added role and root_snapshot_id to ServerResponse
+
+  orchestrator/src/orchestrator/api/admin.py
+  - Added Optional[ServerRole] role query param to list_servers() for filtering
+  - Added root_snapshot_id validation in update_server() (target-only, must belong to server)
+  - Added SnapshotORM and ServerRole imports
+
+  orchestrator/src/orchestrator/web/views.py
+  - Added server_role to _ENUM_OPTIONS
+  - Added Role column to admin servers table
+  - Added Role select field to admin servers form
+
+  orchestrator/src/orchestrator/templates/snapshots/manager.html
+  - Filtered server dropdown to role=target only
+  - Added root snapshot status bar with set/change button
+  - Added root snapshot modal (pick from hypervisor or take new)
+  - Replaced 3 separate create modals (group, subgroup, take) with unified two-step modal:
+    Step 1: Revert to appropriate snapshot (root for group, group snap for subgroup,
+            last snap in subgroup for take)
+    Step 2: User makes changes on server, comes back, enters name/desc, saves snapshot
+  - Flow states: confirm -> reverting -> waiting-for-user -> saving -> done
+
+  orchestrator/src/orchestrator/templates/baseline_tests/create.html
+  - Added _loadgens list, split from _allServers by role
+  - Target server dropdown now shows only role=target servers
+  - Load generator dropdown now shows only role=loadgen servers
+  - Prevented same loadgen from being assigned to multiple targets
+  - Re-render all targets on loadgen change to update availability
+  - Updated edit/view mode to also split servers by role
+
+  orchestrator/migrations/add_server_role_and_root_snapshot.sql
+  - New migration: adds role VARCHAR(10) NOT NULL DEFAULT 'target' to servers
+  - Adds root_snapshot_id INT NULL FK to snapshots
+
