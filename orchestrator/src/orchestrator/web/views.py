@@ -116,46 +116,7 @@ async def admin_hardware_profiles(request: Request):
 
 @router.get("/admin/servers", response_class=HTMLResponse)
 async def admin_servers(request: Request):
-    return templates.TemplateResponse("admin/crud.html", {
-        "request": request,
-        "page_title": "Servers",
-        "entity_name": "Server",
-        "api_path": "/api/admin/servers",
-        "columns": [
-            {"key": "id", "label": "ID"},
-            {"key": "hostname", "label": "Hostname"},
-            {"key": "ip_address", "label": "IP Address"},
-            {"key": "os_family", "label": "OS"},
-            {"key": "os_vendor_family", "label": "Vendor"},
-            {"key": "os_major_ver", "label": "Version"},
-            {"key": "role", "label": "Role"},
-            {"key": "server_infra_type", "label": "Infra"},
-            {"key": "created_at", "label": "Created", "type": "date"},
-        ],
-        "fields": [
-            {"key": "hostname", "label": "Hostname", "type": "text", "required": True},
-            {"key": "ip_address", "label": "IP Address", "type": "text", "required": True},
-            {"key": "os_family", "label": "OS Family", "type": "select",
-             "options": _ENUM_OPTIONS["os_family"], "required": True},
-            {"key": "role", "label": "Role", "type": "select",
-             "options": _ENUM_OPTIONS["server_role"], "required": True},
-            {"key": "os_vendor_family", "label": "OS Vendor (e.g. rhel, windows_server)", "type": "text"},
-            {"key": "os_major_ver", "label": "OS Major Version (e.g. 8, 9, 2019)", "type": "text"},
-            {"key": "os_minor_ver", "label": "OS Minor Version (optional)", "type": "text"},
-            {"key": "lab_id", "label": "Lab ID", "type": "number", "required": True},
-            {"key": "hardware_profile_id", "label": "Hardware Profile ID", "type": "number", "required": True},
-            {"key": "server_infra_type", "label": "Infra Type", "type": "select",
-             "options": _ENUM_OPTIONS["server_infra_type"], "required": True},
-            {"key": "server_infra_ref", "label": "Infra Ref (JSON)", "type": "json", "required": True},
-            {"key": "baseline_id", "label": "Baseline ID", "type": "number"},
-            {"key": "db_type", "label": "DB Type", "type": "select",
-             "options": _ENUM_OPTIONS["db_type"]},
-            {"key": "db_port", "label": "DB Port", "type": "number"},
-            {"key": "db_name", "label": "DB Name", "type": "text"},
-            {"key": "db_user", "label": "DB User", "type": "text"},
-            {"key": "db_password", "label": "DB Password", "type": "password"},
-        ],
-    })
+    return templates.TemplateResponse("admin/servers.html", {"request": request})
 
 
 @router.get("/admin/baselines", response_class=HTMLResponse)

@@ -8,9 +8,13 @@ All endpoints require admin role. Standard pattern:
   DELETE /api/admin/{entity}/{id}  — delete
 """
 
-from typing import List, Optional
+import logging
+import threading
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from orchestrator.api.schemas import (
@@ -31,14 +35,20 @@ from orchestrator.api.schemas import (
     ServerCreate, ServerResponse, ServerUpdate,
     UserCreate, UserResponse, UserUpdate,
 )
-from orchestrator.models.database import get_session
+from orchestrator.models.database import SessionLocal, get_session
 from orchestrator.models.orm import (
     AgentORM, AnalysisRuleORM,
     BaselineORM, DBSchemaConfigORM, HardwareProfileORM, LabORM,
     LoadProfileORM, PackageGroupMemberORM, PackageGroupORM,
-    ScenarioAgentORM, ScenarioORM, ServerORM, SnapshotORM, UserORM,
+    ScenarioAgentORM, ScenarioORM, ServerORM,
+    SnapshotBaselineORM, SnapshotGroupORM, SnapshotORM, UserORM,
 )
 from orchestrator.models.enums import ServerRole
+
+logger = logging.getLogger(__name__)
+
+# In-memory status tracking for prepare-snapshot operations
+_prepare_status: Dict[int, Dict[str, Any]] = {}
 from orchestrator.services.auth import hash_password, require_admin
 from orchestrator.services.rule_engine import apply_preset
 from orchestrator.services.rule_templates import RULE_PRESETS, RULE_TEMPLATES
@@ -208,6 +218,391 @@ def delete_server(server_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Server not found")
     session.delete(obj)
     session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Server Prepare & Snapshot — full prep flow with optional cleanup
+# ---------------------------------------------------------------------------
+
+class PrepareSnapshotRequest(BaseModel):
+    delete_all_snapshots: bool = False
+    sudo_user: str
+
+
+@router.post("/servers/{server_id}/prepare-snapshot")
+def prepare_and_snapshot(
+    server_id: int,
+    data: PrepareSnapshotRequest,
+    session: Session = Depends(get_session),
+):
+    """Start background prepare-and-snapshot flow for a server.
+
+    Steps: (optionally delete snapshots) → detect OS → fix sudo → firewall →
+    java 17 → /data disk → take snapshot → create group.
+    """
+    server = session.get(ServerORM, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Check not already running
+    current = _prepare_status.get(server_id, {})
+    if current.get("state") == "preparing":
+        raise HTTPException(status_code=409, detail="Prepare already in progress for this server")
+
+    _prepare_status[server_id] = {
+        "state": "preparing", "step": "0/8", "step_name": "Starting...", "error": None,
+    }
+
+    thread = threading.Thread(
+        target=_prepare_snapshot_bg,
+        args=(server_id, data.delete_all_snapshots, data.sudo_user),
+        daemon=True,
+    )
+    thread.start()
+
+    return {"status": "started", "server_id": server_id}
+
+
+@router.get("/servers/{server_id}/prepare-status")
+def get_prepare_status(server_id: int):
+    """Poll prepare-snapshot progress."""
+    return _prepare_status.get(server_id, {"state": "idle", "step": None, "step_name": None, "error": None})
+
+
+def _update_status(server_id: int, step: str, step_name: str, state: str = "preparing", error: str = None):
+    _prepare_status[server_id] = {"state": state, "step": step, "step_name": step_name, "error": error}
+
+
+def _prepare_snapshot_bg(server_id: int, delete_all: bool, sudo_user: str):
+    """Background thread: full prepare + snapshot flow."""
+    TOTAL = 8
+    session = SessionLocal()
+
+    try:
+        from orchestrator.config.settings import load_config
+        from orchestrator.config.credentials import CredentialsStore
+        from orchestrator.infra.hypervisor import create_hypervisor_provider
+        from orchestrator.infra.remote_executor import create_executor
+        from orchestrator.core.baseline_execution import wait_for_ssh
+        import os, re, time
+
+        server = session.get(ServerORM, server_id)
+        lab = session.get(LabORM, server.lab_id)
+        os_family = server.os_family.value
+
+        # Load config and credentials
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))), "config", "orchestrator.yaml")
+        config = load_config(config_path)
+        cred_path = os.path.join(os.path.dirname(config_path), "credentials.json")
+        credentials = CredentialsStore(cred_path)
+
+        hyp_cred = credentials.get_hypervisor_credential(lab.hypervisor_type.value)
+        provider = create_hypervisor_provider(
+            hypervisor_type=lab.hypervisor_type.value,
+            url=lab.hypervisor_manager_url,
+            port=lab.hypervisor_manager_port,
+            credential=hyp_cred,
+        )
+
+        # --- Step 1: Delete all snapshots (optional) ---
+        _update_status(server_id, f"1/{TOTAL}", "Cleaning snapshots..." if delete_all else "Skipping snapshot cleanup")
+        if delete_all:
+            # Revert to root if exists
+            if server.root_snapshot_id:
+                root_snap = session.get(SnapshotORM, server.root_snapshot_id)
+                if root_snap and not root_snap.is_archived:
+                    try:
+                        provider.restore_snapshot(server.server_infra_ref, root_snap.provider_ref)
+                        provider.wait_for_vm_ready(server.server_infra_ref)
+                    except Exception as e:
+                        logger.warning("Revert to root failed: %s — continuing", e)
+
+            # Delete all snapshots from hypervisor (leaf-first)
+            all_snaps = provider.list_snapshots(server.server_infra_ref)
+            # Build leaf-first order
+            remaining = {s.id for s in all_snaps}
+            snap_by_id = {s.id: s for s in all_snaps}
+            children_of = {}
+            for s in all_snaps:
+                children_of.setdefault(s.parent, []).append(s)
+
+            ordered = []
+            for _ in range(len(all_snaps) + 1):
+                if not remaining:
+                    break
+                leaves = [sid for sid in remaining
+                          if not any(c.id in remaining for c in children_of.get(sid, []))]
+                if not leaves:
+                    ordered.extend(remaining)
+                    break
+                ordered.extend(leaves)
+                remaining -= set(leaves)
+
+            for snap_id in ordered:
+                snap = snap_by_id.get(snap_id)
+                if snap:
+                    try:
+                        infra_type = server.server_infra_type.value
+                        if infra_type == "vsphere_vm":
+                            ref = {"snapshot_name": snap.name, "snapshot_moref_id": snap.id}
+                        elif infra_type == "proxmox_vm":
+                            ref = {"snapshot_name": snap.id}
+                        else:
+                            ref = {"snapshot_id": snap.id, "snapshot_name": snap.name}
+                        provider.delete_snapshot(server.server_infra_ref, ref)
+                        time.sleep(1)
+                    except Exception as e:
+                        logger.warning("Failed to delete snapshot %s: %s", snap.name, e)
+
+            # Clean DB records
+            db_snaps = session.query(SnapshotORM).filter(
+                SnapshotORM.server_id == server_id, SnapshotORM.is_archived == False,
+            ).all()
+            for s in db_snaps:
+                s.is_archived = True
+                s.group_id = None
+            groups = session.query(SnapshotBaselineORM).filter(
+                SnapshotBaselineORM.server_id == server_id,
+            ).all()
+            for g in groups:
+                session.delete(g)
+            server.root_snapshot_id = None
+            server.clean_snapshot_id = None
+            session.commit()
+
+        # --- Step 2: Wait for SSH ---
+        _update_status(server_id, f"2/{TOTAL}", "Waiting for SSH...")
+        wait_for_ssh(server.ip_address, os_family=os_family, timeout_sec=120)
+
+        # Create executor
+        cred = credentials.get_server_credential(server.id, os_family)
+        executor = create_executor(
+            os_family=os_family,
+            host=server.ip_address,
+            username=cred.username,
+            password=cred.password,
+        )
+
+        try:
+            # --- Step 3: Detect OS info ---
+            _update_status(server_id, f"3/{TOTAL}", "Detecting OS info...")
+            if os_family == "linux":
+                result = executor.execute("cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID)='")
+                os_info = {}
+                for line in result.stdout.strip().splitlines():
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        os_info[k.strip()] = v.strip().strip('"')
+                vendor = os_info.get("ID", "").lower()  # rhel, rocky, ubuntu
+                version_id = os_info.get("VERSION_ID", "")
+                parts = version_id.split(".")
+                major = parts[0] if parts else ""
+                minor = parts[1] if len(parts) > 1 else ""
+            else:
+                result = executor.execute(
+                    'powershell -Command "'
+                    "$os = Get-CimInstance Win32_OperatingSystem; "
+                    'Write-Host $os.Caption; Write-Host $os.Version"'
+                )
+                lines = result.stdout.strip().splitlines()
+                caption = lines[0] if lines else ""
+                ver = lines[1] if len(lines) > 1 else ""
+                # Extract vendor from caption
+                vendor = "windows_server"
+                if "2022" in caption:
+                    major = "2022"
+                elif "2019" in caption:
+                    major = "2019"
+                elif "2016" in caption:
+                    major = "2016"
+                else:
+                    major = ver.split(".")[0] if ver else ""
+                minor = ""
+
+            # Update server OS fields
+            if vendor:
+                server.os_vendor_family = vendor
+            if major:
+                server.os_major_ver = major
+            if minor:
+                server.os_minor_ver = minor
+            session.commit()
+            logger.info("OS detected: vendor=%s major=%s minor=%s", vendor, major, minor)
+
+            # --- Step 4: Fix sudo ---
+            _update_status(server_id, f"4/{TOTAL}", "Fixing passwordless sudo...")
+            _fix_sudo_inline(executor, cred.password, sudo_user, os_family)
+
+            # --- Step 5: Open firewall ---
+            _update_status(server_id, f"5/{TOTAL}", "Opening firewall port 8080...")
+            _open_firewall_inline(executor, os_family)
+
+            # --- Step 6: Install prerequisites ---
+            _update_status(server_id, f"6/{TOTAL}", "Installing Java 17...")
+            _install_prereqs_inline(executor, os_family)
+
+            # --- Step 7: Setup data disk ---
+            _update_status(server_id, f"7/{TOTAL}", "Setting up /data disk...")
+            _setup_data_disk_inline(executor, os_family, cred.username)
+
+        finally:
+            executor.close()
+
+        # --- Step 8: Take snapshot ---
+        _update_status(server_id, f"8/{TOTAL}", "Taking root snapshot...")
+        os_label = f"{vendor}{major}" if vendor else os_family
+        snap_name = f"root-{server.hostname}-{os_label}-{datetime.utcnow().strftime('%Y%m%d')}"
+        description = f"Root snapshot — prepared {datetime.utcnow().strftime('%Y-%m-%d')}"
+
+        result = provider.create_snapshot(
+            server.server_infra_ref,
+            snapshot_name=snap_name,
+            description=description,
+        )
+        new_provider_id = (
+            result.get("snapshot_moref_id")
+            or result.get("snapshot_id")
+            or result.get("snapshot_name")
+        )
+
+        # Create DB records
+        snapshot_tree = [s.to_dict() for s in provider.list_snapshots(server.server_infra_ref)]
+        snap_orm = SnapshotORM(
+            name=snap_name,
+            description=description,
+            server_id=server.id,
+            parent_id=None,
+            group_id=None,
+            provider_snapshot_id=str(new_provider_id),
+            provider_ref=result,
+            snapshot_tree=snapshot_tree,
+            is_baseline=True,
+            is_archived=False,
+        )
+        session.add(snap_orm)
+        session.flush()
+
+        server.root_snapshot_id = snap_orm.id
+        server.clean_snapshot_id = snap_orm.id
+
+        # Create group + default subgroup
+        group_name = f"Clean OS {server.hostname}"
+        group_orm = SnapshotBaselineORM(
+            server_id=server.id,
+            snapshot_id=snap_orm.id,
+            name=group_name,
+            description=description,
+        )
+        session.add(group_orm)
+        session.flush()
+
+        default_sg = SnapshotGroupORM(
+            baseline_id=group_orm.id,
+            snapshot_id=snap_orm.id,
+            name="Default",
+            description="Auto-created default subgroup",
+        )
+        session.add(default_sg)
+        session.flush()
+        snap_orm.group_id = default_sg.id
+
+        session.commit()
+        logger.info("Server %s prepared. Snapshot: %s (ID=%d), Group: %s (ID=%d)",
+                     server.hostname, snap_name, snap_orm.id, group_name, group_orm.id)
+
+        _update_status(server_id, f"{TOTAL}/{TOTAL}", "Complete", state="completed")
+
+    except Exception as e:
+        logger.error("Prepare-snapshot failed for server %d: %s", server_id, e, exc_info=True)
+        _update_status(server_id, "", str(e), state="failed", error=str(e))
+        try:
+            session.rollback()
+        except Exception:
+            pass
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# Inline helper functions for prepare flow (reuse retake_snapshots logic)
+# ---------------------------------------------------------------------------
+
+def _fix_sudo_inline(executor, password, sudo_user, os_family):
+    if os_family == "windows":
+        return
+    sudoers_file = sudo_user.replace("\\", "_").replace("@", "_")
+    SUDO_S = f"echo '{password}' | sudo -S"
+    executor.execute(f"{SUDO_S} bash -c \"echo '{sudo_user} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{sudoers_file}\" 2>&1")
+    executor.execute(f"{SUDO_S} chmod 440 /etc/sudoers.d/{sudoers_file} 2>&1")
+    executor.execute(f"{SUDO_S} visudo -cf /etc/sudoers.d/{sudoers_file} 2>&1")
+    result = executor.execute("sudo -n whoami 2>&1")
+    if "root" not in result.stdout:
+        raise RuntimeError(f"Passwordless sudo not working after fix: {result.stdout}")
+
+
+def _open_firewall_inline(executor, os_family, port=8080):
+    if os_family == "windows":
+        executor.execute(
+            f'powershell -Command "New-NetFirewallRule -DisplayName \'Emulator {port}\' '
+            f'-Direction Inbound -Port {port} -Protocol TCP -Action Allow -ErrorAction SilentlyContinue"'
+        )
+    else:
+        executor.execute(
+            f"sudo firewall-cmd --permanent --add-port={port}/tcp 2>/dev/null && "
+            f"sudo firewall-cmd --reload 2>/dev/null || "
+            f"sudo iptables -C INPUT -p tcp --dport {port} -j ACCEPT 2>/dev/null || "
+            f"sudo iptables -I INPUT -p tcp --dport {port} -j ACCEPT"
+        )
+
+
+def _install_prereqs_inline(executor, os_family):
+    import re
+    if os_family == "windows":
+        # Check Java 17 on Windows
+        result = executor.execute('powershell -Command "try { java -version 2>&1 | Out-String } catch { Write-Host NOTFOUND }"')
+        if result.stdout and "NOTFOUND" not in result.stdout:
+            m = re.search(r'"(1[7-9]|[2-9]\d)', result.stdout)
+            if m:
+                return  # Java 17+ already installed
+        logger.warning("Java 17 not found on Windows — manual install may be needed")
+        return
+    # Linux: install Java 17
+    result = executor.execute("java -version 2>&1 | head -1")
+    if result.stdout:
+        m = re.search(r'"(\d+)', result.stdout)
+        if m and int(m.group(1)) >= 17:
+            return  # Already have Java 17+
+    executor.execute("sudo dnf install -y java-17-openjdk-headless 2>&1 || sudo yum install -y java-17-openjdk-headless 2>&1")
+    executor.execute(
+        "sudo alternatives --set java $(find /usr/lib/jvm/java-17-openjdk-*/bin/java -maxdepth 0 2>/dev/null | head -1) 2>&1"
+    )
+    # Python3
+    executor.execute("python3 --version 2>&1 || sudo dnf install -y python3 python3-pip 2>&1")
+
+
+def _setup_data_disk_inline(executor, os_family, ssh_user, disk="/dev/sdc", mount="/data"):
+    if os_family == "windows":
+        return
+    # Check disk exists
+    result = executor.execute(f"lsblk {disk} 2>&1 | head -2")
+    if not result.success:
+        raise RuntimeError(f"{disk} not found — cannot setup data disk")
+    # Check if already mounted
+    result = executor.execute(f"mountpoint -q {mount} 2>/dev/null && echo MOUNTED || echo NOTMOUNTED")
+    if "NOTMOUNTED" in result.stdout:
+        # Check filesystem
+        result = executor.execute(f"sudo file -s {disk} 2>&1")
+        if ": data" in result.stdout:
+            executor.execute(f"sudo mkfs.ext4 -F {disk} 2>&1")
+        executor.execute(f"sudo mkdir -p {mount}")
+        executor.execute(f"sudo mount {disk} {mount} 2>&1")
+        executor.execute(f"grep -q '{disk}' /etc/fstab || echo '{disk} {mount} ext4 defaults 0 2' | sudo tee -a /etc/fstab")
+    # Create output folders + chown
+    for folder in [f"{mount}/output1", f"{mount}/output2", f"{mount}/output3"]:
+        executor.execute(f"sudo mkdir -p {folder}")
+    executor.execute(f"sudo chown -R {ssh_user} {mount}")
+    executor.execute(f"sudo chmod -R 755 {mount}")
 
 
 # ---------------------------------------------------------------------------

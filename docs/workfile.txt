@@ -722,3 +722,29 @@ All changes to src/ code are documented here with date, file, and summary.
   setup/reset_server.py
   - New script: delete all snapshots, clean DB, prepare server, take root snapshot
 
+2026-04-01  Server Prepare & Snapshot Button + OS Info Display
+
+  orchestrator/src/orchestrator/templates/admin/servers.html
+  - New custom server admin page (replaces crud.html)
+  - Server table with OS column, role badges, root snapshot display
+  - Per-row action buttons: Edit, Prepare & Snapshot, Delete
+  - Prepare & Snapshot modal: checkbox to delete all snapshots, sudo user input
+  - Progress panel with step-by-step status polling
+
+  orchestrator/src/orchestrator/api/admin.py
+  - POST /api/admin/servers/{id}/prepare-snapshot: background thread prep flow
+    (delete snapshots, detect OS, sudo, firewall, java, /data, take snapshot)
+  - GET /api/admin/servers/{id}/prepare-status: poll progress (in-memory status)
+  - OS detection via SSH (cat /etc/os-release for Linux, Get-CimInstance for Windows)
+  - Inline helper functions for sudo, firewall, java, data disk
+
+  orchestrator/src/orchestrator/web/views.py
+  - Changed admin_servers route from crud.html to admin/servers.html
+
+  orchestrator/src/orchestrator/templates/snapshots/manager.html
+  - Server dropdown now shows OS info: "srv-rocky1 RHEL 9.3 (10.0.1.1)"
+
+  orchestrator/src/orchestrator/templates/baseline_tests/create.html
+  - Added srvLabel() helper for OS info display
+  - Target and loadgen dropdowns show OS info alongside hostname
+

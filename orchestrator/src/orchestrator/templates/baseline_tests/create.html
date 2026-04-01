@@ -545,11 +545,18 @@ function prepareTargetsStep() {
   _targets.forEach(t => { if (t.server_id && t.groups.length === 0) loadTargetSnapData(t); });
 }
 
+function srvLabel(s) {
+  const os = s.os_vendor_family && s.os_major_ver
+    ? ` ${s.os_vendor_family.toUpperCase()} ${s.os_major_ver}${s.os_minor_ver ? '.' + s.os_minor_ver : ''}`
+    : '';
+  return `${s.hostname}${os} (${s.ip_address})`;
+}
+
 function serverOptions(selectedId) {
   const usedIds = _targets.map(t => t.server_id).filter(Boolean);
   return '<option value="">-- Select Server --</option>' +
     _servers.filter(s => !usedIds.includes(s.id) || s.id === selectedId)
-      .map(s => `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${escHtml(s.hostname)} (${s.ip_address})</option>`)
+      .map(s => `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${escHtml(srvLabel(s))}</option>`)
       .join('');
 }
 
@@ -588,7 +595,7 @@ function renderTargets() {
 
   container.innerHTML = _targets.map(t => {
     const srv = _servers.find(s => s.id === t.server_id);
-    const srvLabel = srv ? `${srv.hostname} (${srv.ip_address})` : '';
+    const srvLbl = srv ? srvLabel(srv) : '';
     const lgDefault = srv?.default_loadgen_id ? (_loadgens.find(s => s.id === srv.default_loadgen_id)?.hostname || '') : 'none';
     // Prevent same loadgen assigned to multiple targets
     const usedLgIds = _targets.filter(o => o.idx !== t.idx).map(o => o.loadgen_id).filter(Boolean);
@@ -597,7 +604,7 @@ function renderTargets() {
     return `
     <div class="card shadow-sm mb-3" id="target-card-${t.idx}">
       <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <strong><i class="bi bi-hdd-rack me-1"></i>${srvLabel || 'New Target'}</strong>
+        <strong><i class="bi bi-hdd-rack me-1"></i>${srvLbl || 'New Target'}</strong>
         ${!locked ? `<button class="btn btn-outline-danger btn-sm" onclick="removeTargetRow(${t.idx})" title="Remove"><i class="bi bi-x-lg"></i></button>` : ''}
       </div>
       <div class="card-body">
@@ -605,7 +612,7 @@ function renderTargets() {
           <div class="col-md-4">
             <label class="form-label">Target Server</label>
             ${locked
-              ? `<input class="form-control form-control-sm" value="${escHtml(srvLabel)}" readonly>`
+              ? `<input class="form-control form-control-sm" value="${escHtml(srvLbl)}" readonly>`
               : `<select class="form-select form-select-sm" onchange="onTargetServerChange(${t.idx}, this.value)">${serverOptions(t.server_id)}</select>`
             }
             <small class="text-muted">Default LG: ${escHtml(lgDefault)}</small>
@@ -614,7 +621,7 @@ function renderTargets() {
             <label class="form-label">Load Generator <small class="text-muted">(override)</small></label>
             <select class="form-select form-select-sm" ${locked ? 'disabled' : ''} onchange="onTargetField(${t.idx},'loadgen_id',this.value)">
               <option value="">Use server default</option>
-              ${availableLgs.map(s => `<option value="${s.id}" ${s.id === t.loadgen_id ? 'selected' : ''}>${escHtml(s.hostname)}</option>`).join('')}
+              ${availableLgs.map(s => `<option value="${s.id}" ${s.id === t.loadgen_id ? 'selected' : ''}>${escHtml(srvLabel(s))}</option>`).join('')}
             </select>
           </div>
           <div class="col-md-4">

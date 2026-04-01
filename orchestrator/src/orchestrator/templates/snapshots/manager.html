@@ -249,8 +249,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     ]);
     const sel = document.getElementById('sel-server');
     _servers.forEach(s => {
+      const osInfo = s.os_vendor_family && s.os_major_ver
+        ? ` ${s.os_vendor_family.toUpperCase()} ${s.os_major_ver}${s.os_minor_ver ? '.' + s.os_minor_ver : ''}`
+        : '';
       sel.insertAdjacentHTML('beforeend',
-        `<option value="${s.id}">${escHtml(s.hostname)} (${s.ip_address})</option>`);
+        `<option value="${s.id}">${escHtml(s.hostname)}${osInfo} (${s.ip_address})</option>`);
     });
   } catch (e) { showToast('Failed to load servers: ' + e.message, 'danger'); }
 });

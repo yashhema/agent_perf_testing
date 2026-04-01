@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{% block title %}Servers - Orchestrator{% endblock %}
+{% block page_header %}<strong>Servers</strong>{% endblock %}
+
+{% block content %}
+<!-- Server List -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0">Servers</h6>
+    <button class="btn btn-sm btn-primary" onclick="showCreateServer()"><i class="bi bi-plus me-1"></i>New Server</button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th><th>Hostname</th><th>IP</th><th>Role</th><th>OS</th>
+          <th>Infra</th><th>Root Snap</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="servers-body">
+          <tr><td colspan="8" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Prepare Progress Panel (shown when prepare is running) -->
+<div class="card shadow-sm mb-4" id="prepare-panel" style="display:none">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0" id="prepare-panel-title">Preparing Server...</h6>
+    <span class="badge bg-primary" id="prepare-panel-step"></span>
+  </div>
+  <div class="card-body" id="prepare-panel-body">
+    <div class="text-center py-3">
+      <div class="spinner-border text-primary mb-2"></div>
+      <p id="prepare-panel-msg">Starting...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Server Modal -->
+<div class="modal fade" id="server-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="server-modal-title">Create Server</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="srv-edit-id">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Hostname *</label>
+            <input type="text" class="form-control" id="srv-hostname" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">IP Address *</label>
+            <input type="text" class="form-control" id="srv-ip" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Role *</label>
+            <select class="form-select" id="srv-role">
+              <option value="target">Target</option>
+              <option value="loadgen">Load Generator</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">OS Family *</label>
+            <select class="form-select" id="srv-os-family">
+              <option value="linux">Linux</option>
+              <option value="windows">Windows</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">OS Vendor</label>
+            <input type="text" class="form-control" id="srv-os-vendor" placeholder="rhel, rocky, windows_server">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Major Ver</label>
+            <input type="text" class="form-control" id="srv-os-major" placeholder="9">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Minor Ver</label>
+            <input type="text" class="form-control" id="srv-os-minor" placeholder="3">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Lab ID *</label>
+            <input type="number" class="form-control" id="srv-lab-id" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Hardware Profile ID *</label>
+            <input type="number" class="form-control" id="srv-hw-profile" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Infra Type *</label>
+            <select class="form-select" id="srv-infra-type">
+              <option value="proxmox_vm">Proxmox VM</option>
+              <option value="vsphere_vm">vSphere VM</option>
+              <option value="vultr_instance">Vultr Instance</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Infra Ref (JSON) *</label>
+            <textarea class="form-control" id="srv-infra-ref" rows="2" placeholder='{"datacenter":"DC1","vm_name":"target-01"}'></textarea>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">DB Type</label>
+            <select class="form-select" id="srv-db-type">
+              <option value="">None</option>
+              <option value="mssql">MSSQL</option>
+              <option value="postgresql">PostgreSQL</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">DB Port</label>
+            <input type="number" class="form-control" id="srv-db-port">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">DB Name</label>
+            <input type="text" class="form-control" id="srv-db-name">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">DB User</label>
+            <input type="text" class="form-control" id="srv-db-user">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">DB Pass</label>
+            <input type="password" class="form-control" id="srv-db-pass">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveServer()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Prepare & Snapshot Modal -->
+<div class="modal fade" id="prepare-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Prepare & Snapshot</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          This will prepare the server (sudo, firewall, Java 17, /data disk) and take a root snapshot.
+        </div>
+        <p><strong>Server:</strong> <span id="prep-server-name"></span></p>
+        <p><strong>IP:</strong> <span id="prep-server-ip"></span></p>
+        <p><strong>Role:</strong> <span id="prep-server-role"></span></p>
+        <p><strong>Current root snapshot:</strong> <span id="prep-server-root"></span></p>
+        <hr>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" id="prep-delete-all" checked>
+          <label class="form-check-label" for="prep-delete-all">
+            <strong>Delete all existing snapshots</strong> (revert to root first, then delete entire hierarchy)
+          </label>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Sudo User *</label>
+          <input type="text" class="form-control" id="prep-sudo-user" placeholder="svc_account" value="">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" onclick="startPrepare()" id="btn-prep-start">
+          <i class="bi bi-gear me-1"></i>Start Prepare & Snapshot
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _servers = [];
+let _prepareServerId = null;
+let _prepareTimer = null;
+
+document.addEventListener('DOMContentLoaded', loadServers);
+
+async function loadServers() {
+  try {
+    _servers = await API.get('/api/admin/servers');
+    renderServers();
+  } catch (e) { showToast('Failed to load servers: ' + e.message, 'danger'); }
+}
+
+function osLabel(s) {
+  if (s.os_vendor_family && s.os_major_ver) {
+    const v = s.os_vendor_family.toUpperCase();
+    return `${v} ${s.os_major_ver}${s.os_minor_ver ? '.' + s.os_minor_ver : ''}`;
+  }
+  return s.os_family || '-';
+}
+
+function renderServers() {
+  const tbody = document.getElementById('servers-body');
+  if (_servers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No servers</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _servers.map(s => {
+    const roleClass = s.role === 'target' ? 'success' : 'info';
+    const rootSnap = s.root_snapshot_id ? `#${s.root_snapshot_id}` : '<span class="text-muted">none</span>';
+    return `<tr>
+      <td>${s.id}</td>
+      <td><strong>${escHtml(s.hostname)}</strong></td>
+      <td><code>${escHtml(s.ip_address)}</code></td>
+      <td><span class="badge bg-${roleClass}">${s.role}</span></td>
+      <td>${escHtml(osLabel(s))}</td>
+      <td><span class="badge bg-secondary">${s.server_infra_type}</span></td>
+      <td>${rootSnap}</td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEditServer(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-warning me-1" onclick="showPrepareModal(${s.id})" title="Prepare & Snapshot"><i class="bi bi-gear"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteServer(${s.id})" title="Delete"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// --- Create / Edit ---
+
+function showCreateServer() {
+  document.getElementById('server-modal-title').textContent = 'Create Server';
+  document.getElementById('srv-edit-id').value = '';
+  ['srv-hostname','srv-ip','srv-os-vendor','srv-os-major','srv-os-minor',
+   'srv-lab-id','srv-hw-profile','srv-infra-ref','srv-db-port','srv-db-name',
+   'srv-db-user','srv-db-pass'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('srv-role').value = 'target';
+  document.getElementById('srv-os-family').value = 'linux';
+  document.getElementById('srv-infra-type').value = 'vsphere_vm';
+  document.getElementById('srv-db-type').value = '';
+  new bootstrap.Modal(document.getElementById('server-modal')).show();
+}
+
+async function showEditServer(id) {
+  try {
+    const s = await API.get('/api/admin/servers/' + id);
+    document.getElementById('server-modal-title').textContent = 'Edit Server';
+    document.getElementById('srv-edit-id').value = s.id;
+    document.getElementById('srv-hostname').value = s.hostname;
+    document.getElementById('srv-ip').value = s.ip_address;
+    document.getElementById('srv-role').value = s.role;
+    document.getElementById('srv-os-family').value = s.os_family;
+    document.getElementById('srv-os-vendor').value = s.os_vendor_family || '';
+    document.getElementById('srv-os-major').value = s.os_major_ver || '';
+    document.getElementById('srv-os-minor').value = s.os_minor_ver || '';
+    document.getElementById('srv-lab-id').value = s.lab_id;
+    document.getElementById('srv-hw-profile').value = s.hardware_profile_id;
+    document.getElementById('srv-infra-type').value = s.server_infra_type;
+    document.getElementById('srv-infra-ref').value = JSON.stringify(s.server_infra_ref, null, 2);
+    document.getElementById('srv-db-type').value = s.db_type || '';
+    document.getElementById('srv-db-port').value = s.db_port || '';
+    document.getElementById('srv-db-name').value = s.db_name || '';
+    document.getElementById('srv-db-user').value = s.db_user || '';
+    document.getElementById('srv-db-pass').value = s.db_password || '';
+    new bootstrap.Modal(document.getElementById('server-modal')).show();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function saveServer() {
+  const editId = document.getElementById('srv-edit-id').value;
+  let infraRef;
+  try {
+    infraRef = JSON.parse(document.getElementById('srv-infra-ref').value);
+  } catch { showToast('Infra Ref must be valid JSON', 'warning'); return; }
+
+  const data = {
+    hostname: document.getElementById('srv-hostname').value,
+    ip_address: document.getElementById('srv-ip').value,
+    role: document.getElementById('srv-role').value,
+    os_family: document.getElementById('srv-os-family').value,
+    os_vendor_family: document.getElementById('srv-os-vendor').value || null,
+    os_major_ver: document.getElementById('srv-os-major').value || null,
+    os_minor_ver: document.getElementById('srv-os-minor').value || null,
+    lab_id: parseInt(document.getElementById('srv-lab-id').value),
+    hardware_profile_id: parseInt(document.getElementById('srv-hw-profile').value),
+    server_infra_type: document.getElementById('srv-infra-type').value,
+    server_infra_ref: infraRef,
+    db_type: document.getElementById('srv-db-type').value || null,
+    db_port: document.getElementById('srv-db-port').value ? parseInt(document.getElementById('srv-db-port').value) : null,
+    db_name: document.getElementById('srv-db-name').value || null,
+    db_user: document.getElementById('srv-db-user').value || null,
+    db_password: document.getElementById('srv-db-pass').value || null,
+  };
+
+  try {
+    if (editId) {
+      await API.put('/api/admin/servers/' + editId, data);
+      showToast('Server updated');
+    } else {
+      await API.post('/api/admin/servers', data);
+      showToast('Server created');
+    }
+    bootstrap.Modal.getInstance(document.getElementById('server-modal')).hide();
+    await loadServers();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function deleteServer(id) {
+  if (!confirm('Delete this server?')) return;
+  try {
+    await API.delete('/api/admin/servers/' + id);
+    showToast('Server deleted');
+    await loadServers();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// --- Prepare & Snapshot ---
+
+function showPrepareModal(id) {
+  _prepareServerId = id;
+  const s = _servers.find(x => x.id === id);
+  document.getElementById('prep-server-name').textContent = s ? s.hostname : '#' + id;
+  document.getElementById('prep-server-ip').textContent = s ? s.ip_address : '';
+  document.getElementById('prep-server-role').textContent = s ? s.role : '';
+  document.getElementById('prep-server-root').textContent = s && s.root_snapshot_id ? `Snapshot #${s.root_snapshot_id}` : 'None';
+  document.getElementById('prep-delete-all').checked = true;
+  new bootstrap.Modal(document.getElementById('prepare-modal')).show();
+}
+
+async function startPrepare() {
+  const sudoUser = document.getElementById('prep-sudo-user').value.trim();
+  if (!sudoUser) { showToast('Sudo user is required', 'warning'); return; }
+
+  const deleteAll = document.getElementById('prep-delete-all').checked;
+  if (deleteAll && !confirm('This will DELETE ALL existing snapshots. Continue?')) return;
+
+  const btn = document.getElementById('btn-prep-start');
+  btn.disabled = true;
+
+  try {
+    await API.post(`/api/admin/servers/${_prepareServerId}/prepare-snapshot`, {
+      delete_all_snapshots: deleteAll,
+      sudo_user: sudoUser,
+    });
+    bootstrap.Modal.getInstance(document.getElementById('prepare-modal')).hide();
+    showPrepareProgress();
+  } catch (e) {
+    showToast('Failed to start: ' + e.message, 'danger');
+    btn.disabled = false;
+  }
+}
+
+function showPrepareProgress() {
+  const s = _servers.find(x => x.id === _prepareServerId);
+  const panel = document.getElementById('prepare-panel');
+  panel.style.display = '';
+  document.getElementById('prepare-panel-title').textContent = `Preparing: ${s ? s.hostname : ''}`;
+
+  // Start polling
+  if (_prepareTimer) clearInterval(_prepareTimer);
+  _prepareTimer = setInterval(pollPrepareStatus, 3000);
+  pollPrepareStatus();
+}
+
+async function pollPrepareStatus() {
+  try {
+    const status = await API.get(`/api/admin/servers/${_prepareServerId}/prepare-status`);
+    const panel = document.getElementById('prepare-panel');
+    const step = document.getElementById('prepare-panel-step');
+    const body = document.getElementById('prepare-panel-body');
+
+    step.textContent = status.step || '';
+
+    if (status.state === 'completed') {
+      step.className = 'badge bg-success';
+      step.textContent = 'Complete';
+      body.innerHTML = `
+        <div class="text-center py-3">
+          <i class="bi bi-check-circle-fill text-success" style="font-size:2rem"></i>
+          <p class="mt-2">Server prepared and root snapshot taken successfully.</p>
+        </div>`;
+      clearInterval(_prepareTimer);
+      _prepareTimer = null;
+      document.getElementById('btn-prep-start').disabled = false;
+      await loadServers();
+    } else if (status.state === 'failed') {
+      step.className = 'badge bg-danger';
+      step.textContent = 'Failed';
+      body.innerHTML = `
+        <div class="text-center py-3">
+          <i class="bi bi-x-circle-fill text-danger" style="font-size:2rem"></i>
+          <p class="mt-2">Preparation failed.</p>
+          <pre class="text-start bg-light p-2 rounded" style="font-size:.8rem">${escHtml(status.error || 'Unknown error')}</pre>
+        </div>`;
+      clearInterval(_prepareTimer);
+      _prepareTimer = null;
+      document.getElementById('btn-prep-start').disabled = false;
+    } else if (status.state === 'preparing') {
+      step.className = 'badge bg-primary';
+      body.innerHTML = `
+        <div class="text-center py-3">
+          <div class="spinner-border text-primary mb-2"></div>
+          <p>${escHtml(status.step_name || 'Working...')}</p>
+          <small class="text-muted">Step ${escHtml(status.step || '')}</small>
+        </div>`;
+    }
+  } catch (e) {
+    // Polling error — non-fatal
+  }
+}
+</script>
+{% endblock %}
