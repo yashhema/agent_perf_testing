@@ -2093,7 +2093,7 @@ class BaselineOrchestrator:
                     if tr["extra_props"] and needs_pool:
                         self._destroy_pool(tr["em_client"])
 
-                    # Store result in manifest (cycle-keyed)
+                    # Store result in manifest + DB (cycle-keyed)
                     self._save_execution_result(
                         test_run.id, server.id, current_lp.id, current_cycle,
                         ExecutionResult(
@@ -2107,6 +2107,7 @@ class BaselineOrchestrator:
                             jtl_total_errors=jtl_result.total_errors,
                             jtl_success_rate_pct=round(success_rate, 2),
                         ),
+                        thread_count=tr["thread_count"],
                     )
 
                     logger.info(
@@ -2455,9 +2456,9 @@ class BaselineOrchestrator:
     # ------------------------------------------------------------------
     def _save_execution_result(
         self, test_run_id: int, server_id: int, lp_id: int, cycle: int,
-        result: ExecutionResult,
+        result: ExecutionResult, thread_count: int = None,
     ) -> None:
-        """Save one execution result to the manifest (keyed by lp{id}_cycle{cycle})."""
+        """Save one execution result to the manifest AND the database."""
         results_base = Path(self._config.results_dir) / str(test_run_id) / f"server_{server_id}"
         results_base.mkdir(parents=True, exist_ok=True)
         manifest_path = results_base / "execution_manifest.json"
@@ -2468,15 +2469,17 @@ class BaselineOrchestrator:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
 
+        summary_dict = (
+            dataclasses.asdict(result.stats_summary)
+            if dataclasses.is_dataclass(result.stats_summary)
+            else result.stats_summary
+        )
+
         key = f"lp{lp_id}_cycle{cycle}"
         manifest[key] = {
             "stats_path": result.stats_path,
             "jtl_path": result.jtl_path,
-            "stats_summary": (
-                dataclasses.asdict(result.stats_summary)
-                if dataclasses.is_dataclass(result.stats_summary)
-                else result.stats_summary
-            ),
+            "stats_summary": summary_dict,
             "jmx_test_case_data_path": result.jmx_test_case_data_path,
             "jtl_total_requests": result.jtl_total_requests,
             "jtl_total_errors": result.jtl_total_errors,
@@ -2485,6 +2488,50 @@ class BaselineOrchestrator:
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
+
+        # Persist to database
+        try:
+            from orchestrator.models.orm import BaselineExecutionResultORM
+            db_session = SessionLocal()
+            try:
+                existing = db_session.query(BaselineExecutionResultORM).filter_by(
+                    baseline_test_run_id=test_run_id,
+                    server_id=server_id,
+                    load_profile_id=lp_id,
+                    cycle=cycle,
+                ).first()
+
+                if existing:
+                    row = existing
+                else:
+                    row = BaselineExecutionResultORM(
+                        baseline_test_run_id=test_run_id,
+                        server_id=server_id,
+                        load_profile_id=lp_id,
+                        cycle=cycle,
+                    )
+                    db_session.add(row)
+
+                row.status = "completed"
+                row.thread_count = thread_count
+                row.cpu_avg = summary_dict.get("cpu_avg")
+                row.cpu_p50 = summary_dict.get("cpu_p50")
+                row.cpu_p95 = summary_dict.get("cpu_p95")
+                row.cpu_min = summary_dict.get("cpu_min")
+                row.cpu_max = summary_dict.get("cpu_max")
+                row.mem_avg = summary_dict.get("mem_avg")
+                row.jtl_total_requests = result.jtl_total_requests
+                row.jtl_total_errors = result.jtl_total_errors
+                row.jtl_success_rate_pct = result.jtl_success_rate_pct
+                row.stats_path = result.stats_path
+                row.jtl_path = result.jtl_path
+                row.completed_at = datetime.utcnow()
+
+                db_session.commit()
+            finally:
+                db_session.close()
+        except Exception as e:
+            logger.warning("Failed to save execution result to DB: %s", e)
 
     def _load_single_execution_result(
         self, test_run_id: int, server_id: int, lp_id: int, cycle: int,

@@ -45,6 +45,10 @@ class RemoteExecutor(abc.ABC):
     def close(self) -> None:
         """Close the connection."""
 
+    def reconnect(self) -> None:
+        """Reconnect transport if supported. No-op by default."""
+        pass
+
 
 class SSHExecutor(RemoteExecutor):
     """SSH-based remote executor using paramiko."""
@@ -52,6 +56,10 @@ class SSHExecutor(RemoteExecutor):
     def __init__(self, host: str, username: str, password: str, port: int = 22, timeout_sec: int = 30):
         import paramiko
         self._host = host
+        self._username = username
+        self._password = password
+        self._port = port
+        self._timeout_sec = timeout_sec
         self._client = paramiko.SSHClient()
         self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self._client.connect(
@@ -122,6 +130,37 @@ class SSHExecutor(RemoteExecutor):
             self._sftp.close()
         self._client.close()
         logger.info("SSH disconnected from %s", self._host)
+
+    def reconnect(self) -> None:
+        """Close stale connection and open a fresh one.
+
+        Useful after long sleeps (calibration observation 480s+) where the
+        SSH transport may have gone stale despite keepalive packets.
+        """
+        import paramiko
+        logger.info("Reconnecting SSH to %s:%d", self._host, self._port)
+        try:
+            if self._sftp:
+                self._sftp.close()
+                self._sftp = None
+            self._client.close()
+        except Exception:
+            pass  # best-effort close of stale connection
+        self._client = paramiko.SSHClient()
+        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self._client.connect(
+            hostname=self._host,
+            port=self._port,
+            username=self._username,
+            password=self._password,
+            timeout=self._timeout_sec,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        transport = self._client.get_transport()
+        if transport:
+            transport.set_keepalive(30)
+        logger.info("SSH reconnected to %s@%s:%d", self._username, self._host, self._port)
 
 
 class WinRMExecutor(RemoteExecutor):

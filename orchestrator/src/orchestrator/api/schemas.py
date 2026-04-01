@@ -671,6 +671,30 @@ class ComparisonResultResponse(BaseModel):
     created_at: datetime
 
 
+class BaselineExecutionResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    baseline_test_run_id: int
+    server_id: int
+    load_profile_id: int
+    cycle: int
+    status: str
+    thread_count: Optional[int] = None
+    cpu_avg: Optional[float] = None
+    cpu_p50: Optional[float] = None
+    cpu_p95: Optional[float] = None
+    cpu_min: Optional[float] = None
+    cpu_max: Optional[float] = None
+    mem_avg: Optional[float] = None
+    jtl_total_requests: Optional[int] = None
+    jtl_total_errors: Optional[int] = None
+    jtl_success_rate_pct: Optional[float] = None
+    stats_path: Optional[str] = None
+    jtl_path: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
 # ---- Trending ----
 
 class TrendDataPoint(BaseModel):

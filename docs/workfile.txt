@@ -681,3 +681,44 @@ All changes to src/ code are documented here with date, file, and summary.
   - New migration: adds role VARCHAR(10) NOT NULL DEFAULT 'target' to servers
   - Adds root_snapshot_id INT NULL FK to snapshots
 
+2026-04-01  SSH Reconnect + JMeter Verification + BaselineExecutionResultORM
+
+  orchestrator/src/orchestrator/infra/remote_executor.py
+  - Store username, password, port, timeout_sec on SSHExecutor (for reconnect)
+  - Added reconnect() no-op to RemoteExecutor base class
+  - Added reconnect() to SSHExecutor: closes stale connection, opens fresh one
+
+  orchestrator/src/orchestrator/infra/jmeter_controller.py
+  - Added reconnect() delegate to JMeterController
+  - Added post-start verification in start(): sleep 5s, call is_running(pid),
+    raise RuntimeError with JMeter log tail if process dead
+
+  orchestrator/src/orchestrator/core/calibration.py
+  - In _run_observation(): reconnect SSH before stop() call after long sleep
+  - Added kill_for_target() fallback if stop() fails even after reconnect
+  - Replaced silent try/except pass with logged warnings
+
+  orchestrator/src/orchestrator/models/orm.py
+  - Added BaselineExecutionResultORM table (per-LP per-cycle execution results)
+  - Added execution_results relationship on BaselineTestRunORM
+
+  orchestrator/src/orchestrator/api/schemas.py
+  - Added BaselineExecutionResultResponse schema
+
+  orchestrator/src/orchestrator/api/baseline_test_runs.py
+  - Added GET /{run_id}/execution-results endpoint with server/lp/cycle filters
+
+  orchestrator/src/orchestrator/core/baseline_orchestrator.py
+  - Updated _save_execution_result() to also write to DB (BaselineExecutionResultORM)
+  - Added thread_count parameter, passed from call site
+
+  orchestrator/src/orchestrator/templates/baseline_tests/dashboard.html
+  - Replaced position-inference hack with DB-backed execution results
+  - Dashboard now shows actual CPU avg and success rate per execution row
+
+  orchestrator/migrations/add_baseline_execution_results.sql
+  - New migration: CREATE TABLE baseline_execution_results
+
+  setup/reset_server.py
+  - New script: delete all snapshots, clean DB, prepare server, take root snapshot
+

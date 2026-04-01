@@ -15,6 +15,7 @@ from orchestrator.api.schemas import (
     BaselineTestRunCreateV2,
     BaselineTestRunResponse,
     BaselineTestRunUpdate,
+    BaselineExecutionResultResponse,
     ComparisonResultResponse,
     DeleteSnapshotRequest,
     SnapshotBaselineCreate,
@@ -30,6 +31,7 @@ from orchestrator.api.schemas import (
 from orchestrator.models.database import SessionLocal, get_session
 from orchestrator.models.enums import BaselineTestState, BaselineTestType, ExecutionMode
 from orchestrator.models.orm import (
+    BaselineExecutionResultORM,
     BaselineTestRunLoadProfileORM,
     BaselineTestRunORM,
     BaselineTestRunTargetORM,
@@ -612,6 +614,36 @@ def delete_baseline_test_run(
 
     session.delete(test_run)
     session.commit()
+
+
+@router.get("/{run_id}/execution-results", response_model=List[BaselineExecutionResultResponse])
+def get_execution_results(
+    run_id: int,
+    server_id: Optional[int] = None,
+    load_profile_id: Optional[int] = None,
+    cycle: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
+    """Get execution results for a baseline test run, with optional filters."""
+    test_run = session.get(BaselineTestRunORM, run_id)
+    if not test_run:
+        raise HTTPException(status_code=404, detail="Baseline test run not found")
+
+    query = session.query(BaselineExecutionResultORM).filter(
+        BaselineExecutionResultORM.baseline_test_run_id == run_id
+    )
+    if server_id is not None:
+        query = query.filter(BaselineExecutionResultORM.server_id == server_id)
+    if load_profile_id is not None:
+        query = query.filter(BaselineExecutionResultORM.load_profile_id == load_profile_id)
+    if cycle is not None:
+        query = query.filter(BaselineExecutionResultORM.cycle == cycle)
+
+    return query.order_by(
+        BaselineExecutionResultORM.server_id,
+        BaselineExecutionResultORM.load_profile_id,
+        BaselineExecutionResultORM.cycle,
+    ).all()
 
 
 # ===========================================================================

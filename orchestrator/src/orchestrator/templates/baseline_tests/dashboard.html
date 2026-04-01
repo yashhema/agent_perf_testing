@@ -419,11 +419,15 @@ async function renderLPProgress() {
   // Get data scoped to THIS test run only
   let comparisons = [];
   let calProgress = [];
+  let execResults = [];
   try {
     comparisons = await API.get('/api/baseline-tests/' + RUN_ID + '/comparison-results');
   } catch {}
   try {
     calProgress = await API.get('/api/baseline-tests/' + RUN_ID + '/calibration-progress');
+  } catch {}
+  try {
+    execResults = await API.get('/api/baseline-tests/' + RUN_ID + '/execution-results');
   } catch {}
 
   // Build lookups
@@ -433,6 +437,9 @@ async function renderLPProgress() {
   // Comparisons: keyed by "lpId:cycle"
   const compByKey = {};
   comparisons.forEach(c => compByKey[c.load_profile_id + ':' + (c.cycle || 1)] = c);
+  // Execution results: keyed by "lpId:cycle"
+  const execByKey = {};
+  execResults.forEach(r => execByKey[r.load_profile_id + ':' + r.cycle] = r);
 
   // Get LP list from the test run's own load_profiles (not from snapshot data)
   const runLps = _run.load_profiles || [];
@@ -492,14 +499,8 @@ async function renderLPProgress() {
     </tr>`;
   }
 
-  // Execution rows (per LP x cycle)
-  // Position-based inference: LPs execute sequentially (all cycles of LP1,
-  // then all cycles of LP2, etc.). Anything before current position is done.
-  // TODO: Replace with proper BaselineExecutionResultORM DB table lookup
-  //       so execution status is persisted and queryable for compare/trending.
+  // Execution rows (per LP x cycle) — uses BaselineExecutionResultORM from DB
   const execStates = ['deploying_testing', 'executing', 'storing', 'comparing'];
-  const postExecStates = [...execStates, 'completed', 'storing', 'comparing'];
-  const currentLpIdx = lpIds.indexOf(_run.current_load_profile_id);
 
   for (let lpIdx = 0; lpIdx < lpIds.length; lpIdx++) {
     const lpId = lpIds[lpIdx];
@@ -508,29 +509,28 @@ async function renderLPProgress() {
 
     for (let cycle = 1; cycle <= totalCycles; cycle++) {
       const comp = compByKey[lpId + ':' + cycle];
+      const exec = execByKey[lpId + ':' + cycle];
       const isCurrentExec = _run.current_load_profile_id === lpId
         && currentCycle === cycle
         && execStates.includes(_run.state);
 
-      // Is this LP+cycle already past? (executed successfully)
-      const isPast = postExecStates.includes(_run.state)
-        && (lpIdx < currentLpIdx || (lpIdx === currentLpIdx && cycle < currentCycle));
-
       let status;
-      if (comp) {
-        const verdictColor = comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning';
+      if (exec && exec.status === 'completed') {
         status = '<span class="badge bg-success">done</span>';
+      } else if (exec && exec.status === 'failed') {
+        status = '<span class="badge bg-danger">failed</span>';
       } else if (isCurrentExec && isActive) {
         status = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width:.5rem;height:.5rem"></span>' + _run.state + '</span>';
-      } else if (isCurrentExec && _run.state === 'failed') {
-        status = '<span class="badge bg-danger">failed</span>';
-      } else if (isPast || _run.state === 'completed') {
+      } else if (_run.state === 'completed') {
         status = '<span class="badge bg-success">done</span>';
       } else {
         status = '<span class="badge bg-secondary">pending</span>';
       }
 
-      const threads = cal && cal.status === 'completed' ? (cal.thread_count || '-') : '-';
+      const threads = exec && exec.thread_count ? exec.thread_count
+        : (cal && cal.status === 'completed' ? (cal.thread_count || '-') : '-');
+      const cpuText = exec && exec.cpu_avg != null ? exec.cpu_avg.toFixed(1) + '%' : '-';
+      const successText = exec && exec.jtl_success_rate_pct != null ? exec.jtl_success_rate_pct.toFixed(1) + '%' : '-';
       const compResult = comp && comp.verdict
         ? '<span class="badge bg-' + (comp.verdict === 'passed' ? 'success' : comp.verdict === 'failed' ? 'danger' : 'warning') + '">' + comp.verdict + '</span>'
         : '-';
@@ -540,8 +540,8 @@ async function renderLPProgress() {
         <td>${cycle}/${totalCycles}</td>
         <td>${status}</td>
         <td>${threads}</td>
-        <td>-</td>
-        <td>-</td>
+        <td>${cpuText}</td>
+        <td>${successText}</td>
         <td>${compResult}</td>
       </tr>`;
     }

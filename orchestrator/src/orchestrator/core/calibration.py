@@ -691,11 +691,20 @@ class CalibrationEngine:
             )
             samples = stats.get("samples", [])
 
-            # Stop JMeter and emulator
+            # Stop JMeter and emulator — reconnect SSH first (may be stale after long sleep)
             try:
+                ctx.jmeter_controller.reconnect()
                 ctx.jmeter_controller.stop(pid, jtl_path=f"{cal_prefix}.jtl")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Failed to stop JMeter PID %d after reconnect: %s. "
+                    "Falling back to kill_for_target.", pid, e,
+                )
+                try:
+                    ctx.jmeter_controller.reconnect()
+                    ctx.jmeter_controller.kill_for_target(ctx.server.ip_address)
+                except Exception as e2:
+                    logger.error("kill_for_target also failed: %s — orphan JMeter possible", e2)
             pid = None
             ctx.emulator_client.stop_test(test_id)
             test_id = None

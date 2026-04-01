@@ -696,6 +696,10 @@ class BaselineTestRunORM(Base):
         "BaselineTestRunTargetORM", back_populates="baseline_test_run",
         cascade="all, delete-orphan",
     )
+    execution_results = relationship(
+        "BaselineExecutionResultORM", back_populates="baseline_test_run",
+        cascade="all, delete-orphan",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -760,4 +764,50 @@ class BaselineTestRunLoadProfileORM(Base):
 
     # Relationships
     baseline_test_run = relationship("BaselineTestRunORM", back_populates="load_profiles")
+    load_profile = relationship("LoadProfileORM")
+
+
+# ---------------------------------------------------------------------------
+# BaselineExecutionResultORM — Per-LP per-cycle execution results
+# ---------------------------------------------------------------------------
+class BaselineExecutionResultORM(Base):
+    __tablename__ = "baseline_execution_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "baseline_test_run_id", "server_id", "load_profile_id", "cycle",
+            name="uq_baseline_exec_result",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    baseline_test_run_id = Column(Integer, ForeignKey("baseline_test_runs.id"), nullable=False)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
+    load_profile_id = Column(Integer, ForeignKey("load_profiles.id"), nullable=False)
+    cycle = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="in_progress")
+    thread_count = Column(Integer, nullable=True)
+
+    # CPU stats from emulator
+    cpu_avg = Column(Float, nullable=True)
+    cpu_p50 = Column(Float, nullable=True)
+    cpu_p95 = Column(Float, nullable=True)
+    cpu_min = Column(Float, nullable=True)
+    cpu_max = Column(Float, nullable=True)
+    mem_avg = Column(Float, nullable=True)
+
+    # JTL results
+    jtl_total_requests = Column(Integer, nullable=True)
+    jtl_total_errors = Column(Integer, nullable=True)
+    jtl_success_rate_pct = Column(Float, nullable=True)
+
+    # File references
+    stats_path = Column(String(500), nullable=True)
+    jtl_path = Column(String(500), nullable=True)
+
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    baseline_test_run = relationship("BaselineTestRunORM", back_populates="execution_results")
+    server = relationship("ServerORM")
     load_profile = relationship("LoadProfileORM")

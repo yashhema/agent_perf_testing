@@ -5,6 +5,7 @@ Controls JMeter on load generator via SSH/WinRM (RemoteExecutor).
 """
 
 import logging
+import time
 from typing import Dict, Optional
 
 from orchestrator.infra.remote_executor import RemoteExecutor
@@ -33,6 +34,10 @@ class JMeterController:
         self._executor = executor
         self._jmeter_bin = jmeter_bin
         self._os_family = os_family
+
+    def reconnect(self) -> None:
+        """Reconnect the underlying executor transport."""
+        self._executor.reconnect()
 
     def start(
         self,
@@ -95,7 +100,26 @@ class JMeterController:
             raise RuntimeError(f"JMeter start failed: {result.stderr}")
 
         pid = int(result.stdout.strip().split("\n")[-1].strip())
-        logger.info("JMeter started with PID %d", pid)
+        logger.info("JMeter started with PID %d, verifying...", pid)
+
+        # Wait for JVM to initialize, then verify the process is alive.
+        # JMeter can fail immediately (bad JMX, missing Java, port conflict)
+        # and the background launch still returns exit code 0 + a PID.
+        time.sleep(5)
+        if not self.is_running(pid):
+            diag = ""
+            try:
+                log_result = self._executor.execute(f"tail -20 {log_path}", timeout_sec=10)
+                if log_result.success:
+                    diag = f"\nJMeter log tail:\n{log_result.stdout}"
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"JMeter process {pid} is not running 5s after start. "
+                f"It may have crashed during initialization.{diag}"
+            )
+
+        logger.info("JMeter PID %d verified running", pid)
         return pid
 
     def is_running(self, pid: int) -> bool:
