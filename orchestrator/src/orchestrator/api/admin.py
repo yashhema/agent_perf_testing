@@ -33,6 +33,7 @@ from orchestrator.api.schemas import (
     RulePresetResponse, RuleTemplateResponse,
     ScenarioCreate, ScenarioResponse, ScenarioUpdate,
     ServerCreate, ServerResponse, ServerUpdate,
+    AgentDetectionRuleCreate, AgentDetectionRuleResponse, AgentDetectionRuleUpdate,
     SubgroupDefinitionCreate, SubgroupDefinitionResponse, SubgroupDefinitionUpdate,
     UserCreate, UserResponse, UserUpdate,
 )
@@ -41,6 +42,7 @@ from orchestrator.models.orm import (
     AgentORM, AnalysisRuleORM,
     BaselineORM, DBSchemaConfigORM, HardwareProfileORM, LabORM,
     LoadProfileORM, PackageGroupMemberORM, PackageGroupORM,
+    AgentDetectionRuleORM,
     ScenarioAgentORM, ScenarioORM, ServerORM,
     SnapshotBaselineORM, SnapshotGroupORM, SnapshotORM,
     SubgroupAgentORM, SubgroupDefinitionORM, UserORM,
@@ -1128,6 +1130,63 @@ def delete_agent_rule(rule_id: int, session: Session = Depends(get_session)):
     if not obj:
         raise HTTPException(status_code=404, detail="Analysis rule not found")
     session.delete(obj)
+    session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Agent Detection Rules
+# ---------------------------------------------------------------------------
+
+@router.get("/agents/{agent_id}/detection-rules", response_model=List[AgentDetectionRuleResponse])
+def list_detection_rules(agent_id: int, session: Session = Depends(get_session)):
+    agent = session.get(AgentORM, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return session.query(AgentDetectionRuleORM).filter(
+        AgentDetectionRuleORM.agent_id == agent_id,
+    ).all()
+
+
+@router.post("/agents/{agent_id}/detection-rules", response_model=AgentDetectionRuleResponse, status_code=status.HTTP_201_CREATED)
+def create_detection_rule(agent_id: int, data: AgentDetectionRuleCreate, session: Session = Depends(get_session)):
+    agent = session.get(AgentORM, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if data.cmd_type not in ("bash", "powershell"):
+        raise HTTPException(status_code=400, detail="cmd_type must be 'bash' or 'powershell'")
+    rule = AgentDetectionRuleORM(
+        agent_id=agent_id,
+        os_regex=data.os_regex,
+        cmd_type=data.cmd_type,
+        service_regex=data.service_regex,
+        version_cmd=data.version_cmd,
+    )
+    session.add(rule)
+    session.commit()
+    session.refresh(rule)
+    return rule
+
+
+@router.put("/agent-detection-rules/{rule_id}", response_model=AgentDetectionRuleResponse)
+def update_detection_rule(rule_id: int, data: AgentDetectionRuleUpdate, session: Session = Depends(get_session)):
+    rule = session.get(AgentDetectionRuleORM, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Detection rule not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(rule, field, value)
+    if rule.cmd_type not in ("bash", "powershell"):
+        raise HTTPException(status_code=400, detail="cmd_type must be 'bash' or 'powershell'")
+    session.commit()
+    session.refresh(rule)
+    return rule
+
+
+@router.delete("/agent-detection-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_detection_rule(rule_id: int, session: Session = Depends(get_session)):
+    rule = session.get(AgentDetectionRuleORM, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Detection rule not found")
+    session.delete(rule)
     session.commit()
 
 

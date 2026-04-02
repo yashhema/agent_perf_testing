@@ -489,6 +489,32 @@ class AgentResponse(BaseModel):
     updated_at: Optional[datetime]
 
 
+# ---- Agent Detection Rules ----
+
+class AgentDetectionRuleCreate(BaseModel):
+    os_regex: str = Field(max_length=255, description="OS match pattern, e.g. 'rhel|rocky|centos' or 'windows'")
+    cmd_type: str = Field(max_length=20, description="'bash' or 'powershell'")
+    service_regex: str = Field(max_length=255, description="Service/process name pattern, e.g. 'falcon-sensor*'")
+    version_cmd: Optional[str] = Field(default=None, description="Command to get agent version")
+
+
+class AgentDetectionRuleUpdate(BaseModel):
+    os_regex: Optional[str] = Field(default=None, max_length=255)
+    cmd_type: Optional[str] = Field(default=None, max_length=20)
+    service_regex: Optional[str] = Field(default=None, max_length=255)
+    version_cmd: Optional[str] = None
+
+
+class AgentDetectionRuleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    agent_id: int
+    os_regex: str
+    cmd_type: str
+    service_regex: str
+    version_cmd: Optional[str] = None
+
+
 # ---- AnalysisRule ----
 
 class AnalysisRuleCreate(BaseModel):

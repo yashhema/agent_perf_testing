@@ -3,6 +3,14 @@
 {% block page_header %}<strong>Agents</strong> — Security Agent Management{% endblock %}
 
 {% block content %}
+<div class="alert alert-light border mb-4" style="font-size:.9rem">
+  <i class="bi bi-info-circle me-1 text-primary"></i>
+  <strong>Agents</strong> represent security software (EDR, AV, DLP, etc.) installed on target servers.
+  Each agent has <strong>Detection Rules</strong> that define how to verify if the agent is installed on a given OS
+  (e.g., check for a service name, run a version command). Detection rules are used during snapshot creation
+  to automatically verify agent installation and capture version information.
+</div>
+
 <!-- Agent List -->
 <div class="card shadow-sm mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -13,18 +21,36 @@
     <div class="table-responsive">
       <table class="table table-hover mb-0">
         <thead><tr>
-          <th>ID</th><th>Name</th><th>Vendor</th><th>Type</th><th>Version</th>
-          <th>Discovery Key</th><th>Active</th><th>Rules</th><th>Actions</th>
+          <th>ID</th><th>Name</th><th>Vendor</th><th>Type</th>
+          <th>Detection Rules</th><th>Active</th><th>Actions</th>
         </tr></thead>
         <tbody id="agents-body">
-          <tr><td colspan="9" class="text-center text-muted py-3">Loading...</td></tr>
+          <tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 </div>
 
-<!-- Rules Panel (shown when agent selected) -->
+<!-- Detection Rules Panel (shown when agent selected) -->
+<div class="card shadow-sm mb-4" id="detection-panel" style="display:none;">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0" id="detection-panel-title">Detection Rules</h6>
+    <button class="btn btn-sm btn-primary" onclick="showAddDetectionRule()"><i class="bi bi-plus me-1"></i>Add Detection Rule</button>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-light py-2 mb-3" style="font-size:.8rem">
+      <i class="bi bi-info-circle me-1"></i>
+      Detection rules define how to check if this agent is installed on a server, per OS type.
+      <strong>OS Regex</strong> matches against the server's OS vendor (e.g., "rhel|rocky" or "windows").
+      <strong>Service Regex</strong> is used to check if the agent's service is running.
+      <strong>Version Command</strong> is run via SSH to capture the installed version.
+    </div>
+    <div id="detection-rules-list"></div>
+  </div>
+</div>
+
+<!-- Analysis Rules Panel (shown when agent selected) -->
 <div class="card shadow-sm mb-4" id="rules-panel" style="display:none;">
   <div class="card-header d-flex justify-content-between align-items-center">
     <h6 class="mb-0" id="rules-panel-title">Rules for Agent</h6>
@@ -160,6 +186,46 @@
     </div>
   </div>
 </div>
+
+<!-- Add Detection Rule Modal -->
+<div class="modal fade" id="detection-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Detection Rule</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">OS Regex *</label>
+          <input type="text" class="form-control" id="det-os-regex" placeholder="e.g. rhel|rocky|centos">
+          <small class="text-muted">Matched against server's OS vendor. Use | for multiple.</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Command Type *</label>
+          <select class="form-select" id="det-cmd-type">
+            <option value="bash">bash (Linux)</option>
+            <option value="powershell">powershell (Windows)</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Service Regex *</label>
+          <input type="text" class="form-control" id="det-service-regex" placeholder="e.g. falcon-sensor*">
+          <small class="text-muted">Pattern to check if the agent's service/process is running.</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Version Command</label>
+          <textarea class="form-control" id="det-version-cmd" rows="2" placeholder="e.g. sudo /opt/CrowdStrike/falconctl -g --version"></textarea>
+          <small class="text-muted">SSH command to get the installed agent version.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveDetectionRule()">Add Detection Rule</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -207,23 +273,35 @@ async function loadAgents() {
     const agents = await API.get('/api/admin/agents');
     const tbody = document.getElementById('agents-body');
     if (agents.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No agents configured</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No agents configured</td></tr>';
       return;
     }
-    tbody.innerHTML = agents.map(a => `<tr class="${selectedAgentId === a.id ? 'table-active' : ''}">
+    // Fetch detection rule counts
+    const detCounts = {};
+    for (const a of agents) {
+      try {
+        const rules = await API.get(`/api/admin/agents/${a.id}/detection-rules`);
+        detCounts[a.id] = rules.length;
+      } catch { detCounts[a.id] = 0; }
+    }
+    tbody.innerHTML = agents.map(a => {
+      const detCount = detCounts[a.id] || 0;
+      const detBadge = detCount > 0
+        ? `<span class="badge bg-success">${detCount} rule${detCount > 1 ? 's' : ''}</span>`
+        : `<span class="badge bg-warning">none</span>`;
+      return `<tr class="${selectedAgentId === a.id ? 'table-active' : ''}">
       <td>${a.id}</td>
-      <td><a href="#" onclick="selectAgent(${a.id}); return false;">${escHtml(a.name)}</a></td>
+      <td><a href="#" onclick="selectAgent(${a.id}); return false;"><strong>${escHtml(a.name)}</strong></a></td>
       <td>${escHtml(a.vendor || '-')}</td>
       <td><span class="badge bg-info">${a.agent_type}</span></td>
-      <td>${escHtml(a.version || '-')}</td>
-      <td><code class="small">${escHtml(a.discovery_key || '-')}</code></td>
+      <td>${detBadge}</td>
       <td>${a.is_active ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="selectAgent(${a.id})"><i class="bi bi-list-check"></i></button></td>
       <td class="text-nowrap">
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEditAgent(${a.id})" title="Edit"><i class="bi bi-pencil"></i></button>
         <button class="btn btn-sm btn-outline-danger" onclick="deleteAgent(${a.id})" title="Delete"><i class="bi bi-trash"></i></button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   } catch (e) { showToast(e.message, 'danger'); }
 }
 
@@ -301,6 +379,7 @@ async function deleteAgent(id) {
     if (selectedAgentId === id) {
       selectedAgentId = null;
       document.getElementById('rules-panel').style.display = 'none';
+      document.getElementById('detection-panel').style.display = 'none';
     }
     await loadAgents();
   } catch (e) { showToast(e.message, 'danger'); }
@@ -308,8 +387,10 @@ async function deleteAgent(id) {
 
 async function selectAgent(id) {
   selectedAgentId = id;
+  document.getElementById('detection-panel').style.display = '';
   document.getElementById('rules-panel').style.display = '';
   await loadAgents();
+  await loadDetectionRules();
   await loadRules();
 }
 
@@ -394,6 +475,78 @@ async function deleteRule(ruleId) {
     await API.delete('/api/admin/agent-rules/' + ruleId);
     showToast('Rule deleted');
     await loadRules();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// --- Detection Rules ---
+
+async function loadDetectionRules() {
+  if (!selectedAgentId) return;
+  try {
+    const agent = await API.get('/api/admin/agents/' + selectedAgentId);
+    document.getElementById('detection-panel-title').textContent = 'Detection Rules for ' + agent.name;
+    const rules = await API.get('/api/admin/agents/' + selectedAgentId + '/detection-rules');
+    const container = document.getElementById('detection-rules-list');
+    if (rules.length === 0) {
+      container.innerHTML = '<div class="text-muted py-2">No detection rules. Add one to enable automatic agent verification during snapshot creation.</div>';
+      return;
+    }
+    container.innerHTML = rules.map(r => `
+      <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <span class="badge bg-${r.cmd_type === 'bash' ? 'dark' : 'primary'} me-1">${r.cmd_type}</span>
+              <strong>OS:</strong> <code>${escHtml(r.os_regex)}</code>
+              <br>
+              <small>
+                <strong>Service:</strong> <code>${escHtml(r.service_regex)}</code>
+                ${r.version_cmd ? `<br><strong>Version cmd:</strong> <code>${escHtml(r.version_cmd)}</code>` : ''}
+              </small>
+            </div>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteDetectionRule(${r.id})" title="Delete"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function showAddDetectionRule() {
+  if (!selectedAgentId) return;
+  document.getElementById('det-os-regex').value = '';
+  document.getElementById('det-cmd-type').value = 'bash';
+  document.getElementById('det-service-regex').value = '';
+  document.getElementById('det-version-cmd').value = '';
+  new bootstrap.Modal(document.getElementById('detection-modal')).show();
+}
+
+async function saveDetectionRule() {
+  const osRegex = document.getElementById('det-os-regex').value.trim();
+  const serviceRegex = document.getElementById('det-service-regex').value.trim();
+  if (!osRegex || !serviceRegex) { showToast('OS Regex and Service Regex are required', 'warning'); return; }
+
+  try {
+    await API.post('/api/admin/agents/' + selectedAgentId + '/detection-rules', {
+      os_regex: osRegex,
+      cmd_type: document.getElementById('det-cmd-type').value,
+      service_regex: serviceRegex,
+      version_cmd: document.getElementById('det-version-cmd').value.trim() || null,
+    });
+    showToast('Detection rule added');
+    bootstrap.Modal.getInstance(document.getElementById('detection-modal')).hide();
+    await loadDetectionRules();
+    await loadAgents();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function deleteDetectionRule(ruleId) {
+  if (!confirm('Delete this detection rule?')) return;
+  try {
+    await API.delete('/api/admin/agent-detection-rules/' + ruleId);
+    showToast('Detection rule deleted');
+    await loadDetectionRules();
+    await loadAgents();
   } catch (e) { showToast(e.message, 'danger'); }
 }
 </script>

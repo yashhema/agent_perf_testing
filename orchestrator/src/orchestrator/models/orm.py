@@ -511,6 +511,24 @@ class AgentORM(Base):
     package_group = relationship("PackageGroupORM", foreign_keys=[package_group_id])
     analysis_rules = relationship("AnalysisRuleORM", back_populates="agent", cascade="all, delete-orphan")
     scenarios = relationship("ScenarioORM", secondary="scenario_agents", back_populates="agents")
+    detection_rules = relationship("AgentDetectionRuleORM", back_populates="agent", cascade="all, delete-orphan")
+
+
+# ---------------------------------------------------------------------------
+# AgentDetectionRuleORM — Per-OS detection rules for agents
+# ---------------------------------------------------------------------------
+class AgentDetectionRuleORM(Base):
+    __tablename__ = "agent_detection_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)
+    os_regex = Column(String(255), nullable=False)      # e.g. "rhel|rocky|centos", "windows"
+    cmd_type = Column(String(20), nullable=False)        # "bash" or "powershell"
+    service_regex = Column(String(255), nullable=False)  # e.g. "falcon-sensor*", "CrowdStrike*"
+    version_cmd = Column(Text, nullable=True)            # e.g. "sudo /opt/CrowdStrike/falconctl -g --version"
+
+    # Relationships
+    agent = relationship("AgentORM", back_populates="detection_rules")
 
 
 # ---------------------------------------------------------------------------
