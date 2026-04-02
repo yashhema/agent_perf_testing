@@ -7,7 +7,10 @@
 <div class="card shadow-sm mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
     <h6 class="mb-0">Servers</h6>
-    <button class="btn btn-sm btn-primary" onclick="showCreateServer()"><i class="bi bi-plus me-1"></i>New Server</button>
+    <div>
+      <button class="btn btn-sm btn-warning me-1" onclick="showBulkPrepare()"><i class="bi bi-gear me-1"></i>Bulk Prepare & Snapshot</button>
+      <button class="btn btn-sm btn-primary" onclick="showCreateServer()"><i class="bi bi-plus me-1"></i>New Server</button>
+    </div>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -167,7 +170,7 @@
   </div>
 </div>
 
-<!-- Prepare & Snapshot Modal -->
+<!-- Prepare & Snapshot Modal (single server) -->
 <div class="modal fade" id="prepare-modal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -176,14 +179,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="alert alert-info py-2" style="font-size:.85rem">
-          <i class="bi bi-info-circle me-1"></i>
-          This will prepare the server (sudo, firewall, Java 17, /data disk) and take a root snapshot.
-        </div>
         <p><strong>Server:</strong> <span id="prep-server-name"></span></p>
         <p><strong>IP:</strong> <span id="prep-server-ip"></span></p>
         <p><strong>Role:</strong> <span id="prep-server-role"></span></p>
-        <p><strong>Current root snapshot:</strong> <span id="prep-server-root"></span></p>
+        <div id="prep-existing-warning"></div>
         <hr>
         <div class="form-check mb-3">
           <input class="form-check-input" type="checkbox" id="prep-delete-all" checked>
@@ -197,6 +196,42 @@
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-warning" onclick="startPrepare()" id="btn-prep-start">
           <i class="bi bi-gear me-1"></i>Start Prepare & Snapshot
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Prepare Modal -->
+<div class="modal fade" id="bulk-prepare-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Bulk Prepare & Snapshot</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          Select servers to prepare. Each server will be prepared sequentially (sudo, firewall, Java 17, /data disk, take snapshot).
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="bulk-delete-all" checked>
+          <label class="form-check-label" for="bulk-delete-all">
+            <strong>Delete all existing snapshots</strong> on selected servers
+          </label>
+        </div>
+        <hr>
+        <div class="mb-2">
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="bulkSelectAll()">Select All</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="bulkSelectNone()">Select None</button>
+        </div>
+        <div id="bulk-server-list" style="max-height:350px; overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" onclick="startBulkPrepare()" id="btn-bulk-start">
+          <i class="bi bi-gear me-1"></i>Start Bulk Prepare
         </button>
       </div>
     </div>
@@ -354,12 +389,127 @@ async function deleteServer(id) {
 function showPrepareModal(id) {
   _prepareServerId = id;
   const s = _servers.find(x => x.id === id);
-  document.getElementById('prep-server-name').textContent = s ? s.hostname : '#' + id;
+  document.getElementById('prep-server-name').textContent = s ? `${s.hostname} (${osLabel(s)})` : '#' + id;
   document.getElementById('prep-server-ip').textContent = s ? s.ip_address : '';
   document.getElementById('prep-server-role').textContent = s ? s.role : '';
-  document.getElementById('prep-server-root').textContent = s && s.root_snapshot_id ? `Snapshot #${s.root_snapshot_id}` : 'None';
-  document.getElementById('prep-delete-all').checked = true;
+
+  // Show existing snapshot warning
+  const warn = document.getElementById('prep-existing-warning');
+  if (s && s.root_snapshot_id) {
+    warn.innerHTML = `
+      <div class="alert alert-warning py-2 mt-2" style="font-size:.85rem">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        <strong>Root snapshot already exists</strong> (Snapshot #${s.root_snapshot_id}).
+        ${s.subgroup_count > 0 ? `This server has <strong>${s.subgroup_count} subgroup(s)</strong> attached.` : ''}
+        Re-running will replace everything if "Delete all" is checked.
+      </div>`;
+    document.getElementById('prep-delete-all').checked = true;
+  } else {
+    warn.innerHTML = `
+      <div class="alert alert-info py-2 mt-2" style="font-size:.85rem">
+        <i class="bi bi-info-circle me-1"></i>
+        No root snapshot exists. This will create the initial snapshot.
+      </div>`;
+    document.getElementById('prep-delete-all').checked = false;
+  }
+
   new bootstrap.Modal(document.getElementById('prepare-modal')).show();
+}
+
+// --- Bulk Prepare ---
+
+function showBulkPrepare() {
+  const container = document.getElementById('bulk-server-list');
+  container.innerHTML = _servers.map(s => {
+    const hasRoot = s.root_snapshot_id ? `<span class="badge bg-success ms-1">has root snap</span>` : `<span class="badge bg-secondary ms-1">no snapshot</span>`;
+    const sgCount = s.subgroup_count > 0 ? `<span class="badge bg-info ms-1">${s.subgroup_count} subgroups</span>` : '';
+    return `<div class="form-check py-1 border-bottom">
+      <input class="form-check-input bulk-srv-cb" type="checkbox" value="${s.id}" id="bulk-srv-${s.id}">
+      <label class="form-check-label" for="bulk-srv-${s.id}">
+        <strong>${escHtml(s.hostname)}</strong>
+        <code class="ms-1">${escHtml(s.ip_address)}</code>
+        <span class="badge bg-${s.role === 'target' ? 'success' : 'info'} ms-1">${s.role}</span>
+        <span class="text-muted ms-1">${escHtml(osLabel(s))}</span>
+        ${hasRoot} ${sgCount}
+      </label>
+    </div>`;
+  }).join('');
+  new bootstrap.Modal(document.getElementById('bulk-prepare-modal')).show();
+}
+
+function bulkSelectAll() {
+  document.querySelectorAll('.bulk-srv-cb').forEach(cb => cb.checked = true);
+}
+function bulkSelectNone() {
+  document.querySelectorAll('.bulk-srv-cb').forEach(cb => cb.checked = false);
+}
+
+async function startBulkPrepare() {
+  const selectedIds = Array.from(document.querySelectorAll('.bulk-srv-cb:checked')).map(cb => parseInt(cb.value));
+  if (selectedIds.length === 0) { showToast('Select at least one server', 'warning'); return; }
+
+  const deleteAll = document.getElementById('bulk-delete-all').checked;
+  const withSnapshots = selectedIds.filter(id => {
+    const s = _servers.find(x => x.id === id);
+    return s && s.root_snapshot_id;
+  });
+
+  if (deleteAll && withSnapshots.length > 0) {
+    if (!confirm(`${withSnapshots.length} server(s) already have snapshots. Delete all and re-prepare?`)) return;
+  }
+
+  bootstrap.Modal.getInstance(document.getElementById('bulk-prepare-modal')).hide();
+
+  // Start prepare for each server sequentially
+  const panel = document.getElementById('prepare-panel');
+  panel.style.display = '';
+
+  for (let i = 0; i < selectedIds.length; i++) {
+    const sid = selectedIds[i];
+    const s = _servers.find(x => x.id === sid);
+    const label = s ? s.hostname : '#' + sid;
+    document.getElementById('prepare-panel-title').textContent = `Preparing: ${label} (${i + 1}/${selectedIds.length})`;
+
+    try {
+      await API.post(`/api/admin/servers/${sid}/prepare-snapshot`, { delete_all_snapshots: deleteAll });
+      _prepareServerId = sid;
+
+      // Poll until done
+      await new Promise((resolve, reject) => {
+        const poll = setInterval(async () => {
+          try {
+            const status = await API.get(`/api/admin/servers/${sid}/prepare-status`);
+            const step = document.getElementById('prepare-panel-step');
+            const body = document.getElementById('prepare-panel-body');
+            step.textContent = status.step || '';
+
+            if (status.state === 'completed') {
+              step.className = 'badge bg-success';
+              body.innerHTML = `<div class="text-center py-2"><i class="bi bi-check-circle text-success"></i> ${escHtml(label)} done</div>`;
+              clearInterval(poll);
+              resolve();
+            } else if (status.state === 'failed') {
+              step.className = 'badge bg-danger';
+              body.innerHTML = `<div class="text-center py-2"><i class="bi bi-x-circle text-danger"></i> ${escHtml(label)} failed: ${escHtml(status.error || '')}</div>`;
+              clearInterval(poll);
+              resolve(); // Continue to next server
+            } else {
+              step.className = 'badge bg-primary';
+              body.innerHTML = `<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary me-2"></div>${escHtml(status.step_name || 'Working...')}</div>`;
+            }
+          } catch { /* polling error, ignore */ }
+        }, 3000);
+      });
+    } catch (e) {
+      showToast(`Failed to start prepare for ${label}: ${e.message}`, 'danger');
+    }
+  }
+
+  document.getElementById('prepare-panel-title').textContent = `Bulk Prepare Complete`;
+  document.getElementById('prepare-panel-step').textContent = `${selectedIds.length} servers`;
+  document.getElementById('prepare-panel-step').className = 'badge bg-success';
+  document.getElementById('prepare-panel-body').innerHTML = '<div class="text-center py-2"><i class="bi bi-check-circle-fill text-success" style="font-size:1.5rem"></i><p class="mt-1">All servers processed.</p></div>';
+  await loadServers();
 }
 
 async function startPrepare() {
