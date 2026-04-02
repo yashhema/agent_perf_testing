@@ -418,10 +418,27 @@ function showPrepareModal(id) {
 
 // --- Bulk Prepare ---
 
-function showBulkPrepare() {
+async function showBulkPrepare() {
   const container = document.getElementById('bulk-server-list');
+  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Loading server info...</div>';
+  // Fetch group info per server for display
+  const groupInfoMap = {};
+  for (const s of _servers) {
+    try {
+      const groups = await API.get(`/api/servers/${s.id}/snapshot-baselines`);
+      if (groups.length > 0) groupInfoMap[s.id] = groups[0];
+    } catch {}
+  }
+
   container.innerHTML = _servers.map(s => {
-    const hasRoot = s.root_snapshot_id ? `<span class="badge bg-success ms-1">has root snap</span>` : `<span class="badge bg-secondary ms-1">no snapshot</span>`;
+    const group = groupInfoMap[s.id];
+    let snapInfo;
+    if (group) {
+      const dt = group.created_at ? new Date(group.created_at).toLocaleDateString() : '?';
+      snapInfo = `<span class="badge bg-success ms-1">group: ${escHtml(group.name)} (${dt})</span>`;
+    } else {
+      snapInfo = `<span class="badge bg-secondary ms-1">no group/snapshot</span>`;
+    }
     const sgCount = s.subgroup_count > 0 ? `<span class="badge bg-info ms-1">${s.subgroup_count} subgroups</span>` : '';
     return `<div class="form-check py-1 border-bottom">
       <input class="form-check-input bulk-srv-cb" type="checkbox" value="${s.id}" id="bulk-srv-${s.id}">
@@ -430,7 +447,7 @@ function showBulkPrepare() {
         <code class="ms-1">${escHtml(s.ip_address)}</code>
         <span class="badge bg-${s.role === 'target' ? 'success' : 'info'} ms-1">${s.role}</span>
         <span class="text-muted ms-1">${escHtml(osLabel(s))}</span>
-        ${hasRoot} ${sgCount}
+        ${snapInfo} ${sgCount}
       </label>
     </div>`;
   }).join('');
