@@ -601,7 +601,7 @@ def delete_baseline_test_run(
     run_id: int,
     session: Session = Depends(get_session),
 ):
-    """Delete a baseline test run. Use force=true to delete any state (including completed)."""
+    """Delete a baseline test run and all related data."""
     test_run = session.get(BaselineTestRunORM, run_id)
     if not test_run:
         raise HTTPException(status_code=404, detail="Baseline test run not found")
@@ -618,6 +618,17 @@ def delete_baseline_test_run(
             status_code=400,
             detail=f"Cannot delete: test is actively running (state={test_run.state.value}). Cancel it first.",
         )
+
+    # Delete related records that don't have cascade (FK constraints block deletion)
+    session.query(CalibrationResultORM).filter(
+        CalibrationResultORM.baseline_test_run_id == run_id,
+    ).delete()
+    session.query(ComparisonResultORM).filter(
+        ComparisonResultORM.baseline_test_run_id == run_id,
+    ).delete()
+    session.query(BaselineExecutionResultORM).filter(
+        BaselineExecutionResultORM.baseline_test_run_id == run_id,
+    ).delete()
 
     session.delete(test_run)
     session.commit()
