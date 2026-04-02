@@ -3,6 +3,16 @@
 {% block page_header %}<strong>Servers</strong>{% endblock %}
 
 {% block content %}
+<div class="alert alert-light border mb-4" style="font-size:.9rem">
+  <i class="bi bi-info-circle me-1 text-primary"></i>
+  <strong>Server Setup Workflow:</strong>
+  <strong>1.</strong> Add a server (hostname, IP, role).
+  <strong>2.</strong> Click <i class="bi bi-gear"></i> <strong>Prepare & Snapshot</strong> to install prerequisites
+  (passwordless sudo, firewall, Java 17, /data disk) and take an <strong>OS Level</strong> snapshot.
+  <strong>3.</strong> Attach <strong>Agent Sets</strong> (which agents to test) to the server.
+  Once a server has an OS Level snapshot and at least one Agent Set, it shows as <span class="badge bg-success">ready</span> for testing.
+</div>
+
 <!-- Server List -->
 <div class="card shadow-sm mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -17,8 +27,8 @@
       <table class="table table-hover mb-0">
         <thead><tr>
           <th>ID</th><th>Hostname</th><th>IP</th><th>Role</th><th>OS</th>
-          <th>Infra</th><th>OS Level <i class="bi bi-question-circle text-muted" title="Root snapshot + prepared OS state (sudo, Java, /data)"></i></th>
-          <th>Agent Profiles <i class="bi bi-question-circle text-muted" title="Agent configurations assigned to this server for testing"></i></th>
+          <th>Infra</th><th>OS Level <i class="bi bi-question-circle text-muted" title="The prepared OS state: passwordless sudo, firewall open, Java 17 installed, /data disk mounted. Created by the Prepare & Snapshot button."></i></th>
+          <th>Agent Sets <i class="bi bi-question-circle text-muted" title="Which combinations of security agents (e.g. CrowdStrike Only, CrowdStrike + Tanium) are assigned for testing on this server. Defined in Admin > Agent Sets."></i></th>
           <th>Actions</th>
         </tr></thead>
         <tbody id="servers-body">
@@ -147,23 +157,23 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Agent Profiles for: <span id="sg-modal-server"></span></h5>
+        <h5 class="modal-title">Agent Sets for: <span id="sg-modal-server"></span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="alert alert-info py-2" style="font-size:.85rem">
           <i class="bi bi-info-circle me-1"></i>
-          Agent Profiles define which agent configurations will be tested on this server. Snapshots are taken later during test creation.
+          An <strong>Agent Set</strong> is a combination of security agents (e.g. "CrowdStrike Only" or "CrowdStrike + Tanium") that will be installed and tested on this server. Attach one or more sets here. The actual agent installation and snapshot happens later during test creation.
         </div>
         <div id="sg-list" class="mb-3"></div>
         <hr>
         <div class="input-group">
           <select class="form-select" id="sg-def-select">
-            <option value="">-- Select Agent Profile --</option>
+            <option value="">-- Select Agent Set --</option>
           </select>
-          <button class="btn btn-outline-primary" onclick="addSubgroup()" title="Attach this agent profile to the server"><i class="bi bi-plus me-1"></i>Attach</button>
+          <button class="btn btn-outline-primary" onclick="addSubgroup()" title="Attach this agent set to the server"><i class="bi bi-plus me-1"></i>Attach</button>
         </div>
-        <small class="text-muted">Profiles are managed in <a href="/admin/subgroup-definitions">Admin > Agent Profile Definitions</a></small>
+        <small class="text-muted">Agent Sets are defined in <a href="/admin/subgroup-definitions">Admin > Agent Sets</a></small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -181,6 +191,18 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <div class="alert alert-light border py-2 mb-3" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1 text-primary"></i>
+          <strong>What does Prepare & Snapshot do?</strong><br>
+          <ol class="mb-0 ps-3" style="font-size:.8rem">
+            <li>Detects OS version (vendor, major/minor)</li>
+            <li>Configures passwordless sudo</li>
+            <li>Opens firewall port 8080</li>
+            <li>Installs Java 17 (required for emulator)</li>
+            <li>Formats and mounts /data disk with output folders</li>
+            <li>Takes a snapshot — this becomes the <strong>OS Level</strong> baseline</li>
+          </ol>
+        </div>
         <p><strong>Server:</strong> <span id="prep-server-name"></span></p>
         <p><strong>IP:</strong> <span id="prep-server-ip"></span></p>
         <p><strong>Role:</strong> <span id="prep-server-role"></span></p>
@@ -192,7 +214,7 @@
             <strong>Delete all existing snapshots</strong> (revert to root first, then delete entire hierarchy)
           </label>
         </div>
-        <small class="text-muted">Sudo user will be read from credentials.json</small>
+        <small class="text-muted">Credentials (sudo user) are read from credentials.json</small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -295,10 +317,10 @@ async function renderServers() {
       osLevelHtml = '<span class="text-muted">not set</span>';
     }
 
-    // Agent Profiles column — count + manage button
+    // Agent Sets column — count + manage button
     const agentProfilesHtml = s.root_snapshot_id
       ? `<span class="badge bg-info me-1">${s.subgroup_count} profile${s.subgroup_count !== 1 ? 's' : ''}</span>
-         <button class="btn btn-sm btn-outline-info py-0 px-1" onclick="showSubgroups(${s.id})" title="Manage agent profiles assigned to this server"><i class="bi bi-folder-plus"></i></button>`
+         <button class="btn btn-sm btn-outline-info py-0 px-1" onclick="showSubgroups(${s.id})" title="Manage agent sets assigned to this server"><i class="bi bi-folder-plus"></i></button>`
       : '<span class="text-muted">-</span>';
 
     return `<tr>
@@ -671,14 +693,14 @@ async function renderSubgroupList() {
     // Populate dropdown — exclude already-attached definitions
     const attachedDefIds = subgroups.map(sg => sg.subgroup_def_id).filter(Boolean);
     const sel = document.getElementById('sg-def-select');
-    sel.innerHTML = '<option value="">-- Select Agent Profile --</option>' +
+    sel.innerHTML = '<option value="">-- Select Agent Set --</option>' +
       _sgDefs.filter(d => !attachedDefIds.includes(d.id)).map(d => {
         const agents = d.agents.map(a => a.agent_name || '#' + a.agent_id).join(', ');
         return `<option value="${d.id}">${escHtml(d.name)} (${escHtml(agents)})</option>`;
       }).join('');
 
     if (subgroups.length === 0) {
-      container.innerHTML = '<div class="text-muted py-2">No agent profiles attached. Select one below.</div>';
+      container.innerHTML = '<div class="text-muted py-2">No agent sets attached. Select one below.</div>';
       return;
     }
     container.innerHTML = subgroups.map(sg => {
@@ -710,7 +732,7 @@ async function renderSubgroupList() {
 async function addSubgroup() {
   const sel = document.getElementById('sg-def-select');
   const defId = parseInt(sel.value);
-  if (!defId) { showToast('Select an agent profile', 'warning'); return; }
+  if (!defId) { showToast('Select an agent set', 'warning'); return; }
   if (!_sgGroupId) { showToast('No group found. Run Prepare & Snapshot first.', 'warning'); return; }
 
   const def = _sgDefs.find(d => d.id === defId);
@@ -723,7 +745,7 @@ async function addSubgroup() {
       description: def ? def.description : null,
       subgroup_def_id: defId,
     });
-    showToast('Agent profile attached');
+    showToast('Agent set attached');
     await renderSubgroupList();
     await loadServers();  // Refresh counts
   } catch (e) { showToast('Error: ' + e.message, 'danger'); }
@@ -733,7 +755,7 @@ async function removeSubgroup(sgId, sgName) {
   if (!confirm(`Remove subgroup "${sgName}"?`)) return;
   try {
     await API.delete(`/api/servers/${_sgServerId}/snapshot-groups/${sgId}`);
-    showToast('Agent profile removed');
+    showToast('Agent set removed');
     await renderSubgroupList();
     await loadServers();
   } catch (e) { showToast('Error: ' + e.message, 'danger'); }

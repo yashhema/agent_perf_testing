@@ -1,12 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Agent Profile Definitions - Orchestrator{% endblock %}
-{% block page_header %}<strong>Agent Profile Definitions</strong> — Agent Configurations for Testing{% endblock %}
+{% block title %}Agent Sets - Orchestrator{% endblock %}
+{% block page_header %}<strong>Agent Sets</strong>{% endblock %}
 
 {% block content %}
+<div class="alert alert-light border mb-4" style="font-size:.9rem">
+  <i class="bi bi-info-circle me-1 text-primary"></i>
+  <strong>What is an Agent Set?</strong> An Agent Set defines a combination of one or more security agents
+  that are installed together on a server for performance testing. For example, "CrowdStrike Only" is a set
+  with one agent, while "CrowdStrike + Tanium" is a set with two agents installed side by side.
+  Agent Sets are reused across servers — you define them once here, then attach them to servers in the
+  <a href="/admin/servers">Servers</a> page.
+</div>
+
 <div class="card shadow-sm mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h6 class="mb-0">Agent Profile Definitions</h6>
-    <button class="btn btn-sm btn-primary" onclick="showCreate()"><i class="bi bi-plus me-1"></i>New Profile</button>
+    <h6 class="mb-0">Agent Sets</h6>
+    <button class="btn btn-sm btn-primary" onclick="showCreate()"><i class="bi bi-plus me-1"></i>New Agent Set</button>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -27,7 +36,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="sg-modal-title">Create Agent Profile Definition</h5>
+        <h5 class="modal-title" id="sg-modal-title">Create Agent Set</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -82,7 +91,7 @@ async function loadDefs() {
 function renderDefs() {
   const tbody = document.getElementById('sg-body');
   if (_sgDefs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No agent profile definitions. Create one to get started.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No agent sets defined yet. Create one to get started.</td></tr>';
     return;
   }
   tbody.innerHTML = _sgDefs.map(d => {
@@ -127,7 +136,7 @@ function getSelectedAgentIds() {
 }
 
 function showCreate() {
-  document.getElementById('sg-modal-title').textContent = 'Create Agent Profile';
+  document.getElementById('sg-modal-title').textContent = 'Create Agent Set';
   document.getElementById('sg-edit-id').value = '';
   document.getElementById('sg-name').value = '';
   document.getElementById('sg-desc').value = '';
@@ -138,7 +147,7 @@ function showCreate() {
 async function showEdit(id) {
   try {
     const d = await API.get('/api/admin/subgroup-definitions/' + id);
-    document.getElementById('sg-modal-title').textContent = 'Edit Agent Profile';
+    document.getElementById('sg-modal-title').textContent = 'Edit Agent Set';
     document.getElementById('sg-edit-id').value = d.id;
     document.getElementById('sg-name').value = d.name;
     document.getElementById('sg-desc').value = d.description || '';
@@ -163,10 +172,10 @@ async function saveSg() {
   try {
     if (editId) {
       await API.put('/api/admin/subgroup-definitions/' + editId, data);
-      showToast('Agent profile updated');
+      showToast('Agent set updated');
     } else {
       await API.post('/api/admin/subgroup-definitions', data);
-      showToast('Agent profile created');
+      showToast('Agent set created');
     }
     bootstrap.Modal.getInstance(document.getElementById('sg-modal')).hide();
     await loadDefs();
@@ -174,7 +183,7 @@ async function saveSg() {
 }
 
 async function deleteSg(id) {
-  if (!confirm('Delete this agent profile definition?')) return;
+  if (!confirm('Delete this agent set?')) return;
   try {
     await API.delete('/api/admin/subgroup-definitions/' + id);
     showToast('Deleted');
