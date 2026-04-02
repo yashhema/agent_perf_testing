@@ -161,10 +161,7 @@
             <strong>Delete all existing snapshots</strong> (revert to root first, then delete entire hierarchy)
           </label>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Sudo User *</label>
-          <input type="text" class="form-control" id="prep-sudo-user" placeholder="svc_account" value="">
-        </div>
+        <small class="text-muted">Sudo user will be read from credentials.json</small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -328,9 +325,6 @@ function showPrepareModal(id) {
 }
 
 async function startPrepare() {
-  const sudoUser = document.getElementById('prep-sudo-user').value.trim();
-  if (!sudoUser) { showToast('Sudo user is required', 'warning'); return; }
-
   const deleteAll = document.getElementById('prep-delete-all').checked;
   if (deleteAll && !confirm('This will DELETE ALL existing snapshots. Continue?')) return;
 
@@ -340,7 +334,6 @@ async function startPrepare() {
   try {
     await API.post(`/api/admin/servers/${_prepareServerId}/prepare-snapshot`, {
       delete_all_snapshots: deleteAll,
-      sudo_user: sudoUser,
     });
     bootstrap.Modal.getInstance(document.getElementById('prepare-modal')).hide();
     showPrepareProgress();

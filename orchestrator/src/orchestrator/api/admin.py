@@ -226,7 +226,6 @@ def delete_server(server_id: int, session: Session = Depends(get_session)):
 
 class PrepareSnapshotRequest(BaseModel):
     delete_all_snapshots: bool = False
-    sudo_user: str
 
 
 @router.post("/servers/{server_id}/prepare-snapshot")
@@ -255,7 +254,7 @@ def prepare_and_snapshot(
 
     thread = threading.Thread(
         target=_prepare_snapshot_bg,
-        args=(server_id, data.delete_all_snapshots, data.sudo_user),
+        args=(server_id, data.delete_all_snapshots),
         daemon=True,
     )
     thread.start()
@@ -273,7 +272,7 @@ def _update_status(server_id: int, step: str, step_name: str, state: str = "prep
     _prepare_status[server_id] = {"state": state, "step": step, "step_name": step_name, "error": error}
 
 
-def _prepare_snapshot_bg(server_id: int, delete_all: bool, sudo_user: str):
+def _prepare_snapshot_bg(server_id: int, delete_all: bool):
     """Background thread: full prepare + snapshot flow."""
     TOTAL = 8
     session = SessionLocal()
@@ -296,6 +295,12 @@ def _prepare_snapshot_bg(server_id: int, delete_all: bool, sudo_user: str):
         config = load_config(config_path)
         cred_path = os.path.join(os.path.dirname(config_path), "credentials.json")
         credentials = CredentialsStore(cred_path)
+
+        # Get sudo user from credentials
+        cred = credentials.get_server_credential(server.id, os_family)
+        if not cred:
+            raise RuntimeError(f"No credentials found for server {server.hostname} (id={server.id})")
+        sudo_user = cred.username
 
         hyp_cred = credentials.get_hypervisor_credential(lab.hypervisor_type.value)
         provider = create_hypervisor_provider(
