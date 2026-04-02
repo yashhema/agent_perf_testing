@@ -13,28 +13,57 @@
   Once a server has an OS Level snapshot and at least one Agent Set, it shows as <span class="badge bg-success">ready</span> for testing.
 </div>
 
-<!-- Server List -->
+<!-- Server List with Tabs -->
 <div class="card shadow-sm mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h6 class="mb-0">Servers</h6>
+    <ul class="nav nav-tabs card-header-tabs" id="server-tabs">
+      <li class="nav-item">
+        <a class="nav-link active" href="#" onclick="switchTab('target')" id="tab-target">
+          <i class="bi bi-hdd-rack me-1"></i>Targets <span class="badge bg-success ms-1" id="target-count">0</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" onclick="switchTab('loadgen')" id="tab-loadgen">
+          <i class="bi bi-speedometer me-1"></i>Load Generators <span class="badge bg-info ms-1" id="loadgen-count">0</span>
+        </a>
+      </li>
+    </ul>
     <div>
       <button class="btn btn-sm btn-warning me-1" onclick="showBulkPrepare()" title="Run prepare & snapshot on multiple servers at once"><i class="bi bi-gear me-1"></i>Bulk Prepare & Snapshot</button>
       <button class="btn btn-sm btn-primary" onclick="showCreateServer()"><i class="bi bi-plus me-1"></i>New Server</button>
     </div>
   </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover mb-0">
-        <thead><tr>
-          <th>ID</th><th>Hostname</th><th>IP</th><th>Role</th><th>OS</th>
-          <th>Infra</th><th>OS Level <i class="bi bi-question-circle text-muted" title="The prepared OS state: passwordless sudo, firewall open, Java 17 installed, /data disk mounted. Created by the Prepare & Snapshot button."></i></th>
-          <th>Agent Sets <i class="bi bi-question-circle text-muted" title="Which combinations of security agents (e.g. CrowdStrike Only, CrowdStrike + Tanium) are assigned for testing on this server. Defined in Admin > Agent Sets."></i></th>
-          <th>Actions</th>
-        </tr></thead>
-        <tbody id="servers-body">
-          <tr><td colspan="9" class="text-center text-muted py-3">Loading...</td></tr>
-        </tbody>
-      </table>
+    <!-- Target servers table -->
+    <div id="target-table-container">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th>ID</th><th>Hostname</th><th>IP</th><th>OS</th>
+            <th>Infra</th><th>OS Level <i class="bi bi-question-circle text-muted" title="The prepared OS state: passwordless sudo, firewall open, Java 17 installed, /data disk mounted. Created by the Prepare & Snapshot button."></i></th>
+            <th>Agent Sets <i class="bi bi-question-circle text-muted" title="Which combinations of security agents (e.g. CrowdStrike Only, CrowdStrike + Tanium) are assigned for testing on this server. Defined in Admin > Agent Sets."></i></th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="target-body">
+            <tr><td colspan="8" class="text-center text-muted py-3">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- Loadgen servers table -->
+    <div id="loadgen-table-container" style="display:none">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th>ID</th><th>Hostname</th><th>IP</th><th>OS</th>
+            <th>Infra</th><th>OS Level <i class="bi bi-question-circle text-muted" title="Clean snapshot for loadgen revert during test execution."></i></th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="loadgen-body">
+            <tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -268,13 +297,27 @@
 let _servers = [];
 let _prepareServerId = null;
 let _prepareTimer = null;
+let _activeTab = 'target';
 
 document.addEventListener('DOMContentLoaded', loadServers);
+
+function switchTab(tab) {
+  _activeTab = tab;
+  document.getElementById('tab-target').className = tab === 'target' ? 'nav-link active' : 'nav-link';
+  document.getElementById('tab-loadgen').className = tab === 'loadgen' ? 'nav-link active' : 'nav-link';
+  document.getElementById('target-table-container').style.display = tab === 'target' ? '' : 'none';
+  document.getElementById('loadgen-table-container').style.display = tab === 'loadgen' ? '' : 'none';
+}
 
 async function loadServers() {
   try {
     _servers = await API.get('/api/admin/servers');
-    renderServers();
+    const targets = _servers.filter(s => s.role === 'target');
+    const loadgens = _servers.filter(s => s.role === 'loadgen');
+    document.getElementById('target-count').textContent = targets.length;
+    document.getElementById('loadgen-count').textContent = loadgens.length;
+    await renderTargetServers(targets);
+    renderLoadgenServers(loadgens);
   } catch (e) { showToast('Failed to load servers: ' + e.message, 'danger'); }
 }
 
@@ -286,28 +329,27 @@ function osLabel(s) {
   return s.os_family || '-';
 }
 
-async function renderServers() {
-  const tbody = document.getElementById('servers-body');
-  if (_servers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No servers</td></tr>';
+async function renderTargetServers(targets) {
+  const tbody = document.getElementById('target-body');
+  if (targets.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No target servers. Add one with role "Target".</td></tr>';
     return;
   }
+
   // Fetch group info for OS Level column
   const groupInfoMap = {};
-  try {
-    for (const s of _servers) {
+  for (const s of targets) {
+    try {
       const groups = await API.get(`/api/servers/${s.id}/snapshot-baselines`);
       if (groups.length > 0) groupInfoMap[s.id] = groups[0];
-    }
-  } catch {}
+    } catch {}
+  }
 
-  tbody.innerHTML = _servers.map(s => {
-    const roleClass = s.role === 'target' ? 'success' : 'info';
+  tbody.innerHTML = targets.map(s => {
     const readyBadge = s.is_ready
       ? '<span class="badge bg-success ms-1">ready</span>'
       : '<span class="badge bg-secondary ms-1">not ready</span>';
 
-    // OS Level column — shows group name + date
     const group = groupInfoMap[s.id];
     let osLevelHtml;
     if (group) {
@@ -317,9 +359,8 @@ async function renderServers() {
       osLevelHtml = '<span class="text-muted">not set</span>';
     }
 
-    // Agent Sets column — count + manage button
-    const agentProfilesHtml = s.root_snapshot_id
-      ? `<span class="badge bg-info me-1">${s.subgroup_count} profile${s.subgroup_count !== 1 ? 's' : ''}</span>
+    const agentSetsHtml = s.root_snapshot_id
+      ? `<span class="badge bg-info me-1">${s.subgroup_count} set${s.subgroup_count !== 1 ? 's' : ''}</span>
          <button class="btn btn-sm btn-outline-info py-0 px-1" onclick="showSubgroups(${s.id})" title="Manage agent sets assigned to this server"><i class="bi bi-folder-plus"></i></button>`
       : '<span class="text-muted">-</span>';
 
@@ -327,15 +368,42 @@ async function renderServers() {
       <td>${s.id}</td>
       <td><strong>${escHtml(s.hostname)}</strong>${readyBadge}</td>
       <td><code>${escHtml(s.ip_address)}</code></td>
-      <td><span class="badge bg-${roleClass}">${s.role}</span></td>
       <td>${escHtml(osLabel(s))}</td>
       <td><span class="badge bg-secondary">${s.server_infra_type}</span></td>
       <td>${osLevelHtml}</td>
-      <td>${agentProfilesHtml}</td>
+      <td>${agentSetsHtml}</td>
       <td class="text-nowrap">
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEditServer(${s.id})" title="Edit server details"><i class="bi bi-pencil"></i></button>
         <button class="btn btn-sm btn-outline-warning me-1" onclick="showPrepareModal(${s.id})" title="Prepare server (sudo, firewall, Java, /data disk) and take root snapshot"><i class="bi bi-gear"></i></button>
         <button class="btn btn-sm btn-outline-danger" onclick="deleteServer(${s.id})" title="Delete server"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderLoadgenServers(loadgens) {
+  const tbody = document.getElementById('loadgen-body');
+  if (loadgens.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No load generators. Add one with role "Load Generator".</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = loadgens.map(s => {
+    const snapHtml = s.root_snapshot_id
+      ? `<span class="badge bg-success">Snap #${s.root_snapshot_id}</span>`
+      : '<span class="text-muted">not set</span>';
+
+    return `<tr>
+      <td>${s.id}</td>
+      <td><strong>${escHtml(s.hostname)}</strong></td>
+      <td><code>${escHtml(s.ip_address)}</code></td>
+      <td>${escHtml(osLabel(s))}</td>
+      <td><span class="badge bg-secondary">${s.server_infra_type}</span></td>
+      <td>${snapHtml}</td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEditServer(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-warning me-1" onclick="showPrepareModal(${s.id})" title="Prepare and take clean snapshot"><i class="bi bi-gear"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteServer(${s.id})" title="Delete"><i class="bi bi-trash"></i></button>
       </td>
     </tr>`;
   }).join('');
