@@ -409,7 +409,7 @@ document.getElementById('sel-lab').addEventListener('change', (e) => {
   const labId = parseInt(e.target.value);
   _selectedLab = _labs.find(l => l.id === labId) || null;
   const labServers = labId ? _allServers.filter(s => s.lab_id === labId) : [];
-  _servers = labServers.filter(s => s.role === 'target');
+  _servers = labServers.filter(s => s.role === 'target' && s.is_ready);
   _loadgens = labServers.filter(s => s.role === 'loadgen');
   if (!_editMode) {
     _targets = [];

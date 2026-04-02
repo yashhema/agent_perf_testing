@@ -181,7 +181,8 @@ def list_servers(
         q = q.filter(ServerORM.lab_id == lab_id)
     if role is not None:
         q = q.filter(ServerORM.role == role)
-    return q.all()
+    servers = q.all()
+    return [_enrich_server_response(s, session) for s in servers]
 
 
 @router.get("/servers/{server_id}", response_model=ServerResponse)
@@ -189,7 +190,23 @@ def get_server(server_id: int, session: Session = Depends(get_session)):
     obj = session.get(ServerORM, server_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Server not found")
-    return obj
+    return _enrich_server_response(obj, session)
+
+
+def _enrich_server_response(server: ServerORM, session: Session) -> ServerResponse:
+    """Add computed fields (subgroup_count, is_ready) to server response."""
+    # Count subgroups across all groups for this server
+    sg_count = session.query(SnapshotGroupORM).join(
+        SnapshotBaselineORM, SnapshotGroupORM.baseline_id == SnapshotBaselineORM.id,
+    ).filter(
+        SnapshotBaselineORM.server_id == server.id,
+    ).count()
+
+    resp = ServerResponse.model_validate(server)
+    resp.subgroup_count = sg_count
+    # Server is ready for testing when it has root snapshot + at least 1 subgroup
+    resp.is_ready = bool(server.root_snapshot_id and sg_count > 0)
+    return resp
 
 
 @router.put("/servers/{server_id}", response_model=ServerResponse)

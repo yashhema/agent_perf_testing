@@ -14,10 +14,10 @@
       <table class="table table-hover mb-0">
         <thead><tr>
           <th>ID</th><th>Hostname</th><th>IP</th><th>Role</th><th>OS</th>
-          <th>Infra</th><th>Root Snap</th><th>Actions</th>
+          <th>Infra</th><th>Root Snap</th><th>Subgroups</th><th>Actions</th>
         </tr></thead>
         <tbody id="servers-body">
-          <tr><td colspan="8" class="text-center text-muted py-3">Loading...</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-3">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -137,6 +137,33 @@
   </div>
 </div>
 
+<!-- Subgroups Modal -->
+<div class="modal fade" id="subgroups-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Subgroups for: <span id="sg-modal-server"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          Subgroups define which agent configurations will be tested on this server. Snapshots are taken later during test creation.
+        </div>
+        <div id="sg-list" class="mb-3"></div>
+        <hr>
+        <div class="input-group">
+          <input type="text" class="form-control" id="sg-new-name" placeholder="e.g. CrowdStrike Only, CS + Tanium, All Agents">
+          <button class="btn btn-outline-primary" onclick="addSubgroup()"><i class="bi bi-plus me-1"></i>Add Subgroup</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Prepare & Snapshot Modal -->
 <div class="modal fade" id="prepare-modal" tabindex="-1">
   <div class="modal-dialog">
@@ -200,20 +227,28 @@ function osLabel(s) {
 function renderServers() {
   const tbody = document.getElementById('servers-body');
   if (_servers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No servers</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No servers</td></tr>';
     return;
   }
   tbody.innerHTML = _servers.map(s => {
     const roleClass = s.role === 'target' ? 'success' : 'info';
     const rootSnap = s.root_snapshot_id ? `#${s.root_snapshot_id}` : '<span class="text-muted">none</span>';
+    const readyBadge = s.is_ready
+      ? '<span class="badge bg-success">ready</span>'
+      : '<span class="badge bg-secondary">not ready</span>';
+    const sgBadge = s.root_snapshot_id
+      ? `<span class="badge bg-info me-1">${s.subgroup_count}</span>
+         <button class="btn btn-sm btn-outline-info py-0 px-1" onclick="showSubgroups(${s.id})" title="Manage Subgroups"><i class="bi bi-folder-plus"></i></button>`
+      : '<span class="text-muted">-</span>';
     return `<tr>
       <td>${s.id}</td>
-      <td><strong>${escHtml(s.hostname)}</strong></td>
+      <td><strong>${escHtml(s.hostname)}</strong> ${readyBadge}</td>
       <td><code>${escHtml(s.ip_address)}</code></td>
       <td><span class="badge bg-${roleClass}">${s.role}</span></td>
       <td>${escHtml(osLabel(s))}</td>
       <td><span class="badge bg-secondary">${s.server_infra_type}</span></td>
       <td>${rootSnap}</td>
+      <td>${sgBadge}</td>
       <td class="text-nowrap">
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEditServer(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
         <button class="btn btn-sm btn-outline-warning me-1" onclick="showPrepareModal(${s.id})" title="Prepare & Snapshot"><i class="bi bi-gear"></i></button>
@@ -400,6 +435,91 @@ async function pollPrepareStatus() {
   } catch (e) {
     // Polling error — non-fatal
   }
+}
+
+// --- Subgroup Management ---
+
+let _sgServerId = null;
+let _sgGroupId = null;
+
+async function showSubgroups(serverId) {
+  _sgServerId = serverId;
+  const s = _servers.find(x => x.id === serverId);
+  document.getElementById('sg-modal-server').textContent = s ? `${s.hostname} (${osLabel(s)})` : '#' + serverId;
+  document.getElementById('sg-new-name').value = '';
+
+  // Find the server's group (SnapshotBaselineORM)
+  try {
+    const groups = await API.get(`/api/servers/${serverId}/snapshot-baselines`);
+    if (groups.length === 0) {
+      document.getElementById('sg-list').innerHTML = '<div class="text-muted">No group found. Run Prepare & Snapshot first.</div>';
+      _sgGroupId = null;
+    } else {
+      _sgGroupId = groups[0].id;  // Use first group
+      await renderSubgroupList();
+    }
+  } catch (e) {
+    document.getElementById('sg-list').innerHTML = `<div class="text-danger">${escHtml(e.message)}</div>`;
+  }
+
+  new bootstrap.Modal(document.getElementById('subgroups-modal')).show();
+}
+
+async function renderSubgroupList() {
+  const container = document.getElementById('sg-list');
+  try {
+    const subgroups = await API.get(`/api/servers/${_sgServerId}/snapshot-groups?baseline_id=${_sgGroupId}`);
+    if (subgroups.length === 0) {
+      container.innerHTML = '<div class="text-muted py-2">No subgroups. Add one below.</div>';
+      return;
+    }
+    container.innerHTML = subgroups.map(sg => {
+      const snapInfo = sg.snapshot_id
+        ? `<span class="badge bg-success">has snapshot</span>`
+        : `<span class="badge bg-secondary">no snapshot</span>`;
+      return `<div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <i class="bi bi-folder text-info me-1"></i>
+          <strong>${escHtml(sg.name)}</strong>
+          ${snapInfo}
+          ${sg.description ? `<br><small class="text-muted">${escHtml(sg.description)}</small>` : ''}
+        </div>
+        <button class="btn btn-sm btn-outline-danger" onclick="removeSubgroup(${sg.id}, '${escHtml(sg.name)}')" title="Remove">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="text-danger">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function addSubgroup() {
+  const name = document.getElementById('sg-new-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+  if (!_sgGroupId) { showToast('No group found. Run Prepare & Snapshot first.', 'warning'); return; }
+
+  try {
+    await API.post(`/api/servers/${_sgServerId}/snapshot-groups`, {
+      baseline_id: _sgGroupId,
+      name: name,
+      description: null,
+    });
+    showToast('Subgroup added');
+    document.getElementById('sg-new-name').value = '';
+    await renderSubgroupList();
+    await loadServers();  // Refresh counts
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+async function removeSubgroup(sgId, sgName) {
+  if (!confirm(`Remove subgroup "${sgName}"?`)) return;
+  try {
+    await API.delete(`/api/servers/${_sgServerId}/snapshot-groups/${sgId}`);
+    showToast('Subgroup removed');
+    await renderSubgroupList();
+    await loadServers();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
 }
 </script>
 {% endblock %}

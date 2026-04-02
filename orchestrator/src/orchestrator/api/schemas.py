@@ -180,6 +180,8 @@ class ServerResponse(BaseModel):
     default_partner_id: Optional[int] = None
     service_monitor_patterns: Optional[List[str]] = None
     root_snapshot_id: Optional[int] = None
+    subgroup_count: int = 0
+    is_ready: bool = False
     created_at: datetime
 
 
