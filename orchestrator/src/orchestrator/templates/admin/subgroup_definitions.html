@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Subgroup Definitions - Orchestrator{% endblock %}
+{% block page_header %}<strong>Subgroup Definitions</strong> — Agent Configurations{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0">Subgroup Definitions</h6>
+    <button class="btn btn-sm btn-primary" onclick="showCreate()"><i class="bi bi-plus me-1"></i>New Subgroup</button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr>
+          <th>ID</th><th>Name</th><th>Agents</th><th>Description</th><th>Created</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="sg-body">
+          <tr><td colspan="6" class="text-center text-muted py-3">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal fade" id="sg-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sg-modal-title">Create Subgroup Definition</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="sg-edit-id">
+        <div class="mb-3">
+          <label class="form-label">Name *</label>
+          <input type="text" class="form-control" id="sg-name" placeholder="e.g. CrowdStrike Only, CS + Tanium" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="sg-desc" rows="2"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Agents in this subgroup *</label>
+          <div id="sg-agents-list" class="border rounded p-2" style="max-height:250px; overflow-y:auto">
+            <div class="text-muted">Loading agents...</div>
+          </div>
+          <small class="text-muted">Select one or more agents that make up this configuration</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveSg()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _sgDefs = [];
+let _agents = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await Promise.all([loadDefs(), loadAgents()]);
+});
+
+async function loadAgents() {
+  try {
+    _agents = await API.get('/api/admin/agents');
+  } catch (e) { showToast('Failed to load agents: ' + e.message, 'danger'); }
+}
+
+async function loadDefs() {
+  try {
+    _sgDefs = await API.get('/api/admin/subgroup-definitions');
+    renderDefs();
+  } catch (e) { showToast('Failed to load: ' + e.message, 'danger'); }
+}
+
+function renderDefs() {
+  const tbody = document.getElementById('sg-body');
+  if (_sgDefs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No subgroup definitions. Create one to get started.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _sgDefs.map(d => {
+    const agentNames = d.agents.map(a => a.agent_name || `#${a.agent_id}`).join(', ');
+    const agentBadges = d.agents.map(a =>
+      `<span class="badge bg-info me-1">${escHtml(a.agent_name || '#' + a.agent_id)}</span>`
+    ).join('');
+    return `<tr>
+      <td>${d.id}</td>
+      <td><strong>${escHtml(d.name)}</strong></td>
+      <td>${agentBadges || '<span class="text-muted">none</span>'}</td>
+      <td class="small text-muted">${escHtml(d.description || '-')}</td>
+      <td class="small">${fmtDate(d.created_at)}</td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="showEdit(${d.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteSg(${d.id})" title="Delete"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderAgentCheckboxes(selectedIds) {
+  const container = document.getElementById('sg-agents-list');
+  if (_agents.length === 0) {
+    container.innerHTML = '<div class="text-muted">No agents configured. Create agents first in Admin > Agents.</div>';
+    return;
+  }
+  container.innerHTML = _agents.filter(a => a.is_active).map(a => {
+    const checked = selectedIds.includes(a.id) ? 'checked' : '';
+    return `<div class="form-check">
+      <input class="form-check-input" type="checkbox" value="${a.id}" id="agent-cb-${a.id}" ${checked}>
+      <label class="form-check-label" for="agent-cb-${a.id}">
+        ${escHtml(a.name)} <span class="badge bg-info">${a.agent_type}</span>
+        ${a.vendor ? `<small class="text-muted">(${escHtml(a.vendor)})</small>` : ''}
+      </label>
+    </div>`;
+  }).join('');
+}
+
+function getSelectedAgentIds() {
+  return Array.from(document.querySelectorAll('#sg-agents-list input:checked')).map(cb => parseInt(cb.value));
+}
+
+function showCreate() {
+  document.getElementById('sg-modal-title').textContent = 'Create Subgroup Definition';
+  document.getElementById('sg-edit-id').value = '';
+  document.getElementById('sg-name').value = '';
+  document.getElementById('sg-desc').value = '';
+  renderAgentCheckboxes([]);
+  new bootstrap.Modal(document.getElementById('sg-modal')).show();
+}
+
+async function showEdit(id) {
+  try {
+    const d = await API.get('/api/admin/subgroup-definitions/' + id);
+    document.getElementById('sg-modal-title').textContent = 'Edit Subgroup Definition';
+    document.getElementById('sg-edit-id').value = d.id;
+    document.getElementById('sg-name').value = d.name;
+    document.getElementById('sg-desc').value = d.description || '';
+    renderAgentCheckboxes(d.agents.map(a => a.agent_id));
+    new bootstrap.Modal(document.getElementById('sg-modal')).show();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function saveSg() {
+  const name = document.getElementById('sg-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+  const agentIds = getSelectedAgentIds();
+  if (agentIds.length === 0) { showToast('Select at least one agent', 'warning'); return; }
+
+  const editId = document.getElementById('sg-edit-id').value;
+  const data = {
+    name: name,
+    description: document.getElementById('sg-desc').value.trim() || null,
+    agent_ids: agentIds,
+  };
+
+  try {
+    if (editId) {
+      await API.put('/api/admin/subgroup-definitions/' + editId, data);
+      showToast('Subgroup definition updated');
+    } else {
+      await API.post('/api/admin/subgroup-definitions', data);
+      showToast('Subgroup definition created');
+    }
+    bootstrap.Modal.getInstance(document.getElementById('sg-modal')).hide();
+    await loadDefs();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function deleteSg(id) {
+  if (!confirm('Delete this subgroup definition?')) return;
+  try {
+    await API.delete('/api/admin/subgroup-definitions/' + id);
+    showToast('Deleted');
+    await loadDefs();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+</script>
+{% endblock %}

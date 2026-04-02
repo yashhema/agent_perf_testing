@@ -697,6 +697,36 @@ class BaselineExecutionResultResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
 
+# ---- Subgroup Definitions ----
+
+class SubgroupDefinitionCreate(BaseModel):
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    agent_ids: List[int] = []
+
+
+class SubgroupDefinitionUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    agent_ids: Optional[List[int]] = None
+
+
+class SubgroupAgentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    agent_id: int
+    agent_name: Optional[str] = None
+
+
+class SubgroupDefinitionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str] = None
+    agents: List[SubgroupAgentResponse] = []
+    created_at: datetime
+
+
 # ---- Trending ----
 
 class TrendDataPoint(BaseModel):
@@ -764,6 +794,7 @@ class SnapshotGroupCreate(BaseModel):
     baseline_id: int
     name: str = Field(max_length=200)
     description: Optional[str] = None
+    subgroup_def_id: Optional[int] = None
     snapshot_name: Optional[str] = Field(
         default=None, max_length=200,
         description="Hypervisor snapshot name. Auto-generated if omitted.",
@@ -779,6 +810,7 @@ class SnapshotGroupResponse(BaseModel):
     id: int
     baseline_id: int
     snapshot_id: Optional[int]
+    subgroup_def_id: Optional[int] = None
     name: str
     description: Optional[str]
     created_at: datetime

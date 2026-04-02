@@ -153,9 +153,12 @@
         <div id="sg-list" class="mb-3"></div>
         <hr>
         <div class="input-group">
-          <input type="text" class="form-control" id="sg-new-name" placeholder="e.g. CrowdStrike Only, CS + Tanium, All Agents">
-          <button class="btn btn-outline-primary" onclick="addSubgroup()"><i class="bi bi-plus me-1"></i>Add Subgroup</button>
+          <select class="form-select" id="sg-def-select">
+            <option value="">-- Select Subgroup Definition --</option>
+          </select>
+          <button class="btn btn-outline-primary" onclick="addSubgroup()"><i class="bi bi-plus me-1"></i>Attach</button>
         </div>
+        <small class="text-muted">Definitions are managed in <a href="/admin/subgroup-definitions">Admin > Subgroup Definitions</a></small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -441,12 +444,17 @@ async function pollPrepareStatus() {
 
 let _sgServerId = null;
 let _sgGroupId = null;
+let _sgDefs = [];
 
 async function showSubgroups(serverId) {
   _sgServerId = serverId;
   const s = _servers.find(x => x.id === serverId);
   document.getElementById('sg-modal-server').textContent = s ? `${s.hostname} (${osLabel(s)})` : '#' + serverId;
-  document.getElementById('sg-new-name').value = '';
+
+  // Load subgroup definitions for the dropdown
+  try {
+    _sgDefs = await API.get('/api/admin/subgroup-definitions');
+  } catch { _sgDefs = []; }
 
   // Find the server's group (SnapshotBaselineORM)
   try {
@@ -469,20 +477,35 @@ async function renderSubgroupList() {
   const container = document.getElementById('sg-list');
   try {
     const subgroups = await API.get(`/api/servers/${_sgServerId}/snapshot-groups?baseline_id=${_sgGroupId}`);
+
+    // Populate dropdown — exclude already-attached definitions
+    const attachedDefIds = subgroups.map(sg => sg.subgroup_def_id).filter(Boolean);
+    const sel = document.getElementById('sg-def-select');
+    sel.innerHTML = '<option value="">-- Select Subgroup Definition --</option>' +
+      _sgDefs.filter(d => !attachedDefIds.includes(d.id)).map(d => {
+        const agents = d.agents.map(a => a.agent_name || '#' + a.agent_id).join(', ');
+        return `<option value="${d.id}">${escHtml(d.name)} (${escHtml(agents)})</option>`;
+      }).join('');
+
     if (subgroups.length === 0) {
-      container.innerHTML = '<div class="text-muted py-2">No subgroups. Add one below.</div>';
+      container.innerHTML = '<div class="text-muted py-2">No subgroups attached. Select one below.</div>';
       return;
     }
     container.innerHTML = subgroups.map(sg => {
       const snapInfo = sg.snapshot_id
         ? `<span class="badge bg-success">has snapshot</span>`
-        : `<span class="badge bg-secondary">no snapshot</span>`;
+        : `<span class="badge bg-secondary">no snapshot yet</span>`;
+      // Find definition to show agent names
+      const def = sg.subgroup_def_id ? _sgDefs.find(d => d.id === sg.subgroup_def_id) : null;
+      const agentBadges = def
+        ? def.agents.map(a => `<span class="badge bg-info me-1">${escHtml(a.agent_name || '#' + a.agent_id)}</span>`).join('')
+        : '';
       return `<div class="d-flex justify-content-between align-items-center border-bottom py-2">
         <div>
           <i class="bi bi-folder text-info me-1"></i>
           <strong>${escHtml(sg.name)}</strong>
           ${snapInfo}
-          ${sg.description ? `<br><small class="text-muted">${escHtml(sg.description)}</small>` : ''}
+          ${agentBadges ? `<br>${agentBadges}` : ''}
         </div>
         <button class="btn btn-sm btn-outline-danger" onclick="removeSubgroup(${sg.id}, '${escHtml(sg.name)}')" title="Remove">
           <i class="bi bi-x-lg"></i>
@@ -495,18 +518,22 @@ async function renderSubgroupList() {
 }
 
 async function addSubgroup() {
-  const name = document.getElementById('sg-new-name').value.trim();
-  if (!name) { showToast('Name is required', 'warning'); return; }
+  const sel = document.getElementById('sg-def-select');
+  const defId = parseInt(sel.value);
+  if (!defId) { showToast('Select a subgroup definition', 'warning'); return; }
   if (!_sgGroupId) { showToast('No group found. Run Prepare & Snapshot first.', 'warning'); return; }
+
+  const def = _sgDefs.find(d => d.id === defId);
+  const name = def ? def.name : 'Subgroup';
 
   try {
     await API.post(`/api/servers/${_sgServerId}/snapshot-groups`, {
       baseline_id: _sgGroupId,
       name: name,
-      description: null,
+      description: def ? def.description : null,
+      subgroup_def_id: defId,
     });
-    showToast('Subgroup added');
-    document.getElementById('sg-new-name').value = '';
+    showToast('Subgroup attached');
     await renderSubgroupList();
     await loadServers();  // Refresh counts
   } catch (e) { showToast('Error: ' + e.message, 'danger'); }

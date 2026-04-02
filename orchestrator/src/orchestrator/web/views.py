@@ -119,6 +119,11 @@ async def admin_servers(request: Request):
     return templates.TemplateResponse("admin/servers.html", {"request": request})
 
 
+@router.get("/admin/subgroup-definitions", response_class=HTMLResponse)
+async def admin_subgroup_definitions(request: Request):
+    return templates.TemplateResponse("admin/subgroup_definitions.html", {"request": request})
+
+
 @router.get("/admin/baselines", response_class=HTMLResponse)
 async def admin_baselines(request: Request):
     return templates.TemplateResponse("admin/crud.html", {

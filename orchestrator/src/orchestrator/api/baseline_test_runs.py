@@ -1311,6 +1311,7 @@ def create_snapshot_group(
     group = SnapshotGroupORM(
         baseline_id=data.baseline_id,
         snapshot_id=snapshot_id,
+        subgroup_def_id=data.subgroup_def_id,
         name=data.name,
         description=data.description,
     )

@@ -747,4 +747,41 @@ All changes to src/ code are documented here with date, file, and summary.
   orchestrator/src/orchestrator/templates/baseline_tests/create.html
   - Added srvLabel() helper for OS info display
   - Target and loadgen dropdowns show OS info alongside hostname
+  - Target dropdown filters to is_ready servers only (root snapshot + subgroups)
+
+2026-04-02  Subgroup Definitions + Agent Combos + Server Readiness
+
+  orchestrator/src/orchestrator/models/orm.py
+  - Added SubgroupDefinitionORM (named agent combos: "CrowdStrike Only", "CS + Tanium")
+  - Added SubgroupAgentORM (junction: subgroup definition <-> agents)
+  - Added subgroup_def_id FK on SnapshotGroupORM
+
+  orchestrator/migrations/add_subgroup_definitions.sql
+  - New migration: subgroup_definitions, subgroup_agents tables + ALTER snapshot_groups
+
+  orchestrator/src/orchestrator/api/schemas.py
+  - Added SubgroupDefinitionCreate/Update/Response, SubgroupAgentResponse
+  - Added subgroup_def_id to SnapshotGroupCreate and SnapshotGroupResponse
+  - Added subgroup_count and is_ready to ServerResponse
+
+  orchestrator/src/orchestrator/api/admin.py
+  - Subgroup definition CRUD endpoints (create, list, get, update, delete)
+  - Agent linking via agent_ids array in create/update
+  - Server list: enriched with subgroup_count and is_ready computed fields
+
+  orchestrator/src/orchestrator/api/baseline_test_runs.py
+  - create_snapshot_group: now accepts and stores subgroup_def_id
+
+  orchestrator/src/orchestrator/web/views.py
+  - Added /admin/subgroup-definitions route
+
+  orchestrator/src/orchestrator/templates/admin/subgroup_definitions.html
+  - New admin page: CRUD for subgroup definitions with agent checkbox picker
+
+  orchestrator/src/orchestrator/templates/admin/servers.html
+  - Subgroup management: dropdown picks from definitions (not free text)
+  - Shows agent badges per subgroup, ready/not-ready badge per server
+
+  orchestrator/src/orchestrator/templates/base.html
+  - Added Subgroup Definitions link in sidebar
 

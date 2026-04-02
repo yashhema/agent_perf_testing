@@ -33,6 +33,7 @@ from orchestrator.api.schemas import (
     RulePresetResponse, RuleTemplateResponse,
     ScenarioCreate, ScenarioResponse, ScenarioUpdate,
     ServerCreate, ServerResponse, ServerUpdate,
+    SubgroupDefinitionCreate, SubgroupDefinitionResponse, SubgroupDefinitionUpdate,
     UserCreate, UserResponse, UserUpdate,
 )
 from orchestrator.models.database import SessionLocal, get_session
@@ -41,7 +42,8 @@ from orchestrator.models.orm import (
     BaselineORM, DBSchemaConfigORM, HardwareProfileORM, LabORM,
     LoadProfileORM, PackageGroupMemberORM, PackageGroupORM,
     ScenarioAgentORM, ScenarioORM, ServerORM,
-    SnapshotBaselineORM, SnapshotGroupORM, SnapshotORM, UserORM,
+    SnapshotBaselineORM, SnapshotGroupORM, SnapshotORM,
+    SubgroupAgentORM, SubgroupDefinitionORM, UserORM,
 )
 from orchestrator.models.enums import ServerRole
 
@@ -1215,4 +1217,89 @@ def unlink_scenario_agent(scenario_id: int, agent_id: int, session: Session = De
     if not link:
         raise HTTPException(status_code=404, detail="Agent-scenario link not found")
     session.delete(link)
+    session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Subgroup Definition CRUD
+# ---------------------------------------------------------------------------
+
+def _build_subgroup_response(sg_def, session):
+    """Build SubgroupDefinitionResponse with agent names."""
+    agents = []
+    for sa in sg_def.agents:
+        agent = session.get(AgentORM, sa.agent_id)
+        agents.append({
+            "id": sa.id,
+            "agent_id": sa.agent_id,
+            "agent_name": agent.name if agent else None,
+        })
+    return {
+        "id": sg_def.id,
+        "name": sg_def.name,
+        "description": sg_def.description,
+        "agents": agents,
+        "created_at": sg_def.created_at,
+    }
+
+
+@router.post("/subgroup-definitions", response_model=SubgroupDefinitionResponse, status_code=status.HTTP_201_CREATED)
+def create_subgroup_definition(data: SubgroupDefinitionCreate, session: Session = Depends(get_session)):
+    sg_def = SubgroupDefinitionORM(name=data.name, description=data.description)
+    session.add(sg_def)
+    session.flush()
+    for aid in data.agent_ids:
+        agent = session.get(AgentORM, aid)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent {aid} not found")
+        session.add(SubgroupAgentORM(subgroup_def_id=sg_def.id, agent_id=aid))
+    session.commit()
+    session.refresh(sg_def)
+    return _build_subgroup_response(sg_def, session)
+
+
+@router.get("/subgroup-definitions", response_model=List[SubgroupDefinitionResponse])
+def list_subgroup_definitions(session: Session = Depends(get_session)):
+    defs = session.query(SubgroupDefinitionORM).order_by(SubgroupDefinitionORM.name).all()
+    return [_build_subgroup_response(d, session) for d in defs]
+
+
+@router.get("/subgroup-definitions/{sg_id}", response_model=SubgroupDefinitionResponse)
+def get_subgroup_definition(sg_id: int, session: Session = Depends(get_session)):
+    sg_def = session.get(SubgroupDefinitionORM, sg_id)
+    if not sg_def:
+        raise HTTPException(status_code=404, detail="Subgroup definition not found")
+    return _build_subgroup_response(sg_def, session)
+
+
+@router.put("/subgroup-definitions/{sg_id}", response_model=SubgroupDefinitionResponse)
+def update_subgroup_definition(sg_id: int, data: SubgroupDefinitionUpdate, session: Session = Depends(get_session)):
+    sg_def = session.get(SubgroupDefinitionORM, sg_id)
+    if not sg_def:
+        raise HTTPException(status_code=404, detail="Subgroup definition not found")
+    if data.name is not None:
+        sg_def.name = data.name
+    if data.description is not None:
+        sg_def.description = data.description
+    if data.agent_ids is not None:
+        # Replace all agent links
+        session.query(SubgroupAgentORM).filter(
+            SubgroupAgentORM.subgroup_def_id == sg_id,
+        ).delete()
+        for aid in data.agent_ids:
+            agent = session.get(AgentORM, aid)
+            if not agent:
+                raise HTTPException(status_code=404, detail=f"Agent {aid} not found")
+            session.add(SubgroupAgentORM(subgroup_def_id=sg_id, agent_id=aid))
+    session.commit()
+    session.refresh(sg_def)
+    return _build_subgroup_response(sg_def, session)
+
+
+@router.delete("/subgroup-definitions/{sg_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_subgroup_definition(sg_id: int, session: Session = Depends(get_session)):
+    sg_def = session.get(SubgroupDefinitionORM, sg_id)
+    if not sg_def:
+        raise HTTPException(status_code=404, detail="Subgroup definition not found")
+    session.delete(sg_def)
     session.commit()

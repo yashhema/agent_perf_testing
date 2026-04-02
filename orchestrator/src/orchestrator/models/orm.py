@@ -583,6 +583,7 @@ class SnapshotGroupORM(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     baseline_id = Column(Integer, ForeignKey("snapshot_baselines.id"), nullable=False)
     snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=True)
+    subgroup_def_id = Column(Integer, ForeignKey("subgroup_definitions.id"), nullable=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -591,6 +592,7 @@ class SnapshotGroupORM(Base):
     baseline = relationship("SnapshotBaselineORM", back_populates="groups")
     snapshot = relationship("SnapshotORM", foreign_keys=[snapshot_id])
     snapshots = relationship("SnapshotORM", back_populates="group", foreign_keys="SnapshotORM.group_id")
+    subgroup_definition = relationship("SubgroupDefinitionORM")
 
 
 # ---------------------------------------------------------------------------
@@ -811,3 +813,36 @@ class BaselineExecutionResultORM(Base):
     baseline_test_run = relationship("BaselineTestRunORM", back_populates="execution_results")
     server = relationship("ServerORM")
     load_profile = relationship("LoadProfileORM")
+
+
+# ---------------------------------------------------------------------------
+# SubgroupDefinitionORM — Named agent combinations (admin-managed master table)
+# ---------------------------------------------------------------------------
+class SubgroupDefinitionORM(Base):
+    __tablename__ = "subgroup_definitions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    agents = relationship("SubgroupAgentORM", back_populates="subgroup_definition", cascade="all, delete-orphan")
+
+
+# ---------------------------------------------------------------------------
+# SubgroupAgentORM — Junction: which agents belong to a subgroup definition
+# ---------------------------------------------------------------------------
+class SubgroupAgentORM(Base):
+    __tablename__ = "subgroup_agents"
+    __table_args__ = (
+        UniqueConstraint("subgroup_def_id", "agent_id", name="uq_subgroup_agent"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subgroup_def_id = Column(Integer, ForeignKey("subgroup_definitions.id"), nullable=False)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)
+
+    # Relationships
+    subgroup_definition = relationship("SubgroupDefinitionORM", back_populates="agents")
+    agent = relationship("AgentORM")
