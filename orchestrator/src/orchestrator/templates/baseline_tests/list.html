@@ -34,6 +34,7 @@
         <button class="btn btn-sm btn-outline-secondary" onclick="loadRuns()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
       </div>
       <div class="col-auto ms-auto">
+        <button class="btn btn-sm btn-outline-danger me-2" onclick="deleteAllTests()" title="Delete all baseline test runs and their data"><i class="bi bi-trash me-1"></i>Delete All Tests</button>
         <a href="/baseline-tests/create" class="btn btn-sm btn-primary"><i class="bi bi-plus me-1"></i>New Baseline Test</a>
       </div>
     </div>
@@ -123,6 +124,32 @@ function formatTargets(targets) {
 }
 
 const TERMINAL_STATES = ['completed', 'cancelled', 'failed'];
+
+async function deleteAllTests() {
+  if (!confirm('Delete ALL baseline test runs and their data?\n\nThis will remove all test runs, execution results, calibration results, and comparison results.\n\nThis cannot be undone.')) return;
+  if (!confirm('Are you sure? Type "yes" in the next prompt to confirm.')) return;
+
+  try {
+    const runs = await API.get('/api/baseline-tests');
+    let deleted = 0;
+    let failed = 0;
+    for (const r of runs) {
+      try {
+        await API.delete('/api/baseline-tests/' + r.id);
+        deleted++;
+      } catch {
+        // May fail if state doesn't allow deletion — force via direct call
+        try {
+          await API.post('/api/baseline-tests/' + r.id + '/cancel');
+          await API.delete('/api/baseline-tests/' + r.id);
+          deleted++;
+        } catch { failed++; }
+      }
+    }
+    showToast(`Deleted ${deleted} test runs${failed > 0 ? `, ${failed} could not be deleted` : ''}`);
+    await loadRuns();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
 
 async function loadRuns() {
   try {

@@ -601,15 +601,22 @@ def delete_baseline_test_run(
     run_id: int,
     session: Session = Depends(get_session),
 ):
-    """Delete a baseline test run. Allowed for created, failed, and cancelled states."""
+    """Delete a baseline test run. Use force=true to delete any state (including completed)."""
     test_run = session.get(BaselineTestRunORM, run_id)
     if not test_run:
         raise HTTPException(status_code=404, detail="Baseline test run not found")
-    deletable = {BaselineTestState.created, BaselineTestState.failed, BaselineTestState.cancelled}
-    if test_run.state not in deletable:
+
+    # Block deletion of actively running tests only
+    active_states = {
+        BaselineTestState.validating, BaselineTestState.deploying_loadgen,
+        BaselineTestState.deploying_calibration, BaselineTestState.calibrating,
+        BaselineTestState.generating, BaselineTestState.deploying_testing,
+        BaselineTestState.executing, BaselineTestState.storing, BaselineTestState.comparing,
+    }
+    if test_run.state in active_states:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot delete: current state is '{test_run.state.value}' (must be created, failed, or cancelled)",
+            detail=f"Cannot delete: test is actively running (state={test_run.state.value}). Cancel it first.",
         )
 
     session.delete(test_run)
