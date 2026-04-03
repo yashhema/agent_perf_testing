@@ -553,6 +553,22 @@ async function renderLPProgress() {
 async function runSanityCheck() {
   const btn = document.getElementById('btn-sanity');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...'; }
+
+  // Pause auto-refresh while sanity check runs (prevents re-render killing the spinner)
+  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+
+  // Show immediate progress in the sanity panel
+  const panel = document.getElementById('sanity-panel');
+  panel.classList.remove('d-none');
+  document.getElementById('sanity-header').innerHTML = '<i class="bi bi-shield-check me-1"></i>Sanity Check — <span class="text-primary">Running...</span>';
+  document.getElementById('sanity-body').innerHTML = `
+    <div class="text-center py-4">
+      <div class="spinner-border text-primary mb-2"></div>
+      <p>Running sanity checks on all targets...</p>
+      <small class="text-muted">This may take a few minutes (reverting snapshots, checking SSH, verifying services).</small>
+    </div>`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   try {
     const result = await API.post('/api/baseline-tests/' + RUN_ID + '/sanity-check');
     const checks = result.checks || [];
@@ -611,6 +627,8 @@ async function runSanityCheck() {
     showToast('Sanity check failed: ' + e.message, 'danger');
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-shield-check me-1"></i>Sanity Check'; }
+    // Resume auto-refresh
+    loadAll();
   }
 }
 
