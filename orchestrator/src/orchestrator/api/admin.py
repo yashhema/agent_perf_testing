@@ -295,7 +295,7 @@ def _update_status(server_id: int, step: str, step_name: str, state: str = "prep
 
 def _prepare_snapshot_bg(server_id: int, delete_all: bool):
     """Background thread: full prepare + snapshot flow."""
-    TOTAL = 8
+    TOTAL = 9
     session = SessionLocal()
 
     try:
@@ -472,11 +472,15 @@ def _prepare_snapshot_bg(server_id: int, delete_all: bool):
             _update_status(server_id, f"7/{TOTAL}", "Setting up /data disk...")
             _setup_data_disk_inline(executor, os_family, cred.username)
 
+            # --- Step 8: Cleanup (kill processes, clean emulator/jmeter dirs) ---
+            _update_status(server_id, f"8/{TOTAL}", "Cleaning up processes and directories...")
+            _cleanup_server_inline(executor, os_family, server.role.value)
+
         finally:
             executor.close()
 
-        # --- Step 8: Take snapshot ---
-        _update_status(server_id, f"8/{TOTAL}", "Taking root snapshot...")
+        # --- Step 9: Take snapshot ---
+        _update_status(server_id, f"9/{TOTAL}", "Taking root snapshot...")
         os_label = f"{vendor}{major}" if vendor else os_family
         snap_name = f"root-{server.hostname}-{os_label}-{datetime.utcnow().strftime('%Y%m%d')}"
         description = f"Root snapshot — prepared {datetime.utcnow().strftime('%Y-%m-%d')}"
@@ -605,6 +609,37 @@ def _install_prereqs_inline(executor, os_family):
     )
     # Python3
     executor.execute("python3 --version 2>&1 || sudo dnf install -y python3 python3-pip 2>&1")
+
+
+def _cleanup_server_inline(executor, os_family, role):
+    """Kill processes and clean emulator/jmeter directories."""
+    if os_family == "windows":
+        executor.execute('powershell -Command "Stop-Process -Name *emulator* -Force -ErrorAction SilentlyContinue"')
+        executor.execute('powershell -Command "Stop-Process -Name *jmeter* -Force -ErrorAction SilentlyContinue"')
+        executor.execute('powershell -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \'C:\\emulator\\output\\*\'"')
+        executor.execute('powershell -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \'C:\\emulator\\stats\\*\'"')
+        return
+
+    # Linux: kill processes
+    executor.execute("pgrep -f '[e]mulator' | xargs -r kill -9 2>/dev/null; echo done")
+    executor.execute("pgrep -f '[j]meter' | xargs -r kill -9 2>/dev/null; echo done")
+
+    # Disable emulator service if exists
+    executor.execute("sudo systemctl stop emulator 2>/dev/null; sudo systemctl disable emulator 2>/dev/null; echo done")
+
+    # Clean directories
+    executor.execute("sudo rm -rf /data/emulator/output/* /data/emulator/stats/* 2>/dev/null; echo done")
+    executor.execute("sudo rm -rf /data/jmeter /data/jmeter-pkg 2>/dev/null; echo done")
+    executor.execute("sudo rm -rf /data/emulator /data/emulator-pkg 2>/dev/null; echo done")
+    executor.execute("sudo rm -rf /tmp/jmeter* /tmp/emulator* 2>/dev/null; echo done")
+
+    import time
+    time.sleep(2)
+
+    # Verify clean
+    result = executor.execute("ls /data/emulator/output/ 2>/dev/null | head -5; ls /data/emulator/stats/ 2>/dev/null | head -5")
+    if result.stdout.strip():
+        logger.warning("Cleanup may be incomplete: %s", result.stdout.strip()[:200])
 
 
 def _setup_data_disk_inline(executor, os_family, ssh_user, disk="/dev/sdc", mount="/data"):
