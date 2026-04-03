@@ -311,12 +311,16 @@ function onLabChange() {
   if (_loadProfiles.length === 0) {
     lpContainer.innerHTML = '<div class="text-muted">No load profiles available</div>';
   } else {
-    lpContainer.innerHTML = _loadProfiles.map(lp => `
-      <div class="form-check">
-        <input class="form-check-input os-lp-cb" type="checkbox" value="${lp.id}" id="os-lp-${lp.id}" checked>
-        <label class="form-check-label" for="os-lp-${lp.id}">${escHtml(lp.name)}</label>
-      </div>
-    `).join('');
+    lpContainer.innerHTML = `<div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr><th style="width:30px"></th><th>Profile</th><th>Duration (s)</th><th>Ramp-up (s)</th></tr></thead>
+      <tbody>` +
+      _loadProfiles.map(lp => `<tr>
+        <td><input class="form-check-input os-lp-cb" type="checkbox" value="${lp.id}" id="os-lp-${lp.id}" checked></td>
+        <td><label for="os-lp-${lp.id}">${escHtml(lp.name)}</label></td>
+        <td><input type="number" class="form-control form-control-sm" id="os-lp-dur-${lp.id}" value="300" min="60" style="width:80px"></td>
+        <td><input type="number" class="form-control form-control-sm" id="os-lp-ramp-${lp.id}" value="60" min="10" style="width:80px"></td>
+      </tr>`).join('') +
+      `</tbody></table></div>`;
   }
 }
 
@@ -396,8 +400,16 @@ async function createOsTest() {
   if (targets.length === 0) { showToast('Add at least one target', 'warning'); return; }
 
   // Gather load profiles
-  const lpIds = Array.from(document.querySelectorAll('.os-lp-cb:checked')).map(cb => parseInt(cb.value));
-  if (lpIds.length === 0) { showToast('Select at least one load profile', 'warning'); return; }
+  const lpChecked = Array.from(document.querySelectorAll('.os-lp-cb:checked'));
+  if (lpChecked.length === 0) { showToast('Select at least one load profile', 'warning'); return; }
+  const lpEntries = lpChecked.map(cb => {
+    const id = parseInt(cb.value);
+    return {
+      load_profile_id: id,
+      duration_sec: parseInt(document.getElementById('os-lp-dur-' + id)?.value) || 300,
+      ramp_up_sec: parseInt(document.getElementById('os-lp-ramp-' + id)?.value) || 60,
+    };
+  });
 
   const btn = document.getElementById('btn-create-os');
   btn.disabled = true;
@@ -411,7 +423,7 @@ async function createOsTest() {
       template_type: document.getElementById('os-test-template').value,
       cycle_count: parseInt(document.getElementById('os-test-cycles').value) || 2,
       targets: targets,
-      load_profiles: lpIds.map(id => ({ load_profile_id: id })),
+      load_profiles: lpEntries,
     };
 
     const result = await API.post('/api/baseline-tests/v2', payload);
