@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}OS Level Tests - Orchestrator{% endblock %}
+{% block page_header %}<strong>OS Level Tests</strong>{% endblock %}
+
+{% block content %}
+<div class="alert alert-light border mb-4" style="font-size:.9rem">
+  <i class="bi bi-info-circle me-1 text-primary"></i>
+  <strong>OS Level Tests</strong> run a baseline performance test on the clean OS (no agents installed).
+  Results are stored and used as the comparison baseline for Agent Set Tests.
+  Each OS Level Test can have multiple Agent Set Tests under it — expand a row to see them.
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0">OS Level Tests</h6>
+    <button class="btn btn-sm btn-primary" onclick="showCreateOsTest()"><i class="bi bi-plus me-1"></i>New OS Level Test</button>
+  </div>
+  <div class="card-body p-0">
+    <div id="os-tests-container">
+      <div class="text-center text-muted py-4">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Create OS Level Test Modal -->
+<div class="modal fade" id="create-os-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create OS Level Test</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          This creates a baseline test on the clean OS. Select target servers and their load generators.
+          Template, cycles, and load profiles define the standardized test configuration that all
+          Agent Set Tests under this will inherit.
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Test Name *</label>
+            <input type="text" class="form-control" id="os-test-name" placeholder="e.g. Q1 2026 Baseline">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Lab *</label>
+            <select class="form-select" id="os-test-lab" onchange="onLabChange()">
+              <option value="">-- Select Lab --</option>
+            </select>
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label">Template *</label>
+            <select class="form-select" id="os-test-template">
+              <option value="server-steady">Server Steady</option>
+              <option value="server-normal">Server Normal</option>
+              <option value="server-file-heavy">Server File Heavy</option>
+              <option value="db-load">DB Load</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Cycles</label>
+            <input type="number" class="form-control" id="os-test-cycles" value="2" min="1">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Description</label>
+            <input type="text" class="form-control" id="os-test-desc" placeholder="Optional">
+          </div>
+        </div>
+
+        <!-- Load Profiles -->
+        <div class="mb-3">
+          <label class="form-label">Load Profiles</label>
+          <div id="os-test-lps" class="border rounded p-2" style="max-height:200px; overflow-y:auto">
+            <div class="text-muted">Select a lab first</div>
+          </div>
+        </div>
+
+        <!-- Targets -->
+        <label class="form-label">Target Servers & Load Generators</label>
+        <div id="os-test-targets"></div>
+        <button class="btn btn-outline-success btn-sm mt-2" onclick="addOsTarget()"><i class="bi bi-plus me-1"></i>Add Target</button>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="createOsTest()" id="btn-create-os">
+          <i class="bi bi-play me-1"></i>Create & Start
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _labs = [], _allServers = [], _loadProfiles = [], _osTests = [];
+let _targets = [], _loadgens = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    [_labs, _allServers, _loadProfiles] = await Promise.all([
+      API.get('/api/admin/labs'),
+      API.get('/api/admin/servers'),
+      API.get('/api/admin/load-profiles'),
+    ]);
+    // Populate lab dropdown
+    const labSel = document.getElementById('os-test-lab');
+    _labs.forEach(l => {
+      labSel.insertAdjacentHTML('beforeend', `<option value="${l.id}">${escHtml(l.name)}</option>`);
+    });
+  } catch (e) { showToast('Failed to load data: ' + e.message, 'danger'); }
+  await loadOsTests();
+});
+
+function srvLabel(s) {
+  const os = s.os_vendor_family && s.os_major_ver
+    ? ` ${s.os_vendor_family.toUpperCase()} ${s.os_major_ver}` : '';
+  return `${s.hostname}${os} (${s.ip_address})`;
+}
+
+function lpName(id) {
+  const lp = _loadProfiles.find(l => l.id === id);
+  return lp ? lp.name : 'LP #' + id;
+}
+
+// ===========================================================================
+// Load and render OS Level Tests
+// ===========================================================================
+
+async function loadOsTests() {
+  try {
+    const allTests = await API.get('/api/baseline-tests');
+    _osTests = allTests.filter(t => t.test_type === 'new_baseline');
+    renderOsTests();
+  } catch (e) { showToast('Failed to load tests: ' + e.message, 'danger'); }
+}
+
+async function renderOsTests() {
+  const container = document.getElementById('os-tests-container');
+  if (_osTests.length === 0) {
+    container.innerHTML = '<div class="text-center text-muted py-4">No OS Level Tests yet. Create one to get started.</div>';
+    return;
+  }
+
+  // Fetch child tests (compare tests) for each OS test
+  const allTests = await API.get('/api/baseline-tests');
+  const childMap = {};
+  allTests.filter(t => t.parent_run_id).forEach(t => {
+    if (!childMap[t.parent_run_id]) childMap[t.parent_run_id] = [];
+    childMap[t.parent_run_id].push(t);
+  });
+
+  let html = '';
+  for (const t of _osTests) {
+    const children = childMap[t.id] || [];
+    const stateClass = t.state === 'completed' ? 'success' : t.state === 'failed' ? 'danger' : t.state === 'cancelled' ? 'secondary' : 'primary';
+    const serverNames = (t.targets || []).map(tgt => {
+      const s = _allServers.find(x => x.id === tgt.target_id);
+      return s ? s.hostname : '#' + tgt.target_id;
+    }).join(', ');
+    const lpNames = (t.load_profiles || []).map(lp => lpName(lp.load_profile_id)).join(', ');
+
+    html += `
+    <div class="border-bottom">
+      <div class="px-3 py-2 d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleChildren(${t.id})">
+        <div>
+          <i class="bi bi-chevron-right me-1" id="chevron-${t.id}"></i>
+          <strong>${escHtml(t.name || 'Test #' + t.id)}</strong>
+          <span class="badge bg-${stateClass} ms-2">${t.state}</span>
+          <span class="badge bg-info ms-1">${children.length} agent set test${children.length !== 1 ? 's' : ''}</span>
+          <br>
+          <small class="text-muted ms-4">
+            Servers: ${escHtml(serverNames)} | LPs: ${escHtml(lpNames)} | Cycles: ${t.cycle_count || '-'}
+            | Created: ${fmtDate(t.created_at)}
+          </small>
+        </div>
+        <div class="text-nowrap" onclick="event.stopPropagation()">
+          ${t.state === 'completed' ? `<a href="/agent-set-tests?parent=${t.id}" class="btn btn-sm btn-success me-1" title="Create Agent Set Test using this baseline"><i class="bi bi-plus me-1"></i>Agent Set Test</a>` : ''}
+          <a href="/baseline-tests/${t.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="View Dashboard"><i class="bi bi-speedometer2"></i></a>
+          ${t.state === 'completed' ? `<a href="/baseline-tests/${t.id}/results" class="btn btn-sm btn-outline-secondary" title="View Results"><i class="bi bi-bar-chart"></i></a>` : ''}
+        </div>
+      </div>
+      <div id="children-${t.id}" style="display:none; background:#f8f9fa">
+        ${children.length === 0
+          ? '<div class="px-4 py-2 text-muted" style="font-size:.85rem">No Agent Set Tests yet. Complete this baseline first, then create Agent Set Tests.</div>'
+          : children.map(c => {
+              const cStateClass = c.state === 'completed' ? 'success' : c.state === 'failed' ? 'danger' : c.state === 'cancelled' ? 'secondary' : 'primary';
+              return `<div class="px-4 py-2 border-top d-flex justify-content-between align-items-center" style="font-size:.9rem">
+                <div>
+                  <i class="bi bi-shield-check text-info me-1"></i>
+                  <strong>${escHtml(c.name || 'Test #' + c.id)}</strong>
+                  <span class="badge bg-${cStateClass} ms-1">${c.state}</span>
+                  <small class="text-muted ms-2">${fmtDate(c.created_at)}</small>
+                </div>
+                <div class="text-nowrap">
+                  <a href="/baseline-tests/${c.id}/dashboard" class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-speedometer2"></i></a>
+                  ${c.state === 'completed' ? `<a href="/baseline-tests/${c.id}/results" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bar-chart"></i></a>` : ''}
+                </div>
+              </div>`;
+            }).join('')
+        }
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function toggleChildren(testId) {
+  const el = document.getElementById('children-' + testId);
+  const ch = document.getElementById('chevron-' + testId);
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    ch.className = 'bi bi-chevron-down me-1';
+  } else {
+    el.style.display = 'none';
+    ch.className = 'bi bi-chevron-right me-1';
+  }
+}
+
+// ===========================================================================
+// Create OS Level Test
+// ===========================================================================
+
+let _osTargetIdx = 0;
+let _osTargetRows = [];
+
+function onLabChange() {
+  const labId = parseInt(document.getElementById('os-test-lab').value);
+  const labServers = labId ? _allServers.filter(s => s.lab_id === labId) : [];
+  _targets = labServers.filter(s => s.role === 'target' && s.is_ready);
+  _loadgens = labServers.filter(s => s.role === 'loadgen');
+  _osTargetRows = [];
+  document.getElementById('os-test-targets').innerHTML = '';
+
+  // Load profiles
+  const lpContainer = document.getElementById('os-test-lps');
+  if (_loadProfiles.length === 0) {
+    lpContainer.innerHTML = '<div class="text-muted">No load profiles available</div>';
+  } else {
+    lpContainer.innerHTML = _loadProfiles.map(lp => `
+      <div class="form-check">
+        <input class="form-check-input os-lp-cb" type="checkbox" value="${lp.id}" id="os-lp-${lp.id}" checked>
+        <label class="form-check-label" for="os-lp-${lp.id}">${escHtml(lp.name)}</label>
+      </div>
+    `).join('');
+  }
+}
+
+function addOsTarget() {
+  const idx = _osTargetIdx++;
+  _osTargetRows.push(idx);
+  const container = document.getElementById('os-test-targets');
+
+  const usedTargets = Array.from(container.querySelectorAll('.os-target-sel')).map(s => parseInt(s.value)).filter(Boolean);
+  const usedLgs = Array.from(container.querySelectorAll('.os-lg-sel')).map(s => parseInt(s.value)).filter(Boolean);
+
+  const targetOpts = '<option value="">-- Target --</option>' +
+    _targets.filter(s => !usedTargets.includes(s.id)).map(s =>
+      `<option value="${s.id}">${escHtml(srvLabel(s))}</option>`
+    ).join('');
+  const lgOpts = '<option value="">-- Load Generator --</option>' +
+    _loadgens.filter(s => !usedLgs.includes(s.id)).map(s =>
+      `<option value="${s.id}">${escHtml(srvLabel(s))}</option>`
+    ).join('');
+
+  container.insertAdjacentHTML('beforeend', `
+    <div class="row g-2 mb-2" id="os-target-row-${idx}">
+      <div class="col-md-5">
+        <select class="form-select form-select-sm os-target-sel">${targetOpts}</select>
+      </div>
+      <div class="col-md-5">
+        <select class="form-select form-select-sm os-lg-sel">${lgOpts}</select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-sm btn-outline-danger" onclick="removeOsTarget(${idx})"><i class="bi bi-x-lg"></i></button>
+      </div>
+    </div>
+  `);
+}
+
+function removeOsTarget(idx) {
+  const row = document.getElementById('os-target-row-' + idx);
+  if (row) row.remove();
+  _osTargetRows = _osTargetRows.filter(i => i !== idx);
+}
+
+function showCreateOsTest() {
+  document.getElementById('os-test-name').value = '';
+  document.getElementById('os-test-desc').value = '';
+  document.getElementById('os-test-cycles').value = '2';
+  document.getElementById('os-test-template').value = 'server-steady';
+  document.getElementById('os-test-lab').value = '';
+  document.getElementById('os-test-lps').innerHTML = '<div class="text-muted">Select a lab first</div>';
+  document.getElementById('os-test-targets').innerHTML = '';
+  _osTargetRows = [];
+  _osTargetIdx = 0;
+  new bootstrap.Modal(document.getElementById('create-os-modal')).show();
+}
+
+async function createOsTest() {
+  const name = document.getElementById('os-test-name').value.trim();
+  if (!name) { showToast('Name is required', 'warning'); return; }
+  const labId = parseInt(document.getElementById('os-test-lab').value);
+  if (!labId) { showToast('Select a lab', 'warning'); return; }
+
+  // Gather targets
+  const targetRows = document.querySelectorAll('[id^="os-target-row-"]');
+  const targets = [];
+  for (const row of targetRows) {
+    const serverId = parseInt(row.querySelector('.os-target-sel').value);
+    const lgId = parseInt(row.querySelector('.os-lg-sel').value);
+    if (!serverId) { showToast('Select all target servers', 'warning'); return; }
+    // Find the server's group snapshot for test_snapshot_id
+    const srv = _allServers.find(s => s.id === serverId);
+    if (!srv || !srv.root_snapshot_id) { showToast(`Server ${srv?.hostname || serverId} has no root snapshot`, 'warning'); return; }
+    targets.push({
+      server_id: serverId,
+      loadgenerator_id: lgId || null,
+      test_snapshot_id: srv.root_snapshot_id,
+    });
+  }
+  if (targets.length === 0) { showToast('Add at least one target', 'warning'); return; }
+
+  // Gather load profiles
+  const lpIds = Array.from(document.querySelectorAll('.os-lp-cb:checked')).map(cb => parseInt(cb.value));
+  if (lpIds.length === 0) { showToast('Select at least one load profile', 'warning'); return; }
+
+  const btn = document.getElementById('btn-create-os');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+
+  try {
+    const payload = {
+      name: name,
+      description: document.getElementById('os-test-desc').value.trim() || null,
+      test_type: 'new_baseline',
+      template_type: document.getElementById('os-test-template').value,
+      cycle_count: parseInt(document.getElementById('os-test-cycles').value) || 2,
+      targets: targets,
+      load_profiles: lpIds.map(id => ({ load_profile_id: id })),
+    };
+
+    const result = await API.post('/api/baseline-tests/v2', payload);
+    showToast('OS Level Test created: #' + result.id);
+    bootstrap.Modal.getInstance(document.getElementById('create-os-modal')).hide();
+
+    // Auto-start
+    try {
+      await API.post('/api/baseline-tests/' + result.id + '/start');
+      showToast('Test started');
+    } catch (e) { showToast('Created but start failed: ' + e.message, 'warning'); }
+
+    await loadOsTests();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-play me-1"></i>Create & Start';
+}
+</script>
+{% endblock %}

@@ -326,6 +326,16 @@ async def baseline_test_list(request: Request):
     return templates.TemplateResponse("baseline_tests/list.html", {"request": request})
 
 
+@router.get("/os-level-tests", response_class=HTMLResponse)
+async def os_level_tests(request: Request):
+    return templates.TemplateResponse("baseline_tests/os_level_tests.html", {"request": request})
+
+
+@router.get("/agent-set-tests", response_class=HTMLResponse)
+async def agent_set_tests(request: Request):
+    return templates.TemplateResponse("baseline_tests/agent_set_tests.html", {"request": request})
+
+
 @router.get("/baseline-tests/create", response_class=HTMLResponse)
 async def baseline_test_create(request: Request):
     return templates.TemplateResponse("baseline_tests/create.html", {"request": request})
