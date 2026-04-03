@@ -381,8 +381,44 @@ def _prepare_snapshot_bg(server_id: int, delete_all: bool):
                     except Exception as e:
                         logger.warning("Failed to delete snapshot %s: %s", snap.name, e)
 
-            # Clean DB records — delete everything, not just archive
-            # First clear FKs on server that reference snapshots
+            # Clean DB records — delete everything including test runs referencing this server
+            from orchestrator.models.orm import (
+                BaselineExecutionResultORM, BaselineTestRunLoadProfileORM,
+                BaselineTestRunORM, BaselineTestRunTargetORM,
+                CalibrationResultORM, ComparisonResultORM,
+                SnapshotProfileDataORM,
+            )
+
+            # Find all test runs that reference this server (as target)
+            target_links = session.query(BaselineTestRunTargetORM).filter(
+                BaselineTestRunTargetORM.target_id == server_id,
+            ).all()
+            test_run_ids = list({tl.baseline_test_run_id for tl in target_links})
+
+            if test_run_ids:
+                logger.info("Deleting %d test runs referencing server %d", len(test_run_ids), server_id)
+                for run_id in test_run_ids:
+                    session.query(CalibrationResultORM).filter(
+                        CalibrationResultORM.baseline_test_run_id == run_id,
+                    ).delete(synchronize_session='fetch')
+                    session.query(ComparisonResultORM).filter(
+                        ComparisonResultORM.baseline_test_run_id == run_id,
+                    ).delete(synchronize_session='fetch')
+                    session.query(BaselineExecutionResultORM).filter(
+                        BaselineExecutionResultORM.baseline_test_run_id == run_id,
+                    ).delete(synchronize_session='fetch')
+                    session.query(BaselineTestRunTargetORM).filter(
+                        BaselineTestRunTargetORM.baseline_test_run_id == run_id,
+                    ).delete(synchronize_session='fetch')
+                    session.query(BaselineTestRunLoadProfileORM).filter(
+                        BaselineTestRunLoadProfileORM.baseline_test_run_id == run_id,
+                    ).delete(synchronize_session='fetch')
+                    session.query(BaselineTestRunORM).filter(
+                        BaselineTestRunORM.id == run_id,
+                    ).delete(synchronize_session='fetch')
+                session.flush()
+
+            # Clear FKs on server that reference snapshots
             server.root_snapshot_id = None
             server.clean_snapshot_id = None
             session.flush()
@@ -395,8 +431,7 @@ def _prepare_snapshot_bg(server_id: int, delete_all: bool):
                 session.delete(g)
             session.flush()
 
-            # Delete all snapshot records for this server (not archive — full delete)
-            from orchestrator.models.orm import SnapshotProfileDataORM
+            # Delete snapshot profile data + all snapshot records
             session.query(SnapshotProfileDataORM).filter(
                 SnapshotProfileDataORM.snapshot_id.in_(
                     session.query(SnapshotORM.id).filter(SnapshotORM.server_id == server_id)
@@ -406,7 +441,7 @@ def _prepare_snapshot_bg(server_id: int, delete_all: bool):
                 SnapshotORM.server_id == server_id,
             ).delete(synchronize_session='fetch')
             session.commit()
-            logger.info("Cleaned all DB records for server %d", server_id)
+            logger.info("Cleaned all DB records for server %d (including %d test runs)", server_id, len(test_run_ids))
 
             # Verify hypervisor is clean
             remaining = provider.list_snapshots(server.server_infra_ref)
