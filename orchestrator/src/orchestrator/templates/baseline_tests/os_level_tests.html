@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}OS Level Tests - Orchestrator{% endblock %}
-{% block page_header %}<strong>OS Level Tests</strong>{% endblock %}
+{% block title %}Tests - Orchestrator{% endblock %}
+{% block page_header %}<strong>Tests</strong>{% endblock %}
 
 {% block content %}
 <div class="alert alert-light border mb-4" style="font-size:.9rem">
@@ -91,19 +91,92 @@
     </div>
   </div>
 </div>
+
+<!-- Create Agent Set Test Modal -->
+<div class="modal fade" id="create-agent-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create Agent Set Test</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border py-2" style="font-size:.85rem">
+          <i class="bi bi-info-circle me-1"></i>
+          This test inherits all configuration (servers, load generators, template, cycles, load profiles)
+          from the parent OS Level Test. You only need to select an Agent Set and set up snapshots.
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Parent OS Level Test</label>
+            <input type="text" class="form-control" id="agent-parent-name" readonly>
+            <input type="hidden" id="agent-parent-id">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Agent Set *</label>
+            <select class="form-select" id="agent-set-sel">
+              <option value="">-- Select Agent Set --</option>
+            </select>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Test Name</label>
+          <input type="text" class="form-control" id="agent-test-name" placeholder="Auto-generated if blank">
+        </div>
+
+        <!-- Inherited config (read-only) -->
+        <div id="inherited-config">
+          <hr>
+          <h6 class="text-muted">Inherited Configuration</h6>
+          <div id="inherited-details" class="small"></div>
+        </div>
+
+        <!-- Per-server snapshot setup -->
+        <hr>
+        <h6>Snapshot Setup</h6>
+        <p class="text-muted" style="font-size:.85rem">
+          For each server, select an existing snapshot with agents installed, or take a new one.
+        </p>
+        <div id="agent-server-cards"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="createAgentTest()" id="btn-create-agent">
+          <i class="bi bi-play me-1"></i>Create & Start
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Take Snapshot Modal (2-step flow) -->
+<div class="modal fade" id="snap-modal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="snap-modal-title">Take Snapshot</h5>
+      </div>
+      <div class="modal-body" id="snap-modal-body"></div>
+      <div class="modal-footer" id="snap-modal-footer"></div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 let _labs = [], _allServers = [], _loadProfiles = [], _osTests = [];
 let _targets = [], _loadgens = [];
+let _allTests = [], _agentSets = [];
+let _parentTest = null, _snapServerId = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    [_labs, _allServers, _loadProfiles] = await Promise.all([
+    [_labs, _allServers, _loadProfiles, _agentSets] = await Promise.all([
       API.get('/api/admin/labs'),
       API.get('/api/admin/servers'),
       API.get('/api/admin/load-profiles'),
+      API.get('/api/admin/subgroup-definitions'),
     ]);
     // Populate lab dropdown
     const labSel = document.getElementById('os-test-lab');
@@ -131,8 +204,8 @@ function lpName(id) {
 
 async function loadOsTests() {
   try {
-    const allTests = await API.get('/api/baseline-tests');
-    _osTests = allTests.filter(t => t.test_type === 'new_baseline');
+    _allTests = await API.get('/api/baseline-tests');
+    _osTests = _allTests.filter(t => t.test_type === 'new_baseline');
     renderOsTests();
   } catch (e) { showToast('Failed to load tests: ' + e.message, 'danger'); }
 }
@@ -144,10 +217,8 @@ async function renderOsTests() {
     return;
   }
 
-  // Fetch child tests (compare tests) for each OS test
-  const allTests = await API.get('/api/baseline-tests');
   const childMap = {};
-  allTests.filter(t => t.parent_run_id).forEach(t => {
+  _allTests.filter(t => t.parent_run_id).forEach(t => {
     if (!childMap[t.parent_run_id]) childMap[t.parent_run_id] = [];
     childMap[t.parent_run_id].push(t);
   });
@@ -177,7 +248,7 @@ async function renderOsTests() {
           </small>
         </div>
         <div class="text-nowrap" onclick="event.stopPropagation()">
-          ${t.state === 'completed' ? `<a href="/agent-set-tests?parent=${t.id}" class="btn btn-sm btn-success me-1" title="Create Agent Set Test using this baseline"><i class="bi bi-plus me-1"></i>Agent Set Test</a>` : ''}
+          ${t.state === 'completed' ? `<button class="btn btn-sm btn-success me-1" onclick="showCreateAgentTest(${t.id})" title="Create Agent Set Test using this baseline"><i class="bi bi-plus me-1"></i>Agent Set Test</button>` : ''}
           <a href="/baseline-tests/${t.id}/dashboard" class="btn btn-sm btn-outline-primary me-1" title="View Dashboard"><i class="bi bi-speedometer2"></i></a>
           ${t.state === 'completed' ? `<a href="/baseline-tests/${t.id}/results" class="btn btn-sm btn-outline-secondary" title="View Results"><i class="bi bi-bar-chart"></i></a>` : ''}
         </div>
@@ -355,6 +426,219 @@ async function createOsTest() {
 
     await loadOsTests();
   } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-play me-1"></i>Create & Start';
+}
+
+// ===========================================================================
+// Create Agent Set Test (inline from OS Level Test page)
+// ===========================================================================
+
+function showCreateAgentTest(parentId) {
+  _parentTest = _allTests.find(t => t.id === parentId);
+  if (!_parentTest) { showToast('Parent test not found', 'danger'); return; }
+
+  document.getElementById('agent-parent-id').value = parentId;
+  document.getElementById('agent-parent-name').value = _parentTest.name || 'Test #' + parentId;
+  document.getElementById('agent-test-name').value = '';
+
+  // Populate agent set dropdown
+  const asSel = document.getElementById('agent-set-sel');
+  asSel.innerHTML = '<option value="">-- Select Agent Set --</option>' +
+    _agentSets.map(d => {
+      const agents = d.agents.map(a => a.agent_name || '#' + a.agent_id).join(', ');
+      return `<option value="${d.id}">${escHtml(d.name)} (${escHtml(agents)})</option>`;
+    }).join('');
+
+  // Show inherited config
+  const serverNames = (_parentTest.targets || []).map(tgt => {
+    const s = _allServers.find(x => x.id === tgt.target_id);
+    return s ? srvLabel(s) : '#' + tgt.target_id;
+  }).join('<br>');
+  const lpNames = (_parentTest.load_profiles || []).map(lp => lpName(lp.load_profile_id)).join(', ');
+  document.getElementById('inherited-details').innerHTML = `
+    <table class="table table-sm mb-0">
+      <tr><th style="width:130px">Servers</th><td>${serverNames}</td></tr>
+      <tr><th>Cycles</th><td>${_parentTest.cycle_count || '-'}</td></tr>
+      <tr><th>Load Profiles</th><td>${lpNames}</td></tr>
+    </table>`;
+
+  // Render server snapshot cards
+  renderAgentServerCards();
+
+  new bootstrap.Modal(document.getElementById('create-agent-modal')).show();
+}
+
+function renderAgentServerCards() {
+  if (!_parentTest) return;
+  const container = document.getElementById('agent-server-cards');
+  container.innerHTML = (_parentTest.targets || []).map(tgt => {
+    const srv = _allServers.find(s => s.id === tgt.target_id);
+    const hostname = srv ? srv.hostname : '#' + tgt.target_id;
+    const ip = srv ? srv.ip_address : '';
+    return `
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <strong>${escHtml(hostname)}</strong> <code class="ms-1">${escHtml(ip)}</code>
+            <div id="srv-snap-status-${tgt.target_id}" class="small text-muted mt-1">Select snapshot or take new</div>
+          </div>
+          <div class="text-nowrap">
+            <select class="form-select form-select-sm d-inline-block" style="width:auto" id="srv-snap-sel-${tgt.target_id}" onchange="onSnapSelect(${tgt.target_id})">
+              <option value="">-- Select Snapshot --</option>
+              <option value="__new__">Take New Snapshot...</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Populate snapshot dropdowns
+  for (const tgt of _parentTest.targets || []) {
+    loadServerSnapshots(tgt.target_id);
+  }
+}
+
+async function loadServerSnapshots(serverId) {
+  const sel = document.getElementById('srv-snap-sel-' + serverId);
+  try {
+    const snapshots = await API.get(`/api/servers/${serverId}/snapshots`);
+    const available = snapshots.filter(s => !s.is_archived && s.group_id);
+    sel.innerHTML = '<option value="">-- Select Snapshot --</option>' +
+      available.map(s => `<option value="${s.id}">${escHtml(s.name)} (${fmtDate(s.created_at)})</option>`).join('') +
+      '<option value="__new__">Take New Snapshot...</option>';
+  } catch {}
+}
+
+function onSnapSelect(serverId) {
+  const sel = document.getElementById('srv-snap-sel-' + serverId);
+  if (sel.value === '__new__') {
+    openSnapModal(serverId);
+    sel.value = '';
+  } else if (sel.value) {
+    document.getElementById('srv-snap-status-' + serverId).innerHTML = '<span class="badge bg-success">Snapshot selected</span>';
+  }
+}
+
+// --- 2-step snapshot flow ---
+
+function openSnapModal(serverId) {
+  _snapServerId = serverId;
+  const srv = _allServers.find(s => s.id === serverId);
+  document.getElementById('snap-modal-title').textContent = `Take Snapshot — ${srv ? srv.hostname : '#' + serverId}`;
+  document.getElementById('snap-modal-body').innerHTML = `
+    <div class="alert alert-info py-2" style="font-size:.85rem">
+      <strong>Step 1:</strong> Revert the server, then install agents.
+      <strong>Step 2:</strong> Come back and take the snapshot.
+    </div>
+    <p>Revert to group snapshot and prepare the server?</p>`;
+  document.getElementById('snap-modal-footer').innerHTML = `
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-warning" onclick="doRevert()"><i class="bi bi-arrow-counterclockwise me-1"></i>Revert Server</button>`;
+  new bootstrap.Modal(document.getElementById('snap-modal')).show();
+}
+
+async function doRevert() {
+  const srv = _allServers.find(s => s.id === _snapServerId);
+  if (!srv || !srv.root_snapshot_id) { showToast('No root snapshot', 'danger'); return; }
+  document.getElementById('snap-modal-body').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-warning"></div><p>Reverting...</p></div>';
+  document.getElementById('snap-modal-footer').innerHTML = '';
+  try {
+    await API.post(`/api/servers/${_snapServerId}/snapshots/${srv.root_snapshot_id}/revert`);
+    document.getElementById('snap-modal-body').innerHTML = `
+      <div class="alert alert-success py-2"><i class="bi bi-check-circle me-1"></i>Server reverted.</div>
+      <p>Install agents, then come back and take a snapshot.</p>
+      <p class="text-muted">SSH: <code>ssh user@${srv.ip_address}</code></p>
+      <div class="mb-3">
+        <label class="form-label">Snapshot Name *</label>
+        <input type="text" class="form-control" id="new-snap-name" placeholder="e.g. CrowdStrike-v7.19">
+      </div>`;
+    document.getElementById('snap-modal-footer').innerHTML = `
+      <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-success" onclick="doTakeSnap()"><i class="bi bi-camera me-1"></i>Take Snapshot</button>`;
+  } catch (e) {
+    document.getElementById('snap-modal-body').innerHTML = `<div class="alert alert-danger">${escHtml(e.message)}</div>`;
+    document.getElementById('snap-modal-footer').innerHTML = '<button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>';
+  }
+}
+
+async function doTakeSnap() {
+  const name = document.getElementById('new-snap-name').value.trim();
+  if (!name) { showToast('Name required', 'warning'); return; }
+  document.getElementById('snap-modal-body').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-success"></div><p>Taking snapshot...</p></div>';
+  document.getElementById('snap-modal-footer').innerHTML = '';
+  try {
+    const snap = await API.post(`/api/servers/${_snapServerId}/snapshots/take`, { name, description: 'Agent set test snapshot' });
+    showToast('Snapshot taken: ' + snap.name);
+    bootstrap.Modal.getInstance(document.getElementById('snap-modal')).hide();
+    await loadServerSnapshots(_snapServerId);
+    const sel = document.getElementById('srv-snap-sel-' + _snapServerId);
+    sel.value = snap.id;
+    document.getElementById('srv-snap-status-' + _snapServerId).innerHTML = '<span class="badge bg-success">Snapshot taken</span>';
+  } catch (e) {
+    document.getElementById('snap-modal-body').innerHTML = `<div class="alert alert-danger">${escHtml(e.message)}</div>`;
+    document.getElementById('snap-modal-footer').innerHTML = '<button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>';
+  }
+}
+
+// --- Create the agent set test ---
+
+async function createAgentTest() {
+  const parentId = parseInt(document.getElementById('agent-parent-id').value);
+  const agentSetId = parseInt(document.getElementById('agent-set-sel').value);
+  if (!agentSetId) { showToast('Select an Agent Set', 'warning'); return; }
+  if (!_parentTest) { showToast('Parent test not loaded', 'warning'); return; }
+
+  const targets = [];
+  for (const tgt of _parentTest.targets || []) {
+    const snapId = parseInt(document.getElementById('srv-snap-sel-' + tgt.target_id)?.value);
+    if (!snapId) {
+      const srv = _allServers.find(s => s.id === tgt.target_id);
+      showToast(`Select snapshot for ${srv ? srv.hostname : '#' + tgt.target_id}`, 'warning');
+      return;
+    }
+    targets.push({
+      server_id: tgt.target_id,
+      loadgenerator_id: tgt.loadgenerator_id,
+      test_snapshot_id: snapId,
+      compare_snapshot_id: tgt.test_snapshot_id,
+    });
+  }
+
+  const agentSet = _agentSets.find(d => d.id === agentSetId);
+  const testName = document.getElementById('agent-test-name').value.trim()
+    || `${agentSet ? agentSet.name : 'Agent Set'} — ${_parentTest.name || 'Test #' + parentId}`;
+
+  const btn = document.getElementById('btn-create-agent');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+
+  try {
+    const result = await API.post('/api/baseline-tests/v2', {
+      name: testName,
+      test_type: 'compare',
+      parent_run_id: parentId,
+      cycle_count: _parentTest.cycle_count || 2,
+      targets: targets,
+      load_profiles: (_parentTest.load_profiles || []).map(lp => ({
+        load_profile_id: lp.load_profile_id,
+        duration_sec: lp.duration_sec,
+        ramp_up_sec: lp.ramp_up_sec,
+      })),
+    });
+    showToast('Agent Set Test created: #' + result.id);
+    bootstrap.Modal.getInstance(document.getElementById('create-agent-modal')).hide();
+
+    try {
+      await API.post('/api/baseline-tests/' + result.id + '/start');
+      showToast('Test started');
+    } catch (e) { showToast('Created but start failed: ' + e.message, 'warning'); }
+
+    await loadOsTests();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+
   btn.disabled = false;
   btn.innerHTML = '<i class="bi bi-play me-1"></i>Create & Start';
 }
