@@ -127,6 +127,18 @@ class HypervisorProvider(abc.ABC):
             snapshot_ref: Provider-specific snapshot reference.
         """
 
+    def get_current_snapshot_id(self, server_ref: dict) -> Optional[str]:
+        """Get the provider-specific ID of the VM's current snapshot.
+
+        Returns None if the VM has no current snapshot or the provider
+        doesn't support this query.
+        """
+        return None  # default — subclasses override if supported
+
+    def power_on(self, server_ref: dict) -> None:
+        """Explicitly power on a VM. No-op if already running."""
+        pass  # default — subclasses override
+
     def wait_for_vm_ready(self, server_ref: dict, timeout_sec: int = 300, poll_interval_sec: int = 10) -> bool:
         """Wait until VM is running. Returns True if ready, False on timeout."""
         elapsed = 0
@@ -172,6 +184,31 @@ class ProxmoxProvider(HypervisorProvider):
             raise ValueError("Proxmox API key must start with 'PVEAPIToken='")
         logger.info("Proxmox connected to %s:%d", url, port)
 
+    def get_current_snapshot_id(self, server_ref: dict) -> Optional[str]:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
+        try:
+            snapshots = self._proxmox.nodes(node).qemu(vmid).snapshot.get()
+            for snap in snapshots:
+                if snap.get("current") or snap.get("name") == "current":
+                    # Proxmox marks the parent of "current" as the active snapshot
+                    parent = snap.get("parent")
+                    return parent if parent else snap.get("name")
+        except Exception as e:
+            logger.warning("Failed to get current snapshot for VM %d: %s", vmid, e)
+        return None
+
+    def power_on(self, server_ref: dict) -> None:
+        node = server_ref["node"]
+        vmid = server_ref["vmid"]
+        try:
+            self._proxmox.nodes(node).qemu(vmid).status.start.post()
+            logger.info("Power on requested for VM %d", vmid)
+        except Exception as e:
+            if "already running" not in str(e).lower():
+                raise
+            logger.info("VM %d already running", vmid)
+
     def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
         node = server_ref["node"]
         vmid = server_ref["vmid"]
@@ -182,13 +219,7 @@ class ProxmoxProvider(HypervisorProvider):
         if upid:
             self._wait_for_task(node, upid, timeout_sec=300)
         # Start VM after rollback completes
-        try:
-            self._proxmox.nodes(node).qemu(vmid).status.start.post()
-        except Exception as e:
-            # "already running" is OK — some snapshots restore to running state
-            if "already running" not in str(e).lower():
-                raise
-            logger.info("VM %d already running after rollback", vmid)
+        self.power_on(server_ref)
         return None  # Proxmox IPs are static, no change
 
     def _wait_for_task(self, node: str, upid: str, timeout_sec: int = 300) -> None:
@@ -350,6 +381,22 @@ class VSphereProvider(HypervisorProvider):
         snapshot_name = snapshot_ref.get("snapshot_name", "")
         return self._find_snapshot(vm, snapshot_name)
 
+    def get_current_snapshot_id(self, server_ref: dict) -> Optional[str]:
+        vm = self._find_vm(server_ref)
+        if vm.snapshot and vm.snapshot.currentSnapshot:
+            return str(vm.snapshot.currentSnapshot._moId)
+        return None
+
+    def power_on(self, server_ref: dict) -> None:
+        from pyVmomi import vim
+        vm = self._find_vm(server_ref)
+        if vm.runtime.powerState != vim.VirtualMachinePowerState.poweredOn:
+            logger.info("Powering on VM '%s'", vm.name)
+            task = vm.PowerOnVM_Task()
+            self._wait_for_task(task)
+        else:
+            logger.info("VM '%s' already powered on", vm.name)
+
     def restore_snapshot(self, server_ref: dict, snapshot_ref: dict) -> Optional[str]:
         vm = self._find_vm(server_ref)
         snapshot = self._resolve_snapshot(vm, snapshot_ref)
@@ -359,11 +406,7 @@ class VSphereProvider(HypervisorProvider):
         logger.info("Restoring snapshot '%s' on VM '%s'", snapshot_name, vm.name)
         task = snapshot.RevertToSnapshot_Task()
         self._wait_for_task(task)
-        # Power on if not already running
-        from pyVmomi import vim
-        if vm.runtime.powerState != vim.VirtualMachinePowerState.poweredOn:
-            task = vm.PowerOnVM_Task()
-            self._wait_for_task(task)
+        self.power_on(server_ref)
         return None  # vSphere IPs are static, no change
 
     def get_vm_status(self, server_ref: dict) -> VMStatus:

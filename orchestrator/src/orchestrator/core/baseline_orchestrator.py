@@ -1069,6 +1069,84 @@ class BaselineOrchestrator:
             sm.transition(session, test_run, BaselineTestState.deploying_testing)
 
     # ------------------------------------------------------------------
+    # Robust snapshot restore with retry + validation
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _restore_with_retry(
+        provider, server_infra_ref, snap_provider_ref, snap_name, hostname,
+        expected_snapshot_id=None, max_revert_attempts=3, max_power_on_attempts=2,
+    ) -> Optional[str]:
+        """Revert snapshot with retries + validation + power-on retries.
+
+        Returns new_ip if changed (Vultr), else None.
+        Raises RuntimeError if all attempts fail.
+        """
+        new_ip = None
+        for revert_attempt in range(1, max_revert_attempts + 1):
+            logger.info(
+                "Restoring snapshot '%s' on %s (revert attempt %d/%d)",
+                snap_name, hostname, revert_attempt, max_revert_attempts,
+            )
+            try:
+                new_ip = provider.restore_snapshot(server_infra_ref, snap_provider_ref)
+            except Exception as e:
+                logger.warning("Revert attempt %d failed for %s: %s", revert_attempt, hostname, e)
+                if revert_attempt == max_revert_attempts:
+                    raise RuntimeError(
+                        f"Snapshot restore failed on {hostname} after {max_revert_attempts} attempts: {e}"
+                    )
+                import time
+                time.sleep(10)
+                continue
+
+            # Validate revert completed (if provider supports current snapshot query)
+            if expected_snapshot_id:
+                current = provider.get_current_snapshot_id(server_infra_ref)
+                if current and current != expected_snapshot_id:
+                    logger.warning(
+                        "Snapshot validation failed on %s: expected=%s, current=%s (attempt %d)",
+                        hostname, expected_snapshot_id, current, revert_attempt,
+                    )
+                    if revert_attempt == max_revert_attempts:
+                        raise RuntimeError(
+                            f"Snapshot validation failed on {hostname}: "
+                            f"expected={expected_snapshot_id}, got={current}"
+                        )
+                    continue
+                elif current:
+                    logger.info("Snapshot validated on %s: current=%s", hostname, current)
+
+            # Power on with retries
+            vm_ready = False
+            for power_attempt in range(1, max_power_on_attempts + 1):
+                logger.info(
+                    "Waiting for VM ready on %s (power attempt %d/%d)",
+                    hostname, power_attempt, max_power_on_attempts,
+                )
+                vm_ready = provider.wait_for_vm_ready(server_infra_ref, timeout_sec=180)
+                if vm_ready:
+                    break
+                logger.warning("VM %s not ready. Trying explicit power on...", hostname)
+                try:
+                    provider.power_on(server_infra_ref)
+                except Exception as e:
+                    logger.warning("Power on attempt failed for %s: %s", hostname, e)
+
+            if vm_ready:
+                logger.info("VM %s is ready after revert attempt %d", hostname, revert_attempt)
+                return new_ip
+
+            logger.warning(
+                "VM %s not ready after revert attempt %d. Will retry full revert.",
+                hostname, revert_attempt,
+            )
+
+        raise RuntimeError(
+            f"VM {hostname} not reachable after {max_revert_attempts} revert attempts "
+            f"with {max_power_on_attempts} power-on attempts each. Check hypervisor console."
+        )
+
+    # ------------------------------------------------------------------
     # State: DEPLOYING_CALIBRATION (per LP)
     # ------------------------------------------------------------------
     def _do_deploying_calibration(self, session: Session, test_run: BaselineTestRunORM) -> None:
@@ -1161,9 +1239,11 @@ class BaselineOrchestrator:
 
             thread_session = SessionLocal()
             try:
-                # Revert snapshot
-                new_ip = provider.restore_snapshot(server_infra_ref, snap_provider_ref)
-                provider.wait_for_vm_ready(server_infra_ref)
+                # Revert snapshot with retry + validation + power-on retry
+                new_ip = BaselineOrchestrator._restore_with_retry(
+                    provider, server_infra_ref, snap_provider_ref,
+                    snap_name, server_hostname,
+                )
                 actual_ip = server_ip
                 if new_ip and new_ip != server_ip:
                     actual_ip = new_ip
@@ -1171,7 +1251,7 @@ class BaselineOrchestrator:
                     srv.ip_address = new_ip
                     thread_session.commit()
 
-                wait_for_ssh(actual_ip, os_family=server_os_family)
+                wait_for_ssh(actual_ip, os_family=server_os_family, timeout_sec=180)
 
                 # Discovery (first LP only)
                 if is_first_lp:
@@ -1745,8 +1825,11 @@ class BaselineOrchestrator:
 
             thread_session = SessionLocal()
             try:
-                new_ip = provider.restore_snapshot(server_infra_ref, snap_provider_ref)
-                provider.wait_for_vm_ready(server_infra_ref)
+                # Revert snapshot with retry + validation + power-on retry
+                new_ip = BaselineOrchestrator._restore_with_retry(
+                    provider, server_infra_ref, snap_provider_ref,
+                    snap_name, server_hostname,
+                )
                 actual_ip = server_ip
                 if new_ip and new_ip != server_ip:
                     actual_ip = new_ip
@@ -1754,7 +1837,7 @@ class BaselineOrchestrator:
                     srv.ip_address = new_ip
                     thread_session.commit()
 
-                wait_for_ssh(actual_ip, os_family=server_os_family)
+                wait_for_ssh(actual_ip, os_family=server_os_family, timeout_sec=180)
 
                 target_cred = self._credentials.get_server_credential(server_id, server_os_family)
                 target_exec = create_executor(
