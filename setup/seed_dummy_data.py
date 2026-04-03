@@ -80,7 +80,7 @@ def seed(session, clean=False):
         hw = session.query(HardwareProfileORM).filter(HardwareProfileORM.name == name).first()
         if not hw:
             hw = HardwareProfileORM(
-                name=name, cpu_cores=cores, memory_gb=mem,
+                name=name, cpu_count=cores, memory_gb=mem,
                 disk_type=DiskType(disk), disk_size_gb=size,
             )
             session.add(hw)
@@ -90,14 +90,15 @@ def seed(session, clean=False):
 
     # --- Load profiles ---
     lp_specs = [
-        ("Low", 20.0, 40.0),
-        ("Medium", 40.0, 60.0),
-        ("High", 60.0, 80.0),
+        ("Low", 20.0, 40.0, 300, 60),
+        ("Medium", 40.0, 60.0, 300, 60),
+        ("High", 60.0, 80.0, 300, 60),
     ]
-    for name, cpu_min, cpu_max in lp_specs:
+    for name, cpu_min, cpu_max, dur, ramp in lp_specs:
         if not session.query(LoadProfileORM).filter(LoadProfileORM.name == name).first():
             session.add(LoadProfileORM(
-                name=name, cpu_target_min=cpu_min, cpu_target_max=cpu_max,
+                name=name, target_cpu_range_min=cpu_min, target_cpu_range_max=cpu_max,
+                duration_sec=dur, ramp_up_sec=ramp,
             ))
             session.flush()
             print(f"Created load profile: {name}")
@@ -224,6 +225,12 @@ def main():
     config_path = os.path.join(REPO_ROOT, "orchestrator", "config", "orchestrator.yaml")
     config = load_config(config_path)
     init_db(config.database.url)
+
+    # Auto-create tables for SQLite (development)
+    if "sqlite" in config.database.url:
+        from orchestrator.models.database import engine, Base
+        from orchestrator.models import orm as _  # noqa: register all models
+        Base.metadata.create_all(engine)
 
     session = SessionLocal()
     try:

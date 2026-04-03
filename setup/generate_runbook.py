@@ -71,21 +71,28 @@ class RunbookGenerator:
         """Login to the orchestrator."""
         print("\n[LOGIN]")
         self._goto("/login")
-        time.sleep(1)
+        time.sleep(2)
 
         # Fill login form
         try:
-            self.page.fill('input[name="username"], input[type="text"]', self.username)
-            self.page.fill('input[name="password"], input[type="password"]', self.password)
+            self.page.fill('#username', self.username)
+            self.page.fill('#password', self.password)
             self._screenshot("01_login", "Login Page",
                              "Navigate to the orchestrator URL and enter your credentials.")
 
-            # Click login button
-            self.page.click('button[type="submit"], input[type="submit"], .btn-primary')
+            # Submit form
+            self.page.click('#btn-login')
+            time.sleep(3)
             self.page.wait_for_load_state("networkidle")
             time.sleep(2)
+
+            # Check if we're logged in (should redirect to dashboard)
+            if '/login' not in self.page.url:
+                print(f"  Logged in successfully, redirected to: {self.page.url}")
+            else:
+                print(f"  WARNING: Still on login page. Check credentials.")
         except Exception as e:
-            print(f"  Login form not found or already logged in: {e}")
+            print(f"  Login error: {e}")
 
     def capture_dashboard(self):
         """Capture the admin dashboard."""
