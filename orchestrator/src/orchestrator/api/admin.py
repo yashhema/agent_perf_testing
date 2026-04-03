@@ -381,21 +381,38 @@ def _prepare_snapshot_bg(server_id: int, delete_all: bool):
                     except Exception as e:
                         logger.warning("Failed to delete snapshot %s: %s", snap.name, e)
 
-            # Clean DB records
-            db_snaps = session.query(SnapshotORM).filter(
-                SnapshotORM.server_id == server_id, SnapshotORM.is_archived == False,
-            ).all()
-            for s in db_snaps:
-                s.is_archived = True
-                s.group_id = None
+            # Clean DB records — delete everything, not just archive
+            # First clear FKs on server that reference snapshots
+            server.root_snapshot_id = None
+            server.clean_snapshot_id = None
+            session.flush()
+
+            # Delete groups (cascade deletes subgroups via ORM relationship)
             groups = session.query(SnapshotBaselineORM).filter(
                 SnapshotBaselineORM.server_id == server_id,
             ).all()
             for g in groups:
                 session.delete(g)
-            server.root_snapshot_id = None
-            server.clean_snapshot_id = None
+            session.flush()
+
+            # Delete all snapshot records for this server (not archive — full delete)
+            from orchestrator.models.orm import SnapshotProfileDataORM
+            session.query(SnapshotProfileDataORM).filter(
+                SnapshotProfileDataORM.snapshot_id.in_(
+                    session.query(SnapshotORM.id).filter(SnapshotORM.server_id == server_id)
+                )
+            ).delete(synchronize_session='fetch')
+            session.query(SnapshotORM).filter(
+                SnapshotORM.server_id == server_id,
+            ).delete(synchronize_session='fetch')
             session.commit()
+            logger.info("Cleaned all DB records for server %d", server_id)
+
+            # Verify hypervisor is clean
+            remaining = provider.list_snapshots(server.server_infra_ref)
+            if remaining:
+                logger.warning("Hypervisor still has %d snapshots after cleanup for server %d",
+                               len(remaining), server_id)
 
         # --- Step 2: Wait for SSH ---
         _update_status(server_id, f"2/{TOTAL}", "Waiting for SSH...")
