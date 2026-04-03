@@ -119,32 +119,59 @@ class RunbookGenerator:
             "View registered security agents and their versions. "
             "Agents are installed on targets and their performance overhead is measured.")
 
+    def capture_agent_sets(self):
+        """Capture agent sets page."""
+        print("\n[AGENT SETS]")
+        self._goto("/admin/subgroup-definitions")
+        self._wait_and_screenshot("06_agent_sets", "Agent Sets",
+            "Agent Sets define combinations of security agents for testing.\n"
+            "Examples: 'CrowdStrike Only' (single agent), 'CS + Tanium' (multi-agent).\n"
+            "Agent Sets are reused across servers — define once, test everywhere.")
+
     def capture_snapshot_manager(self):
         """Capture snapshot manager."""
         print("\n[SNAPSHOT MANAGER]")
         self._goto("/snapshots")
-        self._wait_and_screenshot("06_snapshots", "Snapshot Manager",
-            "Manage snapshot groups and subgroups for each server. "
-            "Groups represent clean OS baselines, subgroups represent agent installations. "
-            "Each subgroup has a snapshot that can be used as a test or compare snapshot.")
+        self._wait_and_screenshot("07_snapshots", "Snapshot Manager",
+            "View the snapshot hierarchy per server.\n"
+            "OS Level = root snapshot (clean prepared OS).\n"
+            "Subgroups = agent sets with snapshots taken after agent installation.")
+
+    def capture_tests_page(self):
+        """Capture the unified Tests page (OS Level + Agent Set)."""
+        print("\n[TESTS PAGE]")
+        self._goto("/os-level-tests")
+        self._wait_and_screenshot("08_tests_page", "Tests — OS Level & Agent Set",
+            "The Tests page shows OS Level Tests (baselines) as expandable rows.\n"
+            "Expand a row to see Agent Set Tests nested under it.\n"
+            "- 'New OS Level Test': Create a clean OS baseline test.\n"
+            "- 'Agent Set Test' (on completed baselines): Create a compare test with agents.")
 
     def capture_baseline_test_list(self):
-        """Capture the baseline test list."""
-        print("\n[BASELINE TESTS]")
+        """Capture the baseline test list (All Tests)."""
+        print("\n[ALL TESTS]")
         self._goto("/baseline-tests")
-        self._wait_and_screenshot("07_test_list", "Baseline Tests List",
-            "All baseline test runs are listed here with their type (new_baseline or compare), "
-            "state, verdict, and actions. You can start, view, retry, or delete tests from here.")
+        self._wait_and_screenshot("09_all_tests", "All Baseline Tests",
+            "Flat list of all test runs (both OS Level and Agent Set).\n"
+            "Shows type, state, verdict, and action buttons.\n"
+            "Use 'Delete All Tests' to clean up.")
 
     def capture_create_new_baseline(self):
-        """Capture the create new baseline test wizard."""
-        print("\n[CREATE NEW BASELINE]")
-        self._goto("/baseline-tests/create")
-        self._wait_and_screenshot("08_create_step1", "Create Test - Step 1: Basics",
-            "Select the lab, enter a test name, and choose the test type:\n"
-            "- new_baseline: Calibrate + execute from scratch, stores results as baseline data.\n"
-            "- compare: Run the same workload on a different snapshot and compare against stored baseline.\n"
-            "- compare_with_new_calibration: Recalibrate before comparing.")
+        """Capture the OS Level Test creation modal."""
+        print("\n[CREATE OS LEVEL TEST]")
+        self._goto("/os-level-tests")
+        time.sleep(1)
+        # Click the New OS Level Test button to open modal
+        try:
+            self.page.click('button:has-text("New OS Level Test")')
+            time.sleep(1)
+            self._screenshot("10_create_os_test", "Create OS Level Test",
+                "Select servers, load generators, template, cycles, and load profiles.\n"
+                "Duration and ramp-up are configurable per load profile.\n"
+                "Click 'Create & Start' to create and immediately begin execution.")
+        except Exception:
+            self._wait_and_screenshot("10_create_os_test", "Create OS Level Test (page)",
+                "OS Level Test creation page.")
 
     def capture_test_dashboard_completed(self):
         """Find a completed test and capture its dashboard."""
@@ -369,7 +396,9 @@ def main():
             gen.capture_servers()
             gen.capture_load_profiles()
             gen.capture_agents()
+            gen.capture_agent_sets()
             gen.capture_snapshot_manager()
+            gen.capture_tests_page()
             gen.capture_baseline_test_list()
             gen.capture_create_new_baseline()
             gen.capture_test_dashboard_completed()
